@@ -232,7 +232,7 @@ Gaia.webapps.forEach(function (webapp) {
     fillAppManifest(webapp);
   }
 });
-
+/*
 if (errors.length) {
   var introMessage = 'We got ' + errors.length + ' manifest error' +
     ((errors.length > 1) ? 's' : '') + ' while building:';
@@ -240,7 +240,7 @@ if (errors.length) {
   var message = errors.join('\n * ') + '\n';
   throw new Error(message);
 }
-
+*/
 // Write webapps global manifest
 let manifestFile = webappsTargetDir.clone();
 manifestFile.append('webapps.json');

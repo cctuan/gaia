@@ -2,23 +2,14 @@ html {
   font-size: 10px;
 }
 
-@media screen and (min-width: 480px) {
-  html {
-    font-size: 1.33rem;
-  }
-}
-
 body {
   width: 100%;
   height: 100%;
   margin: 0;
   padding: 0;
-
   overflow: hidden;
-
   font-family: 'MozTT', sans-serif;
   color: #fff;
-  font-size: 1.2rem;
 }
 
 #screen {
@@ -26,11 +17,10 @@ body {
   overflow: hidden;
   width: 100%;
   height: 100%;
-
   background-color: #000;
-  background-size: cover;
+  background-size: cover; /* Possible memory over-consumption with huge images, it should be removed for improving stability*/
   background-repeat: no-repeat;
-  background-position: 50% 50%;
+  background-position: 50% 2rem;
 }
 
 #screen.screenoff {
@@ -209,12 +199,20 @@ body {
 
 #windows {
   position: absolute;
+<<<<<<< HEAD
   left: 0;
+=======
+  left: 0rem;
+>>>>>>> eaf8016... Bug 830644 - Support WVGA and other non-HiDPI screen dimensions and resolutions
   width: 100%;
   top: -100%;
   height: 0;
   max-height: 0;
+<<<<<<< HEAD
   border: 0;
+=======
+  border: 0rem;
+>>>>>>> eaf8016... Bug 830644 - Support WVGA and other non-HiDPI screen dimensions and resolutions
   overflow: hidden;
 }
 
@@ -247,7 +245,7 @@ body {
  * Gecko.  The performance issue should be fixed by
  * https://bugzilla.mozilla.org/show_bug.cgi?id=697645 or a related bug.
  *
-  border-radius: 8px;
+  border-radius: 0.8rem;
  */
 }
 

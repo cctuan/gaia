@@ -12,10 +12,11 @@ html, body {
   overflow: hidden;
   background-image: url('images/grey-noise-bg.png');
   background-repeat: repeat-x;
+  background-size: auto 100%;
   -moz-box-sizing: border-box;
   border-bottom: 0.1rem #2c2c2c solid;
-  -moz-transform: translateY(-5rem);
-  -moz-transition: -moz-transform .3s ease-in-out;
+  transform: translateY(-5rem);
+  transition: transform .3s ease-in-out;
 }
 
 #toaster-icon {
@@ -29,8 +30,7 @@ html, body {
 
 #notification-toaster > div {
   left: 5rem;
-  width: -moz-calc(100% - 5.5rem);
-  height: 1.9rem;
+  width: calc(100% - 5.5rem);
   padding: 0;
   line-height: 1.9rem;
   overflow: hidden;
@@ -60,7 +60,7 @@ html, body {
 }
 
 #notification-toaster.displayed {
-  -moz-transform: translateY(0);
+  transform: translateY(0);
 }
 
 #notification-bar {
@@ -99,7 +99,7 @@ html, body {
   width: 100%;
 
   /* minus cost control, quick settings, bar and grippy */
-  height: -moz-calc(100% - 4.5rem - 6rem - 3rem - 2rem);
+  height: calc(100% - 4.5rem - 6rem - 3rem - 2rem);
   overflow-y: scroll;
   overflow-x: hidden;
 }
@@ -136,7 +136,7 @@ html, body {
 .notification > div {
   margin: 0 0 0 5rem;
   padding: 0;
-  width: -moz-calc(100% - 5.5rem);
+  width: calc(100% - 5.5rem);
   color: #bfbfbf;
   font-size: 1.4rem;
   line-height: 1.9rem;
@@ -161,6 +161,7 @@ html, body {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  line-height: 1.6rem;
 }
 
 .notification > img {

@@ -16,7 +16,7 @@ html, body {
 #quick-settings > a {
   display: block;
   float: left;
-  width: -moz-calc(20% - 0.2rem);
+  width: calc(20% - 0.2rem);
   height: 3rem;
   margin: 1.5rem 0;
   padding: 0;
@@ -26,6 +26,8 @@ html, body {
   outline: none;
   font-size: 1.4rem;
   line-height: 1.8rem;
+  background-color: transparent;
+  background-size: 3rem;
 }
 
 #quick-settings > .separator {
@@ -37,14 +39,15 @@ html, body {
 }
 
 #quick-settings > a:first-child {
-  width: -moz-calc(20% - 0.1rem);
+  width: calc(20% - 0.1rem);
   border-left: 0;
 }
 
 #quick-settings > a:last-child {
-  width: -moz-calc(20% - 0.1rem);
+  width: calc(20% - 0.1rem);
   border-right: 0;
 }
+
 
 #quick-settings > a {
   background-repeat: no-repeat;
@@ -52,6 +55,7 @@ html, body {
   background-position: center;
   background-size: 3rem;
 }
+
 #quick-settings > *[data-initializing] {
   opacity: 0.5;
 }

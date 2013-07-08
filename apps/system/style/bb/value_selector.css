@@ -57,7 +57,7 @@ form[role="dialog"][data-type="value-selector"] menu {
   margin: 0;
   padding: 1.5rem;
   border-top: solid 0.1rem rgba(255, 255, 255, 0.1);
-  background: #2d2d2d url(value_selector/images/ui/pattern.png) repeat left top;
+  background: #2d2d2d url(value_selector/images/ui/pattern.png) repeat left top / auto;
   display: block;
   overflow: hidden;
   position: absolute;
@@ -204,7 +204,7 @@ form[role="dialog"][data-type="value-selector"] [role="listbox"] li input {
 form[role="dialog"][data-type="value-selector"] [role="listbox"] li input:checked + span,
 form[role="dialog"][data-type="value-selector"] [role="listbox"] li[aria-checked="true"] span {
   color: #00abcd;
-  background: url(value_selector/images/icons/checked.png) content-box right center no-repeat / 2.1rem;
+  background: url(value_selector/images/icons/checked.png) content-box no-repeat right center / 2.1rem;
 }
 
 form[role="dialog"][data-type="value-selector"] [role="listbox"] li a,

@@ -94,20 +94,28 @@ function SMIL_generateSlides(data, slide, slideIndex) {
 }
 
 function SMIL_generateUniqueLocation(data, location) {
+
+  // if the location is already being used by the attachment
   function SMIL_uniqueLocationMatches(attachment) {
-    return attachment.location === location;
+    return attachment.location === result;
   }
-  var index;
+
+  // we will add our number right before the '.' if it exists
+  var index = location.lastIndexOf('.');
+  if (index === -1) {
+    index = location.length;
+  }
+
+  // start with the location given to us
+  var result = location;
   var dupIndex = 2;
+
+  // while any attachment already has this location:
   while (data.attachments.some(SMIL_uniqueLocationMatches)) {
-    index = location.lastIndexOf('.');
-    if (index === -1) {
-      index = location.length;
-    }
-    location = location.slice(0, index) +
+    result = location.slice(0, index) +
         '_' + (dupIndex++) + location.slice(index);
   }
-  return location;
+  return result;
 }
 
 var SMIL = window.SMIL = {

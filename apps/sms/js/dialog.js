@@ -98,7 +98,7 @@ var Dialog = function(params) {
     var confirm = !confirmOption.text.l10n ?
         confirmOption.text.value : _(confirmOption.text.value);
     confirmButton.textContent = confirm;
-    confirmButton.className = 'recommend';
+    cancelButton.className = 'recommend';
     if (confirmOption.text.l10n) {
       confirmButton.dataset.l10nId = confirmOption.text.value;
     }

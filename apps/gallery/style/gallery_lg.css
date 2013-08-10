@@ -1,0 +1,125 @@
+#thumbnails.list {
+  top: 5rem;
+  bottom: -4rem;
+}
+footer {
+  background: rgba(0, 0, 0, 1);
+  height: 7rem;
+}
+#thumbnail-list-view-title {
+  width: calc(100% - 23rem);
+  display: inline-block;
+}
+
+#thumbnails-camera-button {
+  display: none;
+}
+.thumbnail:nth-child(3n) {
+  margin-right: 0.4rem;
+}
+#thumbnails-bottom > a {
+  position: static;
+  float: right;
+  height: 100%;
+  width: 10rem;
+  left: auto;
+  background-position: center center;
+  background-repeat: no-repeat;
+  background-size: 3rem auto;
+  border-right: 0.1rem solid #FFF;
+}
+#thumbnails-top > a:last-child:before {
+  content: "";
+  margin-top:1rem;
+  height: calc(100% - 2rem);
+  width: 0.2rem;
+  background-image: url('images/separator.png');
+  display: block;
+}
+#thumbnails-bottom  > a:first-child {
+  border: none;
+}
+#thumbnails-camera-button {
+  border-right: none;
+}
+#thumbnails-select-button {
+  position: static;
+  width: auto;
+  height: auto;
+  left: auto;
+}
+#thumbnails-delete-button {
+  position: absolute;
+  width: 50%;
+  height: 100%;
+  left: 0;
+  border-right: 0.1rem solid #000;
+}
+#thumbnails-share-button {
+  position: absolute;
+  width: 50%;
+  height: 100%;
+  left: 50%;
+}
+#fullscreen-top {
+  display: block;
+}
+#fullscreen-toolbar {
+  height: 7rem;
+}
+#fullscreen-view.toolbarhidden #fullscreen-toolbar {
+  transform: translate(0, 7rem);
+}
+#fullscreen-back-button {
+  width: 25%;
+}
+#fullscreen-camera-button {
+  display:none;
+}
+#fullscreen-edit-button {
+  width: 25%;
+  left: 25%;
+}
+#fullscreen-share-button {
+  width: 25%;
+  left: 50%;
+}
+#fullscreen-delete-button {
+  width: 25%;
+  left: 75%;
+}
+#pick-top{
+  height: calc(100% - 10rem);
+}
+#edit-options {
+  height: 10rem;
+  bottom: 7rem;
+}
+#edit-preview-canvas {
+  height: calc(100% - 10rem);
+}
+@media (orientation: landscape) {
+  .thumbnail {
+    width: 21rem;
+    padding-bottom: 21rem;
+    margin-right: 0.4rem;
+    margin-bottom: 0.4rem;
+  }
+  .thumbnail:nth-child(6n) {
+    margin-right: 0;
+}
+}
+@media (orientation: portrait) {
+  .thumbnail {
+    width: 19.7rem;
+    padding-bottom: 19.7rem;
+    margin-right: 0.4rem;
+    margin-bottom: 0.4rem;
+  }
+  .thumbnail:nth-child(6n) {
+    margin-right: 0;
+  }
+  .thumbnail:nth-child(4n) {
+    margin-right: 0;
+}
+}

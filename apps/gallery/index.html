@@ -7,6 +7,8 @@
     <link rel="stylesheet" href="style/gallery.css" type="text/css" />
     <link rel="stylesheet" href="style/VideoPlayer.css" type="text/css" />
     <link rel="stylesheet" href="shared/style/headers.css" type="text/css" />
+    <!-- Reponsive design for large device -->
+    <link rel="stylesheet" href="style/gallery_lg.css" type="text/css" media="(min-width: 992px)" />
     <!-- this file is loaded lazily but is listed here so it gets packaged
     <link rel="stylesheet" href="shared/style/confirm.css" type="text/css" />
     -->
@@ -17,17 +19,18 @@
     <script defer src="shared/js/mediadb.js"></script>
     <script defer src="shared/js/lazy_loader.js"></script>
     <script defer src="shared/js/visibility_monitor.js"></script>
-
+    <script defer src="shared/js/device_layout.js"></script>
     <!-- Specific code -->
     <script defer src="js/gallery.js"></script>
   </head>
 
   <body role="application">
     <section role="region" id="thumbnail-list-view" class="hidden">
-      <footer id="thumbnails-bottom">
+      <div id="thumbnails-bottom">
+        <h1 id="thumbnail-list-view-title" data-l10n-id="gallery"></h1>
         <a id="thumbnails-camera-button" class="button"></a>
         <a id="thumbnails-select-button" class="button"></a>
-      </footer>
+      </div>
     </section>
 
     <section role="region" id="thumbnail-select-view" class="hidden skin-organic">
@@ -42,7 +45,11 @@
       </footer>
     </section>
 
-    <section role="region" id="fullscreen-view" class="hidden">
+    <section role="region" id="fullscreen-view" class="skin-organic hidden">
+      <header id="fullscreen-top">
+        <button id="fullscreen-cancel-button"><span class="icon icon-back"></span></button>
+        <h1 id="fullscreen-view-title" data-l10n-id="gallery"></h1>
+      </header>
       <div id="frames">
         <!-- the current photo plus next and previous waiting in the wings -->
         <div id="frame1" class="frame"></div>

@@ -94,6 +94,7 @@ var visibilityMonitor;
 
 var loader = LazyLoader;
 
+var IS_TABLET = DeviceLayout.isLarge();
 // The localized event is the main entry point for the app.
 // We don't do anything until we receive it.
 navigator.mozL10n.ready(function showBody() {
@@ -118,6 +119,11 @@ function init() {
   // Clicking on the cancel button goes from thumbnail select mode
   // back to thumbnail list mode
   $('thumbnails-cancel-button').onclick = setView.bind(null, thumbnailListView);
+
+  if (IS_TABLET) {
+    $('fullscreen-cancel-button').onclick =
+      setView.bind(null, thumbnailListView);
+  }
 
   // Clicking on the pick back button cancels the pick activity.
   $('pick-back-button').onclick = cancelPick;

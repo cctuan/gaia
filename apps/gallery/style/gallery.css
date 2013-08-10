@@ -44,7 +44,9 @@ section {
   overflow: hidden;
   font-size: 2.1rem;
 }
-
+#fullscreen-top {
+  display: none;
+}
 /*
  * The overlay is where we display messages like Scanning, No Photos,
  * No SD card and SD Card in Use along with instructions for resolving
@@ -345,7 +347,7 @@ a.button.disabled {
   pointer-events: none;
 }
 
-footer {
+#thumbnails-bottom, footer {
   background: rgba(0, 0, 0, 0.75);
   height: 4rem;
   position: absolute;
@@ -358,6 +360,10 @@ footer {
 
 .icon.icon-done {
   background-image: url('images/iconaction_done_30x30.png') !important;
+}
+
+#thumbnail-list-view-title {
+  display: none;
 }
 
 #thumbnails-camera-button {

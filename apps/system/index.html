@@ -99,6 +99,7 @@
 
     <!-- List Menu -->
     <link rel="stylesheet" type="text/css" href="style/list_menu/list_menu.css">
+    <link rel="stylesheet" type="text/css" href="style/list_menu/list_menu_lg.css" media="(min-width: 992px)">
     <script defer src="js/list_menu.js"></script>
 
     <!-- Context Menu -->
@@ -136,6 +137,7 @@
     <!-- Modal Dialog -->
     <link rel="stylesheet" type="text/css" href="style/modal_dialog/prompt.css">
     <link rel="stylesheet" type="text/css" href="style/modal_dialog/modal_dialog.css">
+    <link rel="stylesheet" type="text/css" href="style/modal_dialog/modal_dialog_lg.css" media="(min-width: 992px)">
     <script defer src="js/modal_dialog.js"></script>
 
     <!-- Authentication Dialog-->
@@ -659,7 +661,7 @@
       </div> <!-- end of #overlay-dialog -->
 
       <!-- value selector -->
-      <div id="value-selector" hidden data-z-index-level="value-selector">
+      <div id="value-selector" data-z-index-level="value-selector">
         <!-- popup of options for select element -->
         <form id="select-option-popup" role="dialog" data-type="value-selector">
           <section id="value-selector-container">
@@ -673,7 +675,7 @@
         </form>
 
         <!-- Time Picker -->
-        <div id="time-picker-popup" hidden>
+        <div id="time-picker-popup">
           <h3 data-l10n-id="select-time">Select time</h3>
           <div id="time-picker">
             <div class="picker-container">
@@ -699,7 +701,7 @@
         </div>
 
         <!-- Spin Date Picker -->
-        <div id="spin-date-picker-popup" hidden>
+        <div id="spin-date-picker-popup">
           <h3 data-l10n-id="select-day">Select day</h3>
           <div id="spin-date-picker">
             <div class="picker-container">
@@ -915,10 +917,11 @@
         <div id="toaster-title"></div>
         <div id="toaster-detail"></div>
       </div>
-
-      <div id="listmenu" data-z-index-level="list-menu" role="dialog">
-        <menu class="actions">
-        </menu>
+      <div id="listmenu-overlay" data-z-index-level="list-menu" >
+        <div id="listmenu" role="dialog">
+          <menu class="actions">
+          </menu>
+        </div>
       </div>
 
       <!-- keyboard -->

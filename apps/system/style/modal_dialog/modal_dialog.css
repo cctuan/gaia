@@ -1,3 +1,11 @@
+#value-selector {
+  visibility: hidden;
+}
+
+#value-selector.visible {
+  visibility: visible;
+}
+
 #modal-dialog-alert,
 #modal-dialog-confirm,
 #modal-dialog-prompt,

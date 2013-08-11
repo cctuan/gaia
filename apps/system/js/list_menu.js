@@ -3,7 +3,14 @@
 
 'use strict';
 
+var IS_TABLET = DeviceLayout.isLarge();
+
 var ListMenu = {
+  get overlay() {
+    delete this.overlay;
+    return this.overlay = document.getElementById('listmenu-overlay');
+  },
+
   get element() {
     delete this.element;
     return this.element = document.getElementById('listmenu');
@@ -15,7 +22,11 @@ var ListMenu = {
   },
 
   get visible() {
-    return this.element.classList.contains('visible');
+    if (IS_TABLET) {
+      return this.overlay.classList.contains('visible');
+    } else {
+      return this.element.classList.contains('visible');
+    }
   },
 
   // Listen to click event only
@@ -115,9 +126,12 @@ var ListMenu = {
   show: function lm_show() {
     if (this.visible)
       return;
-
-    this.container.classList.remove('slidedown');
-    this.element.classList.add('visible');
+    if (IS_TABLET) {
+      this.element.classList.remove('closing');
+    } else {
+      this.container.classList.remove('slidedown');
+    }
+    this.overlay.classList.add('visible');
   },
 
   hide: function lm_hide(callback) {
@@ -125,17 +139,25 @@ var ListMenu = {
       return;
 
     var self = this;
-    var container = this.container;
+    var container = IS_TABLET ? this.element : this.container;
     container.addEventListener('transitionend', function list_hide() {
       container.removeEventListener('transitionend', list_hide);
-      self.element.classList.remove('visible');
-
+      if (IS_TABLET) {
+        self.overlay.classList.remove('visible');
+        element.classList.remove('closing');
+      } else {
+        self.element.classList.remove('visible');
+      }
       if (callback)
         setTimeout(callback);
     });
 
     setTimeout(function() {
-      container.classList.add('slidedown');
+      if (IS_TABLET) {
+        element.classList.add('closing');
+      } else {
+        container.classList.add('slidedown');
+      }
     });
   },
 

@@ -7,6 +7,8 @@
 // Blocking the current app and then show cutom modal dialog
 // (alert/confirm/prompt)
 
+var IS_TABLET = DeviceLayout.isLarge();
+
 var ModalDialog = {
   // Used for element id access.
   // e.g., 'modal-dialog-alert-ok'
@@ -186,7 +188,8 @@ var ModalDialog = {
     var message = evt.detail.message || '';
     var title = evt.detail.title || '';
     var elements = this.elements;
-    this.screen.classList.add('modal-dialog');
+    if (!IS_TABLET)
+      this.screen.classList.add('modal-dialog');
 
     function escapeHTML(str) {
       var stringHTML = str;
@@ -238,8 +241,21 @@ var ModalDialog = {
         elements.selectOne.focus();
         break;
     }
-
+    if (IS_TABLET) {
+      this.screen.classList.add('modal-dialog');
+    }
     this.setHeight(window.innerHeight - StatusBar.height);
+  },
+
+  _hideTransition: function md_hideTransition(type) {
+    var self = this;
+    this.overlay.addEventListener('transitionend', function end() {
+      self.overlay.removeEventListener('transitionend', end);
+      self.screen.classList.remove('modal-dialog');
+      self.overlay.classList.remove('closing');
+      self.elements[type].classList.remove('visible');
+    });
+    this.overlay.classList.add('closing');
   },
 
   hide: function md_hide() {
@@ -249,8 +265,10 @@ var ModalDialog = {
       this.elements.promptInput.blur();
     }
     this.currentOrigin = null;
-    this.screen.classList.remove('modal-dialog');
-    this.elements[type].classList.remove('visible');
+    if (!IS_TABLET) {
+      this.screen.classList.remove('modal-dialog');
+      this.elements[type].classList.remove('visible');
+    }
   },
 
   setTitle: function md_setTitle(type, title) {
@@ -259,7 +277,9 @@ var ModalDialog = {
 
   // When user clicks OK button on alert/confirm/prompt
   confirmHandler: function md_confirmHandler() {
-    this.screen.classList.remove('modal-dialog');
+    if (!IS_TABLET) {
+      this.screen.classList.remove('modal-dialog');
+    }
     var elements = this.elements;
 
     var evt = this.eventForCurrentOrigin;
@@ -267,17 +287,23 @@ var ModalDialog = {
     var type = evt.detail.promptType || evt.detail.type;
     switch (type) {
       case 'alert':
-        elements.alert.classList.remove('visible');
+        IS_TABLET ?
+          this._hideTransition('alert') :
+          elements.alert.classList.remove('visible');
         break;
 
       case 'prompt':
         evt.detail.returnValue = elements.promptInput.value;
-        elements.prompt.classList.remove('visible');
+        IS_TABLET ?
+          this._hideTransition('prompt') :
+          elements.prompt.classList.remove('visible');
         break;
 
       case 'confirm':
         evt.detail.returnValue = true;
-        elements.confirm.classList.remove('visible');
+        IS_TABLET ?
+          this._hideTransition('confirm') :
+          elements.confirm.classList.remove('visible');
         break;
     }
 
@@ -295,31 +321,41 @@ var ModalDialog = {
   // when the user try to escape the dialog with the escape key
   cancelHandler: function md_cancelHandler() {
     var evt = this.eventForCurrentOrigin;
-    this.screen.classList.remove('modal-dialog');
+    if (!IS_TABLET) {
+      this.screen.classList.remove('modal-dialog');
+    }
     var elements = this.elements;
 
     var type = evt.detail.promptType || evt.detail.type;
     switch (type) {
       case 'alert':
-        elements.alert.classList.remove('visible');
+        IS_TABLET ?
+          this._hideTransition('alert') :
+          elements.alert.classList.remove('visible');
         break;
 
       case 'prompt':
         /* return null when click cancel */
         evt.detail.returnValue = null;
-        elements.prompt.classList.remove('visible');
+        IS_TABLET ?
+          this._hideTransition('prompt') :
+          elements.prompt.classList.remove('visible');
         break;
 
       case 'confirm':
         /* return false when click cancel */
         evt.detail.returnValue = false;
-        elements.confirm.classList.remove('visible');
+        IS_TABLET ?
+          this._hideTransition('confirm') :
+          elements.confirm.classList.remove('visible');
         break;
 
       case 'selectone':
         /* return null when click cancel */
         evt.detail.returnValue = null;
-        elements.selectOne.classList.remove('visible');
+        IS_TABLET ?
+          this._hideTransition('selectOne') :
+          elements.selectOne.classList.remove('visible');
         break;
     }
 

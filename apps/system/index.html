@@ -79,6 +79,7 @@
 
     <!-- Sleep Menu -->
     <link rel="stylesheet" type="text/css" href="style/sleep_menu/sleep_menu.css">
+    <link rel="stylesheet" type="text/css" href="style/sleep_menu/sleep_menu_lg.css" media="(min-width: 992px)">
     <script defer src="js/sleep_menu.js"></script>
 
     <!-- Battery Manager -->
@@ -981,14 +982,16 @@
       </div>
 
       <div id="sleep-menu" data-z-index-level="sleep-menu">
-        <div id="sleep-menu-container">
-          <h3 data-l10n-id="deviceMenu">Device menu</h3>
-          <ul>
-          </ul>
+        <div id="sleep-menu-overlay">
+          <div id="sleep-menu-container">
+            <h3 data-l10n-id="deviceMenu">Device menu</h3>
+            <ul>
+            </ul>
+          </div>
+          <menu>
+            <button data-l10n-id="cancel">Cancel</button>
+          </menu>
         </div>
-        <menu>
-          <button data-l10n-id="cancel">Cancel</button>
-        </menu>
       </div>
 
       <section id="system-banner" role="dialog" class="banner"

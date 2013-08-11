@@ -470,10 +470,11 @@ var CardsView = (function() {
   var onViewPortEvent = new CustomEvent('onviewport');
   var outViewPortEvent = new CustomEvent('outviewport');
 
+  var IS_TABLET = DeviceLayout.isLarge();
   // Scale for current card
-  var CC_SCALE = 0.8;
+  var CC_SCALE = IS_TABLET ? 0.56 : 0.8;
   // Scale for current card's siblings
-  var SC_SCALE = 0.6;
+  var SC_SCALE = IS_TABLET ? 0.42 : 0.6;
   // Opacity value for current card's siblings
   var SC_OPA = 0.4;
   var CARD_TRANSITION = '-moz-transform .3s, opacity .3s';

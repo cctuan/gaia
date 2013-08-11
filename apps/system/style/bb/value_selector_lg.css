@@ -1,0 +1,15 @@
+form[role="dialog"][data-type="value-selector"] {
+  -moz-box-sizing: border-box;
+  top: calc(50% - 24rem);
+  left: calc(50% - 39rem);
+  width: 78rem;
+  height: 48rem;
+  font-size: 2rem;
+}
+form[role="dialog"][data-type="value-selector"] h1  {
+  font: 2.1rem/1em;
+}
+form[role="dialog"][data-type="value-selector"] menu button {
+  font-size: 2.1rem;
+  font-weight: normal;
+}

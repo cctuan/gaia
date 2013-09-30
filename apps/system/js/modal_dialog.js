@@ -17,16 +17,15 @@ var ModalDialog = {
 
   // Get all elements when inited.
   getAllElements: function md_getAllElements() {
-    var elementsID = ['alert', 'alert-ok', 'alert-message',
-      'prompt', 'prompt-ok', 'prompt-cancel', 'prompt-input', 'prompt-message',
-      'confirm', 'confirm-ok', 'confirm-cancel', 'confirm-message',
-      'select-one', 'select-one-cancel', 'select-one-menu', 'select-one-title',
-      'alert-title', 'confirm-title', 'prompt-title'];
+    var elementsID = ['alert',// 'alert-ok', 'alert-message',
+      'prompt',
+      'confirm', //'confirm-ok', 'confirm-cancel', 'confirm-message',
+      'select-one'
+      //'alert-title', 'confirm-title', 'prompt-title'
+      ];
 
     var toCamelCase = function toCamelCase(str) {
-      return str.replace(/\-(.)/g, function replacer(str, p1) {
-        return p1.toUpperCase();
-      });
+      return str.replace('-', '');
     };
 
     // Loop and add element with camel style name to Modal Dialog attribute.
@@ -59,24 +58,25 @@ var ModalDialog = {
     // Get all elements initially.
     this.getAllElements();
     var elements = this.elements;
-
+    LazyLoader.load('shared/js/template.js');
     // Bind events
     window.addEventListener('mozbrowsershowmodalprompt', this);
     window.addEventListener('appopen', this);
-    window.addEventListener('appwillclose', this);
+    //window.addEventListener('appwillclose', this);
     window.addEventListener('appterminated', this);
     window.addEventListener('resize', this);
     window.addEventListener('keyboardchange', this);
     window.addEventListener('keyboardhide', this);
     window.addEventListener('home', this);
     window.addEventListener('holdhome', this);
-
+/*
     for (var id in elements) {
       var tagName = elements[id].tagName.toLowerCase();
       if (tagName == 'button' || tagName == 'ul') {
         elements[id].addEventListener('click', this);
       }
     }
+    */
   },
 
   // Default event handler
@@ -91,26 +91,25 @@ var ModalDialog = {
         evt.preventDefault();
         var origin = evt.target.dataset.frameOrigin;
         if (!this.currentEvents[origin]) {
-          this.currentEvents[origin] = [];
+          this.currentEvents[origin] = {};
         }
-        this.currentEvents[origin].push(evt);
+        //this.currentEvents[origin].push(evt);
 
         // Show modal dialog only if
         // the frame is currently displayed.
         if (origin == WindowManager.getDisplayedApp() ||
             frameType == 'inline-activity')
-          this.show(evt.target, origin);
+          this.show(evt, origin);
         break;
 
       case 'click':
-        if (evt.currentTarget === elements.confirmCancel ||
-          evt.currentTarget === elements.promptCancel ||
-          evt.currentTarget === elements.selectOneCancel) {
+        var origin = WindowManager.getDisplayedApp();
+        if (evt.currentTarget.dataset.type === 'cancel') {
           this.cancelHandler();
-        } else if (evt.currentTarget === elements.selectOneMenu) {
-          this.selectOneHandler(evt.target);
+        } else if (evt.currentTarget.dataset.type === 'selectOneMenu') {
+          this.selectOneHandler(evt.target, origin);
         } else {
-          this.confirmHandler();
+          this.confirmHandler(origin);
         }
         break;
 
@@ -174,19 +173,80 @@ var ModalDialog = {
       this.overlay.style.height = height + 'px';
   },
 
+  getDialog: function md_getDialog(type, origin) {
+    if (type in this.currentEvents[origin])
+      return this.currentEvents[origin][type];
+    else
+      var dialog = this.currentEvents[origin][type] = {};
+
+    var appWindow = WindowManager.getCurrentDisplayedApp().frame;
+    var dialogDiv = document.createElement('div');
+    dialogDiv.setAttribute('role', 'dialog');
+    dialogDiv.classList.add('generic-dialog');
+    //dialogDiv.classList.add('generic-dialog');
+    //dialogDiv.classList.add('hidden');
+    var dialogHtml = this.elements[type].childNodes[1].nodeValue;
+    dialogDiv.innerHTML = dialogHtml;
+
+    switch (type) {
+      case 'alert':
+        dialog.alertMessage = findClass('modal-dialog-alert-message');
+        dialog.alertTitle = findClass('modal-dialog-alert-title');
+        dialog.alertOk = findClass('modal-dialog-alert-ok');
+        dialog.container = dialogDiv;
+        break;
+      case 'prompt':
+        dialog.container = dialogDiv;
+        dialog.promptInput = findClass('modal-dialog-prompt-input');
+        dialog.promptMessage = findClass('modal-dialog-prompt-message');
+        dialog.promptOk = findClass('modal-dialog-prompt-ok');
+        dialog.promptCancel = findClass('modal-dialog-prompt-cancel');
+        dialog.promptTitle = findClass('modal-dialog-prompt-title');
+        break;
+      case 'confirm':
+        dialog.container = dialogDiv;
+        dialog.confirmMessage = findClass('modal-dialog-confirm-message');
+        dialog.confirmOk = findClass('modal-dialog-confirm-ok');
+        dialog.confirmCancel = findClass('modal-dialog-confirm-cancel');
+        dialog.confirmTitle = findClass('modal-dialog-confirm-title');
+        break;
+      case 'selectone':
+        dialog.container = dialogDiv;
+        dialog.selectOneMenu = findClass('modal-dialog-select-one-menu');
+        dialog.selectOneTitle = findClass('modal-dialog-select-one-title');
+        break;
+    }
+
+    appWindow.appendChild(dialogDiv);
+
+    for (var key in dialog) {
+      var tagName = dialog[key].tagName.toLowerCase();
+      if (tagName == 'button' || tagName == 'ul') {
+        dialog[key].addEventListener('click', this);
+      }
+    }
+    dialogDiv.classList.add('visible');
+
+    function findClass(name) {
+      return dialogDiv.querySelector('.' + name);
+    }
+    return dialog;
+  },
   // Show relative dialog and set message/input value well
-  show: function md_show(target, origin) {
+  show: function md_show(evt, origin) {
     if (!(origin in this.currentEvents))
       return;
 
     var _ = navigator.mozL10n.get;
     this.currentOrigin = origin;
-    var evt = this.eventForCurrentOrigin;
+    //var evt = this.eventForCurrentOrigin;
 
     var message = evt.detail.message || '';
     var title = evt.detail.title || '';
-    var elements = this.elements;
-    this.screen.classList.add('modal-dialog');
+
+    //var elements = this.elements;
+
+    //this.screen.classList.add('modal-dialog');
 
     function escapeHTML(str) {
       var stringHTML = str;
@@ -201,45 +261,46 @@ var ModalDialog = {
     if (type !== 'selectone') {
       message = escapeHTML(message);
     }
+    var elements = this.getDialog(type, origin);
 
     switch (type) {
       case 'alert':
         elements.alertMessage.innerHTML = message;
-        elements.alert.classList.add('visible');
-        this.setTitle('alert', title);
+        elements.container.classList.add('visible');
+        this.setTitle('alert', title, elements);
         elements.alertOk.textContent = evt.yesText ? evt.yesText : _('ok');
-        elements.alert.focus();
+        elements.container.focus();
         break;
 
       case 'prompt':
-        elements.prompt.classList.add('visible');
+        elements.container.classList.add('visible');
         elements.promptInput.value = evt.detail.initialValue;
         elements.promptMessage.innerHTML = message;
-        this.setTitle('prompt', '');
+        this.setTitle('prompt', '', elements);
         elements.promptOk.textContent = evt.yesText ? evt.yesText : _('ok');
         elements.promptCancel.textContent = evt.noText ?
           evt.noText : _('cancel');
-        elements.prompt.focus();
+        elements.container.focus();
         break;
 
       case 'confirm':
-        elements.confirm.classList.add('visible');
+        elements.container.classList.add('visible');
         elements.confirmMessage.innerHTML = message;
-        this.setTitle('confirm', '');
+        this.setTitle('confirm', '', elements);
         elements.confirmOk.textContent = evt.yesText ? evt.yesText : _('ok');
         elements.confirmCancel.textContent = evt.noText ?
           evt.noText : _('cancel');
-        elements.confirm.focus();
+        elements.container.focus();
         break;
 
       case 'selectone':
-        this.buildSelectOneDialog(message);
-        elements.selectOne.classList.add('visible');
-        elements.selectOne.focus();
+        this.buildSelectOneDialog(message, elements);
+        elements.container.classList.add('visible');
+        elements.container.focus();
         break;
     }
 
-    this.setHeight(window.innerHeight - StatusBar.height);
+    //this.setHeight(window.innerHeight - StatusBar.height);
   },
 
   hide: function md_hide() {
@@ -253,8 +314,8 @@ var ModalDialog = {
     this.elements[type].classList.remove('visible');
   },
 
-  setTitle: function md_setTitle(type, title) {
-    this.elements[type + 'Title'].textContent = title;
+  setTitle: function md_setTitle(type, title, elements) {
+    elements[type + 'Title'].textContent = title;
   },
 
   // When user clicks OK button on alert/confirm/prompt
@@ -334,7 +395,7 @@ var ModalDialog = {
   },
 
   // When user selects an option on selectone dialog
-  selectOneHandler: function md_confirmHandler(target) {
+  selectOneHandler: function md_confirmHandler(target, origin) {
     this.screen.classList.remove('modal-dialog');
     var elements = this.elements;
 
@@ -353,8 +414,8 @@ var ModalDialog = {
     this.processNextEvent();
   },
 
-  buildSelectOneDialog: function md_buildSelectOneDialog(data) {
-    var elements = this.elements;
+  buildSelectOneDialog: function md_buildSelectOneDialog(data, elements) {
+    //var elements = this.elements;
     elements.selectOneTitle.textContent = data.title;
     elements.selectOneMenu.innerHTML = '';
 

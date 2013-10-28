@@ -176,10 +176,10 @@ var GridManager = (function() {
 
   function addActive(target) {
     if ('isIcon' in target.dataset) {
-      target.classList.add('active');
+      //target.classList.add('active');
       removeActive !== noop && removeActive();
       removeActive = function _removeActive() {
-        target.classList.remove('active');
+        //target.classList.remove('active');
         removeActive = noop;
       };
     } else {
@@ -246,10 +246,7 @@ var GridManager = (function() {
           next = pages[currentPage + 1].container.style;
           refresh = function(e) {
             if (deltaX <= 0) {
-              next.MozTransform =
-                'translateZ(1px) translateX(' + (windowWidth + deltaX) + 'px)';
-              current.MozTransform = 'translateZ(1px) translateX(' +
-                deltaX + 'px)';
+              transAll(currentPage, windowWidth, deltaX, true);
             } else {
               startX = currentX;
             }
@@ -258,10 +255,7 @@ var GridManager = (function() {
           previous = pages[currentPage - 1].container.style;
           refresh = function(e) {
             if (deltaX >= 0) {
-              previous.MozTransform =
-                'translateZ(1px) translateX(' + (-windowWidth + deltaX) + 'px)';
-              current.MozTransform = 'translateZ(1px) translateX(' +
-                deltaX + 'px)';
+              transAll(currentPage, windowWidth, deltaX), false;
             } else {
               startX = currentX;
             }
@@ -271,31 +265,22 @@ var GridManager = (function() {
           next = pages[currentPage + 1].container.style;
           refresh = function(e) {
             if (deltaX >= 0) {
-              previous.MozTransform =
-                'translateZ(1px) translateX(' + (-windowWidth + deltaX) + 'px)';
-
+              transAll(currentPage, windowWidth, deltaX, false);
               // If we change direction make sure there isn't any part
               // of the page on the other side that stays visible.
               if (forward) {
                 forward = false;
-                next.MozTransform = 'translateZ(1px) translateX(' +
-                  windowWidth + 'px)';
+                transAll(currentPage, windowWidth, deltaX, true);
               }
             } else {
-              next.MozTransform =
-                'translateZ(1px) translateX(' + (windowWidth + deltaX) + 'px)';
-
+              transAll(currentPage, windowWidth, deltaX, true);
               // If we change direction make sure there isn't any part
               // of the page on the other side that stays visible.
               if (!forward) {
                 forward = true;
-                previous.MozTransform = 'translateZ(1px) translateX(-' +
-                  windowWidth + 'px)';
+                transAll(currentPage, windowWidth, 0, false);
               }
             }
-
-            current.MozTransform = 'translateZ(1px) translateX(' +
-              deltaX + 'px)';
           };
         }
 
@@ -323,7 +308,7 @@ var GridManager = (function() {
               var opacity = landingPageOpacity +
                             (Math.abs(deltaX) / windowWidth) *
                             (opacityOnAppGridPageMax - landingPageOpacity);
-              overlayStyle.opacity = opacityStepFunction(opacity);
+              //overlayStyle.opacity = opacityStepFunction(opacity);
             };
           } else {
             setOpacityToOverlay = function() {
@@ -333,7 +318,7 @@ var GridManager = (function() {
               var opacity = opacityOnAppGridPageMax -
                     (Math.abs(deltaX) / windowWidth) *
                     (opacityOnAppGridPageMax - landingPageOpacity);
-              overlayStyle.opacity = opacityStepFunction(opacity);
+              //overlayStyle.opacity = opacityStepFunction(opacity);
             };
           }
 
@@ -417,9 +402,9 @@ var GridManager = (function() {
   }
 
   function applyEffectOverlay(index) {
-    overlayStyle.MozTransition = overlayTransition;
-    overlayStyle.opacity =
-      (index === landingPage ? landingPageOpacity : opacityOnAppGridPageMax);
+    // overlayStyle.MozTransition = overlayTransition;
+    //overlayStyle.opacity =
+    //  (index === landingPage ? landingPageOpacity : opacityOnAppGridPageMax);
   }
 
   function onTouchEnd(deltaX, evt) {
@@ -501,14 +486,13 @@ var GridManager = (function() {
     if (index) {
       var previous = pages[index - 1].container.style;
       previous.MozTransition = '';
-      previous.MozTransform = 'translateZ(1px) translateX(-' +
-                                windowWidth + 'px)';
+      transAll(index, windowWidth, 0, false);
     }
 
     if (index < pages.length - 1) {
       var next = pages[index + 1].container.style;
       next.MozTransition = '';
-      next.MozTransform = 'translateZ(1px) translateX(' + windowWidth + 'px)';
+      transAll(index, windowWidth, 0, true);
     }
 
     var current = toPage.container.style;
@@ -1328,6 +1312,20 @@ var GridManager = (function() {
     }, function eachSVApp(svApp) {
       GridManager.svPreviouslyInstalledApps.push(svApp);
     });
+  }
+
+  function transAll(now, width, dist, arrow) {
+    for (var i = 0; i < pages.length; i++) {
+
+      var dis = i - now;
+      var page = pages[i];
+      if (Math.abs(dis) < 2) {
+          page.container.style.MozTransform = 'translateZ(1px) ' +
+            'translateX(' +
+              (width * dis + dist) + 'px)';
+
+      }
+    }
   }
 
   return {

@@ -176,10 +176,10 @@ var GridManager = (function() {
 
   function addActive(target) {
     if ('isIcon' in target.dataset) {
-      target.classList.add('active');
+      //target.classList.add('active');
       removeActive !== noop && removeActive();
       removeActive = function _removeActive() {
-        target.classList.remove('active');
+        //target.classList.remove('active');
         removeActive = noop;
       };
     } else {
@@ -323,7 +323,7 @@ var GridManager = (function() {
               var opacity = landingPageOpacity +
                             (Math.abs(deltaX) / windowWidth) *
                             (opacityOnAppGridPageMax - landingPageOpacity);
-              overlayStyle.opacity = opacityStepFunction(opacity);
+              //overlayStyle.opacity = opacityStepFunction(opacity);
             };
           } else {
             setOpacityToOverlay = function() {
@@ -333,7 +333,7 @@ var GridManager = (function() {
               var opacity = opacityOnAppGridPageMax -
                     (Math.abs(deltaX) / windowWidth) *
                     (opacityOnAppGridPageMax - landingPageOpacity);
-              overlayStyle.opacity = opacityStepFunction(opacity);
+              //overlayStyle.opacity = opacityStepFunction(opacity);
             };
           }
 
@@ -417,9 +417,9 @@ var GridManager = (function() {
   }
 
   function applyEffectOverlay(index) {
-    overlayStyle.MozTransition = overlayTransition;
-    overlayStyle.opacity =
-      (index === landingPage ? landingPageOpacity : opacityOnAppGridPageMax);
+    // overlayStyle.MozTransition = overlayTransition;
+    //overlayStyle.opacity =
+    //  (index === landingPage ? landingPageOpacity : opacityOnAppGridPageMax);
   }
 
   function onTouchEnd(deltaX, evt) {

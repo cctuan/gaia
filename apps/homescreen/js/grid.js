@@ -247,8 +247,9 @@ var GridManager = (function() {
           refresh = function(e) {
             if (deltaX <= 0) {
               next.MozTransform =
-                'translateX(' + (windowWidth + deltaX) + 'px)';
-              current.MozTransform = 'translateX(' + deltaX + 'px)';
+                'translateZ(1px) translateX(' + (windowWidth + deltaX) + 'px)';
+              current.MozTransform = 'translateZ(1px) translateX(' +
+                deltaX + 'px)';
             } else {
               startX = currentX;
             }
@@ -258,8 +259,9 @@ var GridManager = (function() {
           refresh = function(e) {
             if (deltaX >= 0) {
               previous.MozTransform =
-                'translateX(' + (-windowWidth + deltaX) + 'px)';
-              current.MozTransform = 'translateX(' + deltaX + 'px)';
+                'translateZ(1px) translateX(' + (-windowWidth + deltaX) + 'px)';
+              current.MozTransform = 'translateZ(1px) translateX(' +
+                deltaX + 'px)';
             } else {
               startX = currentX;
             }
@@ -270,27 +272,30 @@ var GridManager = (function() {
           refresh = function(e) {
             if (deltaX >= 0) {
               previous.MozTransform =
-                'translateX(' + (-windowWidth + deltaX) + 'px)';
+                'translateZ(1px) translateX(' + (-windowWidth + deltaX) + 'px)';
 
               // If we change direction make sure there isn't any part
               // of the page on the other side that stays visible.
               if (forward) {
                 forward = false;
-                next.MozTransform = 'translateX(' + windowWidth + 'px)';
+                next.MozTransform = 'translateZ(1px) translateX(' +
+                  windowWidth + 'px)';
               }
             } else {
               next.MozTransform =
-                'translateX(' + (windowWidth + deltaX) + 'px)';
+                'translateZ(1px) translateX(' + (windowWidth + deltaX) + 'px)';
 
               // If we change direction make sure there isn't any part
               // of the page on the other side that stays visible.
               if (!forward) {
                 forward = true;
-                previous.MozTransform = 'translateX(-' + windowWidth + 'px)';
+                previous.MozTransform = 'translateZ(1px) translateX(-' +
+                  windowWidth + 'px)';
               }
             }
 
-            current.MozTransform = 'translateX(' + deltaX + 'px)';
+            current.MozTransform = 'translateZ(1px) translateX(' +
+              deltaX + 'px)';
           };
         }
 
@@ -496,18 +501,19 @@ var GridManager = (function() {
     if (index) {
       var previous = pages[index - 1].container.style;
       previous.MozTransition = '';
-      previous.MozTransform = 'translateX(-' + windowWidth + 'px)';
+      previous.MozTransform = 'translateZ(1px) translateX(-' +
+                                windowWidth + 'px)';
     }
 
     if (index < pages.length - 1) {
       var next = pages[index + 1].container.style;
       next.MozTransition = '';
-      next.MozTransform = 'translateX(' + windowWidth + 'px)';
+      next.MozTransform = 'translateZ(1px) translateX(' + windowWidth + 'px)';
     }
 
     var current = toPage.container.style;
     current.MozTransition = '';
-    current.MozTransform = 'translateX(0)';
+    current.MozTransform = 'translateZ(1px) translateX(0)';
 
     delete fromPage.container.dataset.currentPage;
     toPage.container.dataset.currentPage = 'true';
@@ -618,8 +624,10 @@ var GridManager = (function() {
     dirCtrl.offsetNext = rtl ? 1 : -1;
     dirCtrl.limitPrev = rtl ? limitRight : limitLeft;
     dirCtrl.limitNext = rtl ? limitLeft : limitRight;
-    dirCtrl.translatePrev = rtl ? 'translateX(100%)' : 'translateX(-100%)';
-    dirCtrl.translateNext = rtl ? 'translateX(-100%)' : 'translateX(100%)';
+    dirCtrl.translatePrev = rtl ? 'translateZ(1px) translateX(100%)' :
+    'translateZ(1px) translateX(-100%)';
+    dirCtrl.translateNext = rtl ? 'translateZ(1px) translateX(-100%)' :
+    'translateZ(1px) translateX(100%)';
     dirCtrl.goesForward = rtl ? goesLeft : goesRight;
   }
 

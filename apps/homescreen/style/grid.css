@@ -19,15 +19,21 @@
    */
   border-bottom: 0.01px solid rgba(0,0,0,0.01);
 
+  /* test for tablet
   visibility: hidden;
+  */
 }
 
 .apps > div[data-current-page] {
+  /*
   visibility: visible;
+  */
 }
 
 body[data-transitioning] .apps > div {
+  /*
   visibility: visible;
+  */
 }
 
 /* Here users can view the clock while grid is loading -> better experience */
@@ -116,7 +122,9 @@ ol:not([disabled]) li.active > div > img {
 /* text label */
 .apps ol > li > div > span > span {
   font-size: 1.2rem;
+  /*
   text-shadow: 0.1rem 0.1rem 0.3rem rgba(0,0,0,0.6);
+  */
 }
 
 /* These classes detect text overflow from JS code */
@@ -129,7 +137,9 @@ ol:not([disabled]) li.active > div > img {
 
 #fake-icon-name {
   font-size: -moz-calc(5.75 * 0.226rem);
+  /*
   text-shadow: 1px 1px 3px rgba(0,0,0,0.6);
+  */
 }
 
 .labelWrapper {
@@ -230,7 +240,9 @@ body[data-transitioning] .loading:after {
 
   .apps ol > li > div > span > span {
     font-size: 1.8rem;
+    /*
     text-shadow: 0 0 0.5rem;
+    */
   }
 
   /* Maximum 15 icons for page */

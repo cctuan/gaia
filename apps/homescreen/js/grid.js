@@ -252,7 +252,7 @@ var GridManager = (function() {
                 deltaX + 'px)';
               if (pages[currentPage + 2]) {
                 var next2 = pages[currentPage + 2];
-                next2.MozTransform =
+                next2.container.style.MozTransform =
                   'translateZ(1px) translateX(' + (2 *
                     windowWidth + deltaX) + 'px)';
               }
@@ -270,7 +270,7 @@ var GridManager = (function() {
                 deltaX + 'px)';
               if (pages[currentPage - 2]) {
                 var pre2 = pages[currentPage - 2];
-                pre2.MozTransform =
+                pre2.container.style.MozTransform =
                   'translateZ(1px) translateX(' + (-2 *
                     windowWidth + deltaX) + 'px)';
               }
@@ -287,7 +287,7 @@ var GridManager = (function() {
                 'translateZ(1px) translateX(' + (-windowWidth + deltaX) + 'px)';
               if (pages[currentPage - 2]) {
                 var pre2 = pages[currentPage - 2];
-                pre2.MozTransform =
+                pre2.container.style.MozTransform =
                   'translateZ(1px) translateX(' + (-2 *
                     windowWidth + deltaX) + 'px)';
               }
@@ -299,7 +299,7 @@ var GridManager = (function() {
                   windowWidth + 'px)';
                 if (pages[currentPage + 2]) {
                   var next2 = pages[currentPage + 2];
-                  next2.MozTransform =
+                  next2.container.style.MozTransform =
                     'translateZ(1px) translateX(' + (2 * windowWidth) + 'px)';
                 }
               }
@@ -308,7 +308,7 @@ var GridManager = (function() {
                 'translateZ(1px) translateX(' + (windowWidth + deltaX) + 'px)';
               if (pages[currentPage + 2]) {
                 var next2 = pages[currentPage + 2];
-                next2.MozTransform =
+                next2.container.style.MozTransform =
                   'translateZ(1px) translateX(' + (2 *
                     windowWidth + deltaX) + 'px)';
               }
@@ -320,7 +320,7 @@ var GridManager = (function() {
                   windowWidth + 'px)';
                 if (pages[currentPage - 2]) {
                   var pre2 = pages[currentPage - 2];
-                  pre2.MozTransform =
+                  pre2.container.style.MozTransform =
                     'translateZ(1px) translateX(' + (-2 * windowWidth) + 'px)';
                 }
               }
@@ -537,8 +537,8 @@ var GridManager = (function() {
                                 windowWidth + 'px)';
       if (pages[index - 2]) {
         var prev2 = pages[index - 2];
-        prev2.MozTransition = '';
-        prev2.MozTransform = 'translateZ(1px) translateX(-' +
+        prev2.container.style.MozTransition = '';
+        prev2.container.style.MozTransform = 'translateZ(1px) translateX(-' +
                                 2 * windowWidth + 'px)';
       }
     }
@@ -548,8 +548,8 @@ var GridManager = (function() {
       next.MozTransition = '';
       next.MozTransform = 'translateZ(1px) translateX(' + windowWidth + 'px)';
       if (pages[index + 2]) {
-        var next2 = pages[index + 2].container.style;
-        next.MozTransform = 'translateZ(1px) translateX(' +
+        var next2 = pages[index + 2];
+        next2.container.style.MozTransform = 'translateZ(1px) translateX(' +
           2 * windowWidth + 'px)';
       }
     }

@@ -246,16 +246,7 @@ var GridManager = (function() {
           next = pages[currentPage + 1].container.style;
           refresh = function(e) {
             if (deltaX <= 0) {
-              next.MozTransform =
-                'translateZ(1px) translateX(' + (windowWidth + deltaX) + 'px)';
-              current.MozTransform = 'translateZ(1px) translateX(' +
-                deltaX + 'px)';
-              if (pages[currentPage + 2]) {
-                var next2 = pages[currentPage + 2];
-                next2.container.style.MozTransform =
-                  'translateZ(1px) translateX(' + (2 *
-                    windowWidth + deltaX) + 'px)';
-              }
+              transAll(currentPage, windowWidth, deltaX);
             } else {
               startX = currentX;
             }
@@ -264,16 +255,7 @@ var GridManager = (function() {
           previous = pages[currentPage - 1].container.style;
           refresh = function(e) {
             if (deltaX >= 0) {
-              previous.MozTransform =
-                'translateZ(1px) translateX(' + (-windowWidth + deltaX) + 'px)';
-              current.MozTransform = 'translateZ(1px) translateX(' +
-                deltaX + 'px)';
-              if (pages[currentPage - 2]) {
-                var pre2 = pages[currentPage - 2];
-                pre2.container.style.MozTransform =
-                  'translateZ(1px) translateX(' + (-2 *
-                    windowWidth + deltaX) + 'px)';
-              }
+              transAll(currentPage, windowWidth, deltaX);
             } else {
               startX = currentX;
             }
@@ -283,51 +265,22 @@ var GridManager = (function() {
           next = pages[currentPage + 1].container.style;
           refresh = function(e) {
             if (deltaX >= 0) {
-              previous.MozTransform =
-                'translateZ(1px) translateX(' + (-windowWidth + deltaX) + 'px)';
-              if (pages[currentPage - 2]) {
-                var pre2 = pages[currentPage - 2];
-                pre2.container.style.MozTransform =
-                  'translateZ(1px) translateX(' + (-2 *
-                    windowWidth + deltaX) + 'px)';
-              }
+              transAll(currentPage, windowWidth, deltaX);
               // If we change direction make sure there isn't any part
               // of the page on the other side that stays visible.
               if (forward) {
                 forward = false;
-                next.MozTransform = 'translateZ(1px) translateX(' +
-                  windowWidth + 'px)';
-                if (pages[currentPage + 2]) {
-                  var next2 = pages[currentPage + 2];
-                  next2.container.style.MozTransform =
-                    'translateZ(1px) translateX(' + (2 * windowWidth) + 'px)';
-                }
+                transAll(currentPage, windowWidth, deltaX);        
               }
             } else {
-              next.MozTransform =
-                'translateZ(1px) translateX(' + (windowWidth + deltaX) + 'px)';
-              if (pages[currentPage + 2]) {
-                var next2 = pages[currentPage + 2];
-                next2.container.style.MozTransform =
-                  'translateZ(1px) translateX(' + (2 *
-                    windowWidth + deltaX) + 'px)';
-              }
+              transAll(currentPage, windowWidth, deltaX);
               // If we change direction make sure there isn't any part
               // of the page on the other side that stays visible.
               if (!forward) {
                 forward = true;
-                previous.MozTransform = 'translateZ(1px) translateX(-' +
-                  windowWidth + 'px)';
-                if (pages[currentPage - 2]) {
-                  var pre2 = pages[currentPage - 2];
-                  pre2.container.style.MozTransform =
-                    'translateZ(1px) translateX(' + (-2 * windowWidth) + 'px)';
-                }
+                transAll(currentPage, windowWidth, 0);
               }
             }
-
-            current.MozTransform = 'translateZ(1px) translateX(' +
-              deltaX + 'px)';
           };
         }
 
@@ -533,25 +486,13 @@ var GridManager = (function() {
     if (index) {
       var previous = pages[index - 1].container.style;
       previous.MozTransition = '';
-      previous.MozTransform = 'translateZ(1px) translateX(-' +
-                                windowWidth + 'px)';
-      if (pages[index - 2]) {
-        var prev2 = pages[index - 2];
-        prev2.container.style.MozTransition = '';
-        prev2.container.style.MozTransform = 'translateZ(1px) translateX(-' +
-                                2 * windowWidth + 'px)';
-      }
+      transAll(index, windowWidth, 0);
     }
 
     if (index < pages.length - 1) {
       var next = pages[index + 1].container.style;
       next.MozTransition = '';
-      next.MozTransform = 'translateZ(1px) translateX(' + windowWidth + 'px)';
-      if (pages[index + 2]) {
-        var next2 = pages[index + 2];
-        next2.container.style.MozTransform = 'translateZ(1px) translateX(' +
-          2 * windowWidth + 'px)';
-      }
+      transAll(index, windowWidth, 0);
     }
 
     var current = toPage.container.style;
@@ -1371,6 +1312,16 @@ var GridManager = (function() {
     }, function eachSVApp(svApp) {
       GridManager.svPreviouslyInstalledApps.push(svApp);
     });
+  }
+
+  function transAll(now, width, dist) {
+    for (var i = 0; i < pages.length; i++) {
+      var dis = i - now;
+      var page = pages[i];
+      page.container.style.MozTransform = 'translateZ(1px) ' +
+        'translateX(' +
+          (width * dis + dist) + 'px)';
+    }
   }
 
   return {

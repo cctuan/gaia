@@ -246,7 +246,7 @@ var GridManager = (function() {
           next = pages[currentPage + 1].container.style;
           refresh = function(e) {
             if (deltaX <= 0) {
-              transAll(currentPage, windowWidth, deltaX);
+              transAll(currentPage, windowWidth, deltaX, true);
             } else {
               startX = currentX;
             }
@@ -255,7 +255,7 @@ var GridManager = (function() {
           previous = pages[currentPage - 1].container.style;
           refresh = function(e) {
             if (deltaX >= 0) {
-              transAll(currentPage, windowWidth, deltaX);
+              transAll(currentPage, windowWidth, deltaX), false;
             } else {
               startX = currentX;
             }
@@ -265,20 +265,20 @@ var GridManager = (function() {
           next = pages[currentPage + 1].container.style;
           refresh = function(e) {
             if (deltaX >= 0) {
-              transAll(currentPage, windowWidth, deltaX);
+              transAll(currentPage, windowWidth, deltaX, false);
               // If we change direction make sure there isn't any part
               // of the page on the other side that stays visible.
               if (forward) {
                 forward = false;
-                transAll(currentPage, windowWidth, deltaX);        
+                transAll(currentPage, windowWidth, deltaX, true);
               }
             } else {
-              transAll(currentPage, windowWidth, deltaX);
+              transAll(currentPage, windowWidth, deltaX, true);
               // If we change direction make sure there isn't any part
               // of the page on the other side that stays visible.
               if (!forward) {
                 forward = true;
-                transAll(currentPage, windowWidth, 0);
+                transAll(currentPage, windowWidth, 0, false);
               }
             }
           };
@@ -463,7 +463,7 @@ var GridManager = (function() {
     for (var i = 0; i < pages.length; i++) {
       var pagediv = pages[i].container;
       if (i < start || i > end) {
-        //pagediv.style.display = 'none';
+        pagediv.style.display = 'none';
       } else {
         pagediv.style.display = 'block';
       }
@@ -486,13 +486,13 @@ var GridManager = (function() {
     if (index) {
       var previous = pages[index - 1].container.style;
       previous.MozTransition = '';
-      transAll(index, windowWidth, 0);
+      transAll(index, windowWidth, 0, false);
     }
 
     if (index < pages.length - 1) {
       var next = pages[index + 1].container.style;
       next.MozTransition = '';
-      transAll(index, windowWidth, 0);
+      transAll(index, windowWidth, 0, true);
     }
 
     var current = toPage.container.style;
@@ -1314,13 +1314,17 @@ var GridManager = (function() {
     });
   }
 
-  function transAll(now, width, dist) {
+  function transAll(now, width, dist, arrow) {
     for (var i = 0; i < pages.length; i++) {
+
       var dis = i - now;
       var page = pages[i];
-      page.container.style.MozTransform = 'translateZ(1px) ' +
-        'translateX(' +
-          (width * dis + dist) + 'px)';
+      if (Math.abs(dis) < 2) {
+          page.container.style.MozTransform = 'translateZ(1px) ' +
+            'translateX(' +
+              (width * dis + dist) + 'px)';
+
+      }
     }
   }
 

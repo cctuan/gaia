@@ -13,6 +13,7 @@
   margin: 0 auto;
   overflow: hidden;
   display: none;
+  transform-style: preserve-3d;
   /*
    * We use this rule to make gecko think that they're visible so they are
    * painted.

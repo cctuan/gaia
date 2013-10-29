@@ -7,27 +7,23 @@
 /* pages */
 .apps > div {
   position: absolute;
-  width: 100%;
+  width: calc(100% + 2rem);
   height: calc(100% - 7.6rem);
   text-align: center;
   margin: 0 auto;
   overflow: hidden;
-  display: none;
   /*
    * We use this rule to make gecko think that they're visible so they are
    * painted.
    */
   border-bottom: 0.01px solid rgba(0,0,0,0.01);
-
-  visibility: hidden;
+  display: none;
 }
 
 .apps > div[data-current-page] {
-  visibility: visible;
 }
 
 body[data-transitioning] .apps > div {
-  visibility: visible;
 }
 
 .apps ol {

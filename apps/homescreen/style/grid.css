@@ -112,7 +112,7 @@ body[data-transitioning] .apps > div {
 }
 
 .apps ol > li > div > span.mask {
-	mask: url('app_name_mask.svg#fade_right_mask');
+	/* mask: url('app_name_mask.svg#fade_right_mask'); */
 	text-overflow: '';
 }
 

@@ -463,7 +463,7 @@ var GridManager = (function() {
     for (var i = 0; i < pages.length; i++) {
       var pagediv = pages[i].container;
       if (i < start || i > end) {
-        pagediv.style.display = 'none';
+         // pagediv.style.display = 'none';
       } else {
         pagediv.style.display = 'block';
       }
@@ -497,7 +497,7 @@ var GridManager = (function() {
 
     var current = toPage.container.style;
     current.MozTransition = '';
-    current.MozTransform = 'translateZ(1px) translateX(0)';
+    current.MozTransform = 'rotate(1deg) translateZ(1px) translateX(0)';
 
     delete fromPage.container.dataset.currentPage;
     toPage.container.dataset.currentPage = 'true';
@@ -608,10 +608,12 @@ var GridManager = (function() {
     dirCtrl.offsetNext = rtl ? 1 : -1;
     dirCtrl.limitPrev = rtl ? limitRight : limitLeft;
     dirCtrl.limitNext = rtl ? limitLeft : limitRight;
-    dirCtrl.translatePrev = rtl ? 'translateZ(1px) translateX(100%)' :
-    'translateZ(1px) translateX(-100%)';
-    dirCtrl.translateNext = rtl ? 'translateZ(1px) translateX(-100%)' :
-    'translateZ(1px) translateX(100%)';
+    dirCtrl.translatePrev = rtl ?
+    'rotate(1deg) translateZ(1px) translateX(100%)' :
+    'rotate(1deg) translateZ(1px) translateX(-100%)';
+    dirCtrl.translateNext = rtl ?
+    'rotate(1deg) translateZ(1px) translateX(-100%)' :
+    'rotate(1deg) translateZ(1px) translateX(100%)';
     dirCtrl.goesForward = rtl ? goesLeft : goesRight;
   }
 
@@ -1320,7 +1322,7 @@ var GridManager = (function() {
       var dis = i - now;
       var page = pages[i];
       if (Math.abs(dis) < 2) {
-          page.container.style.MozTransform = 'translateZ(1px) ' +
+          page.container.style.MozTransform = 'rotate(1deg) translateZ(1px) ' +
             'translateX(' +
               (width * dis + dist) + 'px)';
 

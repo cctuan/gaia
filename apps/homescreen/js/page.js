@@ -660,7 +660,8 @@ Page.prototype = {
   moveByWithEffect: function pg_moveByWithEffect(scrollX, duration) {
     var container = this.movableContainer;
     var style = container.style;
-    style.MozTransform = 'translateZ(1px) translateX(' + scrollX + 'px)';
+    style.MozTransform = 'rotate(1deg) translateZ(1px) translateX(' +
+                          scrollX + 'px)';
     style.MozTransition = '-moz-transform ' + duration + 'ms ease';
   },
 
@@ -671,7 +672,8 @@ Page.prototype = {
    */
   moveBy: function pg_moveBy(scrollX) {
     var style = this.movableContainer.style;
-    style.MozTransform = 'translateZ(1px) translateX(' + scrollX + 'px)';
+    style.MozTransform = 'rotate(1deg) translateZ(1px) translateX(' +
+                          scrollX + 'px)';
     style.MozTransition = '';
   },
 
@@ -1064,14 +1066,16 @@ dockProto.render = function dk_render(apps, target) {
 dockProto.moveByWithEffect = function dk_moveByWithEffect(scrollX, duration) {
   var container = this.movableContainer;
   var style = container.style;
-  style.MozTransform = 'translateZ(1px) translateX(' + scrollX + 'px)';
+  style.MozTransform = 'rotate(1deg) translateZ(1px) translateX(' +
+                        scrollX + 'px)';
   style.MozTransition = '-moz-transform ' + duration + 'ms ease';
 };
 
 dockProto.moveByWithDuration = function dk_moveByWithDuration(scrollX,
                                                               duration) {
   var style = this.movableContainer.style;
-  style.MozTransform = 'translateZ(1px) translateX(' + scrollX + 'px)';
+  style.MozTransform = 'rotate(1deg) translateZ(1px) translateX(' +
+                        scrollX + 'px)';
   style.MozTransition = '-moz-transform ' + duration + 'ms ease';
 };
 
@@ -1107,7 +1111,8 @@ dockProto.placeIcon = function pg_placeIcon(node, from, to, transition) {
   var x = node.dataset.posX = parseInt(node.dataset.posX || 0) + (to - from) *
                               100;
 
-  node.style.MozTransform = 'translateZ(1px) translateX(' + x + '%)';
+  node.style.MozTransform = 'rotate(1deg) translateZ(1px) translateX(' +
+                             x + '%)';
   if (transition)
     node.style.MozTransition = transition;
 };

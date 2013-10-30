@@ -1,6 +1,10 @@
 'use strict';
 
 var GridManager = (function() {
+  //////// JERRY
+  var TestOverLap = 10; // px
+
+
   var MAX_ICONS_PER_PAGE = 4 * 4;
 
   // Be aware that the current manifest icon description syntax does
@@ -544,13 +548,15 @@ var GridManager = (function() {
       if (newPage.container.getBoundingClientRect().left !== 0) {
         // Pages are translated in X
         if (index > 0) {
-          pages[index - 1].moveByWithEffect(-windowWidth, duration);
+          pages[index - 1].moveByWithEffect(-windowWidth + TestOverLap,
+            duration);
         }
 
         newPage.moveByWithEffect(0, duration);
 
         if (index < pages.length - 1) {
-          pages[index + 1].moveByWithEffect(windowWidth, duration);
+          pages[index + 1].moveByWithEffect(windowWidth - TestOverLap,
+            duration);
         }
 
         container.addEventListener('transitionend', function transitionEnd(e) {
@@ -1319,11 +1325,19 @@ var GridManager = (function() {
 
       var dis = i - now;
       var page = pages[i];
-      if (Math.abs(dis) < 2) {
+      if (dis === 1) {
+        page.container.style.MozTransform = 'translateZ(1px) ' +
+            'translateX(' +
+              (width + dist - TestOverLap) + 'px)';
+      } else if (dis === -1) {
+        page.container.style.MozTransform = 'translateZ(1px) ' +
+            'translateX(' +
+              (-width + dist + TestOverLap) + 'px)';
+      }
+      if (Math.abs(dis) == 0) {
           page.container.style.MozTransform = 'translateZ(1px) ' +
             'translateX(' +
               (width * dis + dist) + 'px)';
-
       }
     }
   }

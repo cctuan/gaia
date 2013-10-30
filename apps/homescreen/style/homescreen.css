@@ -106,11 +106,11 @@ body[data-mode = 'normal'] ol > li span.options {
 
 body[data-online = 'offline'] li[data-offline-ready = 'false'] > div > img,
 body[data-online = 'offline'] li[data-offline-ready = 'false'] > div > span {
-  opacity: 0.3;
+  /* opacity: 0.3; */
 }
 
 body[data-online = 'offline'] li[data-offline-ready = 'false'] > div > span {
-  opacity: 0.5;
+  /* opacity: 0.5; */
 }
 
 /* For WVGA (800 x 480), adjust the padding to make app icons fit in 4 x 5 grid */

@@ -344,7 +344,8 @@ var WindowManager = (function() {
     // TODOEVME - this kept throwing errors when homescreen launched,
     // bgcolor was null
     if (backgroundColor && backgroundColor.indexOf('rgb(') != -1) {
-      iframe.style.backgroundColor = backgroundColor;
+      // remove default background color from window manager
+      // iframe.style.backgroundColor = backgroundColor;
     }
   });
 

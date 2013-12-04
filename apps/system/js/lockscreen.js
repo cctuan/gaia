@@ -268,7 +268,7 @@ var LockScreen = {
     SettingsListener.observe('wallpaper.image',
                              'resources/images/backgrounds/default.png',
                              function(value) {
-                               self.updateBackground(wallpaperURL.set(value));
+                               self.updateBackground();
                                self.overlay.classList.remove('uninit');
                              });
 

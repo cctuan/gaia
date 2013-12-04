@@ -45,6 +45,10 @@ body {
 #screen > div#poweroff-splash.step1 {
   animation: poweroff-splash-fade-in 0.5s;
 }
+/* set homescreen iframe's background as none and transparent */
+#screen iframe[data-frame-origin="homescreen"] {
+  background: none transparent;
+}
 
 @keyframes poweroff-splash-fade-in {
   0% {

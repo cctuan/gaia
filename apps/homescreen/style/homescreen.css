@@ -6,7 +6,8 @@ html, body {
   border: none;
   font-size: 10px;
   overflow: hidden;
-  background-color: #000;
+  /* remove default background color of homescreen html */
+  /* background-color: #000;*/
   background-size: cover;
   background-repeat: no-repeat;
   background-position: 50% 50%;

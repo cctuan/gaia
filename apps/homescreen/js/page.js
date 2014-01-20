@@ -71,6 +71,10 @@ Icon.prototype = {
       this.descriptor.type === GridItemsFactory.TYPE.BOOKMARK);
   },
 
+  isPrivacyLimited: function icon_isPrivacyLimited() {
+    return this.descriptor.privacy;
+  },
+
   /*
    * Renders the icon into the page
    */
@@ -87,7 +91,7 @@ Icon.prototype = {
 
     var container = this.container = document.createElement('li');
     var dataset = container.dataset;
-
+    dataset.privacy = this.isPrivacyLimited();
     dataset.offlineReady = this.isOfflineReady();
     container.className = 'icon';
     if (this.descriptor.hidden) {
@@ -428,7 +432,7 @@ Icon.prototype = {
 
     // Update dataset properties
     this.container.dataset.offlineReady = this.isOfflineReady();
-
+    this.container.dataset.privacy = this.isPrivacyLimited();
     if (descriptor.updateTime == oldDescriptor.updateTime &&
         descriptor.icon == oldDescriptor.icon) {
       this.descriptor.renderedIcon = oldDescriptor.renderedIcon;
@@ -1111,13 +1115,22 @@ Page.prototype = {
    * Returns the first icon of the page
    */
   getFirstIcon: function pg_getFirstIcon() {
+    var displayIcon;
+    for (var i = 0; i < this.olist.children.length; i++) {
+      if (this.olist.children[i].dataset.privacy !== 'true' ||
+          !document.body.classList.contains('privacyEnable')) {
+        displayIcon = this.olist.children[i];
+        break;
+      }
+    }
+    /*
     var firstIcon = this.olist.firstChild;
     if (this.iconsWhileDragging.length > 0)
       firstIcon = this.iconsWhileDragging[0];
-
-    if (!firstIcon)
+    */
+    if (!displayIcon)
       return null;
-    return GridManager.getIcon(firstIcon.dataset);
+    return GridManager.getIcon(displayIcon.dataset);
   },
 
   /*
@@ -1221,7 +1234,15 @@ Page.prototype = {
    * Returns the number of icons
    */
   getNumIcons: function pg_getNumIcons() {
-    return this.olist.children.length;
+    var i = 0;
+    for (var j = 0; j < this.olist.children.length; j++) {
+      if (this.olist.children[j].dataset.privacy === 'false' ||
+          !document.body.classList.contains('privacyEnable')) {
+        i++;
+      }
+    }
+    console.log('num of icons ' + i);
+    return i;
   },
 
   /**

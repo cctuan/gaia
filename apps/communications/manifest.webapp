@@ -11,6 +11,7 @@
     "dialer": {
       "launch_path": "/dialer/index.html#keyboard-view",
       "name": "Phone",
+      "privacy": true,
       "icons": {
         "60": "/dialer/style/icons/Dialer_60.png",
         "90": "/dialer/style/icons/Dialer_90.png",

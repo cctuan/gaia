@@ -35,6 +35,10 @@
   text-align: center;
 }
 
+body.privacyEnable li.icon[data-privacy = 'true'] {
+  display: none;
+}
+
 /* Maximum 16 icons for page */
 .apps ol > li:nth-child(17) {
   display: none;

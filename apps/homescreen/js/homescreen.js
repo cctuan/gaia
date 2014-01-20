@@ -68,6 +68,20 @@ var Homescreen = (function() {
         onInit();
       }
     });
+    LazyLoader.load(['shared/js/settings_listener.js'],
+      function loaded() {
+      SettingsListener.observe('privacy.enabled', false,
+        function onPrivacyChanged(value) {
+        if (value === false) {
+          document.body.classList.remove('privacyEnable');
+        } else {
+          document.body.classList.add('privacyEnable');
+        }
+        // Reset
+        GridManager.onDragStop();
+        DockManager.onDragStop();
+      });
+    });
   }
 
   function onContextMenu(evt) {

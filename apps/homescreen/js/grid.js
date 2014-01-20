@@ -1132,7 +1132,6 @@ var GridManager = (function() {
 
     if (!manifest)
       return;
-
     var iconsAndNameHolder = manifest;
     if (entryPoint)
       iconsAndNameHolder = manifest.entry_points[entryPoint];
@@ -1140,6 +1139,7 @@ var GridManager = (function() {
     iconsAndNameHolder = new ManifestHelper(iconsAndNameHolder);
 
     var descriptor = {
+      privacy: iconsAndNameHolder.privacy || false,
       bookmarkURL: app.bookmarkURL,
       manifestURL: app.manifestURL,
       entry_point: entryPoint,

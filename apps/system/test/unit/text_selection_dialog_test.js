@@ -55,7 +55,7 @@ suite('system/TextSelectionDialog', function() {
   });
 
   var fakeTextSelectInAppEvent = {
-    type: 'mozbrowsertextualmenu',
+    type: 'mozbrowserselectionchange',
     preventDefault: function() {},
     stopPropagation: function() {}
   };
@@ -121,6 +121,51 @@ suite('system/TextSelectionDialog', function() {
     });
   });
 
+  test('_doCommand on app, and it is app', function() {
+    var testCmd = 'testCmd';
+    mockDetail.show = true;
+    verifyClickableOptions({
+      'SelectAll': true,
+      'Paste': true,
+      'Cut': true,
+      'Copy': false
+    });
+
+    td.app.iframe = {
+      doCommand: function(){}
+    };
+
+    this.sinon.stub(td.app.iframe, 'doCommand');
+    td._doCommand(fakeTextSelectInAppEvent, testCmd);
+ 
+    assert.equal(td.element.classList.contains('visible'), false,
+      'dialog should be hidden');
+    assert.deepEqual(td.app.iframe.doCommand.args[0], [testCmd]);
+  });
+
+
+  test('_doCommand on app, and not app', function() {
+    var testCmd = 'testCmd';
+    mockDetail.show = true;
+    verifyClickableOptions({
+      'SelectAll': true,
+      'Paste': true,
+      'Cut': true,
+      'Copy': false
+    });
+    var receivedEvent;
+    td.app = null;
+    window.addEventListener('mozContentEvent', function onevent(evt) {
+      window.removeEventListener('mozContentEvent', onevent);
+      receivedEvent = evt;
+    });
+    td._doCommand(fakeTextSelectInAppEvent, testCmd);
+    assert.deepEqual(receivedEvent.detail, {
+      type: 'do-command',
+      cmd: testCmd
+    });
+  });
+
   test('option handler, selectAll', function() {
     mockDetail.show = true;
     verifyClickableOptions({
@@ -129,12 +174,10 @@ suite('system/TextSelectionDialog', function() {
       'Cut': true,
       'Copy': true
     });
-    this.sinon.stub(mockDetail, 'selectall');
+    this.sinon.stub(td, '_doCommand');
 
     emitMouseDownEvent(td.elements.selectall);
-    assert.equal(mockDetail.selectall.called, true);
-    assert.equal(td.element.classList.contains('visible'), false,
-      'dialog should be hidden after option is clicked');
+    assert.equal(td._doCommand.args[0][1], 'selectall');
   });
 
   test('option handler, paste', function() {
@@ -145,12 +188,10 @@ suite('system/TextSelectionDialog', function() {
       'Cut': true,
       'Copy': true
     });
-    this.sinon.stub(mockDetail, 'pasteFromClipboard');
+    this.sinon.stub(td, '_doCommand');
 
     emitMouseDownEvent(td.elements.paste);
-    assert.equal(mockDetail.pasteFromClipboard.called, true);
-    assert.equal(td.element.classList.contains('visible'), false,
-      'dialog should be hidden after option is clicked');
+    assert.equal(td._doCommand.args[0][1], 'paste');
   });
 
   test('option handler, cut', function() {
@@ -161,12 +202,10 @@ suite('system/TextSelectionDialog', function() {
       'Cut': true,
       'Copy': true
     });
-    this.sinon.stub(mockDetail, 'cutToClipboard');
+    this.sinon.stub(td, '_doCommand');
 
     emitMouseDownEvent(td.elements.cut);
-    assert.equal(mockDetail.cutToClipboard.called, true);
-    assert.equal(td.element.classList.contains('visible'), false,
-      'dialog should be hidden after option is clicked');
+    assert.equal(td._doCommand.args[0][1], 'cut');
   });
 
   test('option handler, copy', function() {
@@ -177,12 +216,10 @@ suite('system/TextSelectionDialog', function() {
       'Cut': true,
       'Copy': true
     });
-    this.sinon.stub(mockDetail, 'copyToClipboard');
+    this.sinon.stub(td, '_doCommand');
 
     emitMouseDownEvent(td.elements.copy);
-    assert.equal(mockDetail.copyToClipboard.called, true);
-    assert.equal(td.element.classList.contains('visible'), false,
-      'dialog should be hidden after option is clicked');
+    assert.equal(td._doCommand.args[0][1], 'copy');
   });
 
   suite('dialog position', function() {

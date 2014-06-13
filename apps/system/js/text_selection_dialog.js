@@ -21,7 +21,7 @@
     this.instanceID = _id++;
     this._injected = false;
     if (app) {
-      app.element.addEventListener('mozbrowsertextualmenu', this, false);
+      app.element.addEventListener('mozbrowserselectionchange', this, false);
     } else {
       window.addEventListener('mozChromeEvent', this);
     }
@@ -58,16 +58,17 @@
   };
 
   TextSelectionDialog.prototype.handleEvent = function tsd_handleEvent(evt) {
-    if (evt.type === 'mozChromeEvent' && evt.detail.type != 'textualmenu') {
+    if (evt.type === 'mozChromeEvent' &&
+        evt.detail.type !== 'selectionchange') {
       return;
     }
     this.event = evt;
     evt.preventDefault();
     evt.stopPropagation();
     if (this.app) {
-      this.textualmenuDetail = this.event.detail;
+      this.selectionChangeDetail = this.event.detail;
     } else {
-      this.textualmenuDetail = this.event.detail.detail;
+      this.selectionChangeDetail = this.event.detail.detail;
     }
     if (!this._injected) {
       this.render();
@@ -106,32 +107,41 @@
         this.selectallHandler.bind(this));
   };
 
-  TextSelectionDialog.prototype.copyHandler =
-    function tsd_copyHandler(evt) {
-      this.textualmenuDetail.copyToClipboard();
+  TextSelectionDialog.prototype._doCommand =
+    function tsd_doCommand(evt, cmd) {
+      if (this.app) {
+        this.app.iframe.doCommand(cmd);
+      } else {
+        var props = {
+          type: 'do-command',
+          cmd: cmd
+        };
+        window.dispatchEvent(new CustomEvent('mozContentEvent',{
+          detail: props
+        }));
+      }
       this.hide();
       evt.preventDefault();
+    };
+
+  TextSelectionDialog.prototype.copyHandler =
+    function tsd_copyHandler(evt) {
+      this._doCommand(evt, 'copy');
   };
 
   TextSelectionDialog.prototype.cutHandler =
     function tsd_cutHandler(evt) {
-      this.textualmenuDetail.cutToClipboard();
-      this.hide();
-      evt.preventDefault();
+      this._doCommand(evt, 'cut');
   };
 
   TextSelectionDialog.prototype.pasteHandler =
     function tsd_pasteHandler(evt) {
-      this.textualmenuDetail.pasteFromClipboard();
-      this.hide();
-      evt.preventDefault();
+      this._doCommand(evt, 'paste');
   };
 
   TextSelectionDialog.prototype.selectallHandler =
     function tsd_selectallHandler(evt) {
-      this.textualmenuDetail.selectall();
-      this.hide();
-      evt.preventDefault();
+      this._doCommand(evt, 'selectall');
   };
 
   TextSelectionDialog.prototype.view = function tsd_view() {
@@ -154,7 +164,7 @@
       return;
     }
     var evt = this.event;
-    var detail = this.textualmenuDetail;
+    var detail = this.selectionChangeDetail;
 
     var numOfSelectOptions = 0;
     var options = ['SelectAll' , 'Paste', 'Cut', 'Copy'];
@@ -232,7 +242,7 @@
     if (this.app && this.app.isActive()) {
       this.app.focus();
     }
-    this.textualmenuDetail = null;
+    this.selectionChangeDetail = null;
     this.event = null;
   };
 

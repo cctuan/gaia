@@ -8,6 +8,7 @@ Cu.import('resource://gre/modules/osfile.jsm');
 Cu.import('resource://gre/modules/Promise.jsm');
 
 var utils = require('./utils.js');
+var subprocess = require("sdk/system/child_process/subprocess");
 /**
  * Returns an array of nsIFile's for a given directory
  *
@@ -731,6 +732,24 @@ function Commander(cmd) {
     }
     callback && callback();
   };
+
+  /**
+   * XXXX: Since method "runWithSubprocess" cannot be executed in Promise yet,
+   *       we need to keep original method "run" for push-to-device.js (nodejs
+   *       support). We'll file another bug for migration things.
+   */
+  this.runWithSubprocess = function(args, options) {
+    log('execute "' + command + ' ' + args.join(' ') + '"');
+    var p = subprocess.call({
+      command: _file,
+      arguments: args,
+      stdin: (options && options.stdin) || function(){},
+      stdout: (options && options.stdout) || function(){},
+      stderr: (options && options.stderr) || function(){},
+      done: (options && options.done) || function(){},
+    });
+    p.wait();
+  }
 };
 
 function getEnv(name) {

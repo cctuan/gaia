@@ -1055,3 +1055,6 @@ docs: $(NPM_INSTALLED_PROGRAMS)
 watch: $(NPM_INSTALLED_PROGRAMS)
 	node build/watcher.js
 
+.PHONY: test
+test:
+	@$(call run-js-command,test)

@@ -16,12 +16,12 @@
  * limitations under the License.
  */
 
-/* globals dump, CustomEvent, MozActivity, System,
-   NfcHandoverManager, NfcUtils, NDEF, ScreenManager */
+/* globals CustomEvent, MozActivity, System, MozNDEFRecord,
+   NfcHandoverManager, NfcUtils, NDEF, ScreenManager, StringHelper */
 'use strict';
 
 var NfcManager = {
-  DEBUG: false,
+  DEBUG: true,
 
   NFC_HW_STATE_OFF: 0,
   NFC_HW_STATE_ON: 1,
@@ -46,7 +46,7 @@ var NfcManager = {
       if (optObject) {
         output += JSON.stringify(optObject);
       }
-      dump(output + '\n');
+      console.log(output + '\n');
     }
   },
 
@@ -63,6 +63,8 @@ var NfcManager = {
     window.addEventListener('lockscreen-appopened', this);
     window.addEventListener('lockscreen-appclosed', this);
     var self = this;
+
+    window.navigator.mozNfc.onpeerready = this.handleEvent.bind(this);
     window.SettingsListener.observe('nfc.enabled', false, function(enabled) {
       var state = enabled ?
                     (System.locked ?
@@ -122,6 +124,7 @@ var NfcManager = {
   },
 
   handleEvent: function nm_handleEvent(evt) {
+    console.log('___________' + evt.type);
     var state;
     switch (evt.type) {
       case 'lockscreen-appopened': // Fall through
@@ -146,7 +149,56 @@ var NfcManager = {
         // Stop the P2P UI
         window.dispatchEvent(new CustomEvent('shrinking-stop'));
         break;
+      case 'peerready':
+        this.sendMessageToNFCPeer('http://www.yahoo.com', evt);
+        break;
     }
+  },
+
+  sendMessageToNFCPeer: function nm_sendMessageToNFCPeer(msg, nfcEvent) {
+    if (!msg) {
+      return;
+    }
+
+    var content;
+
+    content =  {'identifier' : 0, 'uri' : msg};
+    for (var i = 1; i < NDEF.URIS.length; i++) {
+      var len = NDEF.URIS[i].length;
+      if (msg.substring(0, len) == NDEF.URIS[i]) {
+          var uriPayload = msg.substring(len);
+          content = {'identifier' : i, 'uri' : uriPayload};
+          break;
+      }
+    }
+    
+    if (content.identifier === 0) {
+      content = msg;
+    } else {
+      content = String.fromCharCode(content.identifier) + content.uri;
+    }
+    console.log('send msg ______________ ' + msg);
+
+    var payload = StringHelper.fromUTF8(content);
+    var ids = new Uint8Array(0);
+
+    var record = new MozNDEFRecord(NDEF.TNF_WELL_KNOWN, NDEF.RTD_URI, ids,
+      payload);
+
+    if (!record) {
+      return null;
+    }
+  
+
+    var nfcdom = window.navigator.mozNfc;
+    var nfcPeer = nfcdom.getNFCPeer(nfcEvent.detail);
+
+    if (!nfcPeer) {
+      return null;
+    }
+    console.log('send successfully');
+    console.log(JSON.stringify(record));
+    nfcPeer.sendNDEF([record]);
   },
 
   /**
@@ -271,8 +323,12 @@ var NfcManager = {
       if (!nfcdom) {
         return;
       }
-
-      var status = nfcdom.checkP2PRegistration(manifestURL);
+      var manifestUrl = manifestURL;
+      if (!manifestUrl) {
+        manifestUrl = window.location.href.replace('index.html',
+          'manifest.webapp');
+      }
+      var status = nfcdom.checkP2PRegistration(manifestUrl);
       var self = this;
       status.onsuccess = function() {
         if (status.result) {
@@ -297,9 +353,15 @@ var NfcManager = {
     if (!nfcdom) {
       return;
     }
-
+    if (!manifestURL) {
+      manifestURL = window.location.href.replace('index.html',
+        'manifest.webapp');
+    }
+      console.log(manifestURL);
     nfcdom.notifyUserAcceptedP2P(manifestURL);
   },
+
+
 
   /**
    * Fires nfc-tag-discovered activity to pass unsupported
@@ -355,6 +417,7 @@ var NfcManager = {
    * @param {string} msg.type set to 'techDiscovered'
    */
   handleTechnologyDiscovered: function nm_handleTechnologyDiscovered(msg) {
+    console.log('Technology list is ' + JSON.stringify(msg));
     this._debug('Technology Discovered: ' + JSON.stringify(msg));
     msg = msg || {};
     msg.records = Array.isArray(msg.records) ? msg.records : [];

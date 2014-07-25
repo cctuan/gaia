@@ -30,6 +30,8 @@ var NfcURI = {
 
   // Handler for the NFC peer connectivity. Get the URL, call NFC functions
   handlePeerConnectivity: function nfc_handlePeerConnectvity(event) {
+    console.log(event.type);
+    console.log(JSON.stringify(event));
     var tnfId = NDEF.TNF_WELL_KNOWN;
     var rtdUri = NDEF.RTD_URI;
     var currentUrl;

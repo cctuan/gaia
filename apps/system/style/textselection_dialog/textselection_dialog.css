@@ -75,3 +75,13 @@
 #TextSelectionDialogRoot .textselection-dialog-selectall{
   background-image: url('images/textselection_select_all.png');
 }
+
+#infoDialog {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  z-index: 9999999;
+  width: 6rem;
+  height: 3rem;
+  color: black;
+}

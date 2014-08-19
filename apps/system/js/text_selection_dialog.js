@@ -13,6 +13,7 @@
     this._hideTimeout = null;
     this._injected = false;
     window.addEventListener('mozChromeEvent', this);
+    this.infoDialog = null;
   };
 
   TextSelectionDialog.prototype = Object.create(window.BaseUI.prototype);
@@ -174,11 +175,22 @@
     lastVisibleOption.classList.add('last-option');
 
     var pos = this.calculateDialogPostion(detail, numOfSelectOptions);
+
     this.element.style.top = pos.top + 'px';
     this.element.style.left = pos.left + 'px';
-
+    this.createInfo(pos);
     this.element.classList.add('visible');
     evt.preventDefault();
+  };
+
+  TextSelectionDialog.prototype.createInfo = function tsd_createInfo(pos) {
+    if (!this.infoDialog) {
+      this.infoDialog = document.createElement('div');
+      this.infoDialog.id = 'infoDialog';
+      document.body.appendChild(this.infoDialog);
+    }
+    this.infoDialog.innerHTML =
+      ' top: ' + pos.top + 'px , left: ' + pos.left + 'px';
   };
 
   TextSelectionDialog.prototype.calculateDialogPostion =

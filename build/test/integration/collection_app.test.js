@@ -47,6 +47,7 @@ suite('Collection app tests', function() {
           'Expected collection icon not found in manifest.');
       });
 
+
       // Verify collection icon paths.
       var collectionIconPath = path.join(process.cwd(), 'build_stage',
         'collection', 'collections', 'social', 'icon.png');

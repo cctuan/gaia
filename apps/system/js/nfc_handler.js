@@ -8,6 +8,7 @@
   NfcHandler.prototype = {
     start: function nh_start() {
       if (window.navigator.mozNfc) {
+        console.log('nfcHandler has started');
         window.navigator.mozNfc.onpeerready = this.handleEvent.bind(this);
       }
     },
@@ -25,6 +26,8 @@
       }
       var currentApp = this.appWindowManager.getActiveApp();
       if (currentApp && currentApp.isBrowser() && currentApp.url) {
+
+        console.log('nfc handler send to peer ' + currentApp.url);
         this.sendNDEFRequestToNFCPeer(nfcUtils.parseURIString(currentApp.url),
           evt);
       }
@@ -44,7 +47,6 @@
         if (!nfcPeer) {
           return null;
         }
-
         nfcPeer.sendNDEF(request);
       }
   };

@@ -361,7 +361,7 @@
       if (!nfcdom) {
         return;
       }
-
+      console.log('nfc manager will trigger ' + manifestURL);
       nfcdom.notifyUserAcceptedP2P(manifestURL);
     },
 

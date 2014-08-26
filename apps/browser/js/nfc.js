@@ -60,6 +60,7 @@ var NfcURI = {
 
     currentUrl = Browser.currentTab.url;
 
+    console.log('in Browser app send url : ' + currentUrl);
     if (!currentUrl) {
       return null;
     }

@@ -265,25 +265,27 @@
       }
 
       var style = this.element.style;
-
-      if (!style.backgroundSize) {
+      var iconStyle = this.iconElement.style;
+      if (!iconStyle.backgroundSize) {
         style.height = this.grid.layout.gridItemHeight + 'px';
+        iconStyle.height = (this.grid.layout.gridItemHeight - 20) + 'px';
         // icon size + padding for shadows implemented in the icon renderer
         var backgroundHeight =
           ((this.grid.layout.gridIconSize * (1 / this.grid.layout.percent)) +
           GridIconRenderer.prototype.unscaledCanvasPadding);
 
         if (this.grid.layout.gridItemHeight > backgroundHeight) {
-          style.backgroundSize = backgroundHeight + 'px';
+          iconStyle.backgroundSize = backgroundHeight + 'px';
         } else {
-          style.backgroundSize = style.height;
+          iconStyle.backgroundSize = iconStyle.height;
         }
       }
 
       if (isCachedIcon) {
         var url = URL.createObjectURL(blob);
-        style.backgroundImage = 'url(' + url + ')';
+        iconStyle.backgroundImage = 'url(' + url + ')';
         this.element.dataset.backgroundImage = url;
+        this.iconElement.dataset.backgroundImage = url;
         var img = new Image();
         img.onload = img.onerror = () => {
           this.grid.element.dispatchEvent(
@@ -300,7 +302,7 @@
           return;
         }
 
-        style.backgroundImage = 'url(' + URL.createObjectURL(blob) + ')';
+        iconStyle.backgroundImage = 'url(' + URL.createObjectURL(blob) + ')';
         this.detail.decoratedIconBlob = blob;
         this.grid.element.dispatchEvent(
           new CustomEvent(ICON_BLOB_DECORATED_EVENT, {
@@ -498,19 +500,23 @@
 
       // Generate an element if we need to
       if (!this.element) {
+        var container = document.createElement('div');
         var tile = document.createElement('div');
-        tile.className = 'icon';
-        tile.dataset.identifier = this.identifier;
-        tile.dataset.isDraggable = this.isDraggable();
-        tile.setAttribute('role', 'link');
+        tile.className = 'icon-image';
+
+        container.className = 'icon';
+        container.dataset.identifier = this.identifier;
+        container.dataset.isDraggable = this.isDraggable();
+        container.setAttribute('role', 'link');
+        container.appendChild(tile);
 
         // This <p> has been added in order to place the title with respect
         // to this container via CSS without touching JS.
         var nameContainerEl = document.createElement('p');
-        nameContainerEl.style.marginTop = ((this.grid.layout.gridIconSize *
-          (1 / this.grid.layout.percent)) +
-          (GridIconRenderer.prototype.unscaledCanvasPadding / 2)) + 'px';
-        tile.appendChild(nameContainerEl);
+        //nameContainerEl.style.marginTop = ((this.grid.layout.gridIconSize *
+          //(1 / this.grid.layout.percent)) +
+          //(GridIconRenderer.prototype.unscaledCanvasPadding / 2)) + 'px';
+        container.appendChild(nameContainerEl);
 
         var nameEl = document.createElement('span');
         nameEl.className = 'title';
@@ -524,9 +530,10 @@
           tile.appendChild(removeEl);
         }
 
-        this.element = tile;
+        this.element = container;
+        this.iconElement = tile;
         this.renderIcon(true);
-        this.grid.element.appendChild(tile);
+        this.grid.element.appendChild(container);
       }
 
       this.transform(this.x, this.y, scale);

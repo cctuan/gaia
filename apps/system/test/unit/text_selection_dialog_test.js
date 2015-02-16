@@ -403,18 +403,29 @@ suite('system/TextSelectionDialog', function() {
         td._hasCutOrCopied = false;
         testDetail.visible = false;
         td.handleEvent(fakeTextSelectInAppEvent);
-        assert.isTrue(stubClose.calledOnce);
+        assert.isTrue(stubHide.calledOnce);
       });
 
-    test('should show bubble if states has updateposition', function() {
+    test('should show bubble if states has updateposition and bubble is not ' +
+         'closed', function() {
         testDetail.isCollapsed = false;
         td._hasCutOrCopied = false;
+        td.textualmenuDetail = true;
         testDetail.visible = true;
         testDetail.states = ['updateposition'];
         td.handleEvent(fakeTextSelectInAppEvent);
         assert.isTrue(stubShow.calledWith(testDetail));
       });
 
+    test('should show bubble if states has updateposition and bubble is ' +
+         'closed', function() {
+        testDetail.isCollapsed = false;
+        td._hasCutOrCopied = false;
+        testDetail.visible = true;
+        testDetail.states = ['updateposition'];
+        td.handleEvent(fakeTextSelectInAppEvent);
+        assert.isFalse(stubShow.calledWith(testDetail));
+      });
     test('should show bubble when states has selectall', function() {
       // When user click selectAll button, gecko will send a selectchange event
       // with no mouseup reason.

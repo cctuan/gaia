@@ -551,12 +551,14 @@ endef
 
 export BUILD_CONFIG
 
-# Generate profile/
-$(PROFILE_FOLDER): profile-dir app test-agent-config contacts extensions b2g_sdk .git/hooks/pre-commit
-ifeq ($(BUILD_APP_NAME),*)
-	@echo "Profile Ready: please run [b2g|firefox] -profile $(CURDIR)$(SEP)$(PROFILE_FOLDER)"
-endif
+default:
+	@$(call $(BUILD_RUNNER),configure)
 
+include all.mk
+
+#profile: profile_dir test-agent-config contacts extensions b2g_sdk .git/hooks/pre-commit
+
+# Gener
 $(STAGE_DIR):
 	mkdir -p $@
 
@@ -676,7 +678,7 @@ preferences: profile-dir b2g_sdk
 	@$(call $(BUILD_RUNNER),preferences)
 
 # Generate profile/settings.json
-settings: pre-app
+#settings: pre-app
 
 # Generate $(PROFILE_FOLDER)/extensions
 EXT_DIR=$(PROFILE_FOLDER)/extensions

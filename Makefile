@@ -52,6 +52,9 @@
 ###############################################################################
 
 
+# Enable new build system, see https://wiki.mozilla.org/Gaia/Build/NewBuildSystem
+ENABLE_CONFIGURE_STEP=0
+
 # Eliminate use of the built-in implicit rules to get faster.
 MAKEFLAGS=-r
 
@@ -248,6 +251,8 @@ GAIA_DIR := $(CURDIR)
 SYS=$(shell uname -s)
 ARCH?=$(shell uname -m)
 MSYS_FIX=
+
+CPU_NUM?=1
 ifeq (${SYS}/${ARCH},Darwin/i386)
 ARCH=x86_64
 endif
@@ -259,6 +264,8 @@ SEP=\\
 SEP_FOR_SED=\\\\
 # Mingw mangle path and append c:\mozilla-build\msys\data in front of paths
 MSYS_FIX=/
+else
+CPU_NUM=$(shell getconf _NPROCESSORS_ONLN)
 endif
 
 # The b2g_sdk target arranges to get b2g desktop downloaded and set up.
@@ -549,7 +556,12 @@ define BUILD_CONFIG
   "RAPTOR" : "$(RAPTOR)", \
   "SHARE_PERF_USAGE": "$(SHARE_PERF_USAGE)", \
   "DEFAULT_KEYBOAD_SYMBOLS_FONT": "$(DEFAULT_KEYBOAD_SYMBOLS_FONT)", \
-  "DEFAULT_GAIA_ICONS_FONT": "$(DEFAULT_GAIA_ICONS_FONT)" \
+  "DEFAULT_GAIA_ICONS_FONT": "$(DEFAULT_GAIA_ICONS_FONT)", \
+  "BUILDAPP" : "$(BUILDAPP)", \
+  "APP" : "$(APP)", \
+  "XPCSHELLSDK" : "$(XPCSHELLSDK)", \
+  "CPU_NUM" : "$(CPU_NUM)", \
+  "ENABLE_CONFIGURE_STEP": "$(ENABLE_CONFIGURE_STEP)"
 }
 endef
 
@@ -572,7 +584,11 @@ build-app: app
 
 .PHONY: app
 app: b2g_sdk profile-dir
+ifeq ($(ENABLE_CONFIGURE_STEP),1)
+	@$(call $(BUILD_RUNNER),configure/configure)
+else
 	@$(call $(BUILD_RUNNER),app)
+endif
 
 .PHONY: pre-app
 pre-app: b2g_sdk profile-dir
@@ -606,6 +622,7 @@ ifeq ($(BUILD_APP_NAME),*)
 ifdef CONTACTS_PATH
 	@echo "Copying preload contacts to profile"
 	@cp $(CONTACTS_PATH) $(PROFILE_FOLDER)
+	@mkdir -p $(PROFILE_FOLDER)/defaults
 	@cp $(CONTACTS_PATH) $(PROFILE_FOLDER)/defaults/contacts.json
 else
 	@rm -f $(PROFILE_FOLDER)/contacts.json

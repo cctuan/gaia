@@ -36,7 +36,6 @@ exports.execute = function(options) {
     args.push('-ig', '\\[Network Required\\]');
   }
 
-  utils.log(JSON.stringify(options));
   var testDir = utils.getFile(options.GAIA_DIR);
   var files = [];
   var pattern;

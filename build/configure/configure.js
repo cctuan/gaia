@@ -47,11 +47,33 @@ ConfigureStep.prototype = {
       this.options.GAIA_DIR);
     this.buildConfig.addConfig('XPCSHELLSDK',
       this.options.XPCSHELLSDK);
+
+    this.mainMake.insertTask(null, 'all',
+      [this.options.PROFILE_DIR]);
+    this.mainMake.insertTask(null,
+      this.options.PROFILE_DIR,
+      [
+        utils.joinPath(this.options.STAGE_DIR, '*', 'Makefile'),
+        commonMkPath
+      ], [
+        // We use EXECUTE_BY_SCRIPT flag to identify the makefile is executed
+        // by script or user.
+        '@if [[ "$(EXECUTE_BY_SCRIPT)" == "" ]] ; then \\',
+        '  echo "STOP! $($?) has been changed!";\\',
+        '  echo "Please rerun Makefile under gaia folder.";\\',
+        '  echo "To ignore this message, touch ' +
+          this.options.PROFILE_DIR + ',";\\',
+        '  echo "but your build might not succeed.";\\',
+        '  exit 1;\\',
+        'fi'
+      ] 
+    );
     // TODO: we should be able to detect whether to regenerate makefile.
     this.preAppConfig();
     this.postAppConfig();
     // build-config.in has contained all necessary ENV data for the generated
     // makefile.
+
     this.mainMake.genBackend(this.buildConfig.getOutput('makefile'));
 
     // Execute the generated makefile directly.
@@ -116,11 +138,6 @@ ConfigureStep.prototype = {
       [this._stepIndex]
     );
 
-    this.mainMake.insertTask(
-      'phony',
-      'build-' + this.options.PROFILE_FOLDER
-    );
-
     this.options.GAIA_APPDIRS.split(' ').forEach(function(app) {
       if (!this.shouldBuild(app)) {
         return;
@@ -147,16 +164,10 @@ ConfigureStep.prototype = {
       }
 
       this.mainMake.insertDep(
-        'build-' + this.options.PROFILE_FOLDER,
+        'all',
         appBuild.name + '-app-build'
       );
     }, this);
-
-    this.mainMake.insertTask(
-      'phony',
-      'all',
-      ['build-' + this.options.PROFILE_FOLDER]
-    );
   }
 };
 

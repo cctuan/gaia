@@ -71,14 +71,33 @@ AppConfigureStep.prototype = {
     // Create app's own makefile and store in STAGE_APP_DIR/app.mk.
     this.appMkPath = utils.joinPath(this.appOptions.STAGE_APP_DIR, 'Makefile');
     this.mainMake = new DependencyGraph(this.appMkPath);
-
+    this.mainMake.insertTask(null, 'all',
+      [this.options.PROFILE_DIR]);
+    this.mainMake.insertTask(null,
+      this.options.PROFILE_DIR,
+      [
+        this.appMkPath
+      ], [
+        // We use EXECUTE_BY_SCRIPT flag to identify the makefile is executed
+        // by script or user.
+        '@if [[ "$(EXECUTE_BY_SCRIPT)" == "" ]] ; then \\',
+        '  echo "STOP! $($?) has been changed!";\\',
+        '  echo "Please rerun Makefile under gaia folder.";\\',
+        '  echo "To ignore this message, touch ' +
+          this.options.PROFILE_DIR + ',";\\',
+        '  echo "but your build might not succeed.";\\',
+        '  exit 1;\\',
+        'fi'
+      ] 
+    );
     this.genAppConfig();
 
     this.mainMake.genBackend(this.buildConfig.getOutput('makefile'));
   },
 
   get makeCommand() {
-    return '@make -C ' + this.appOptions.STAGE_APP_DIR;
+    return '@make -C ' + this.appOptions.STAGE_APP_DIR +
+      ' EXECUTE_BY_SCRIPT=1';
   },
 
   /**
@@ -125,6 +144,9 @@ AppConfigureStep.prototype = {
         [cmd]
       );
       this._preSteps = [step];
+    }, this);
+    this._preSteps.forEach(function(step) {
+      this.mainMake.insertDep('all', step);
     }, this);
   }
 };

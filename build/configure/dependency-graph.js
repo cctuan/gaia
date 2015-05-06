@@ -43,7 +43,16 @@ DependencyGraph.prototype = {
    * @param {string[]} commands - the command to execute in this target.
    */
   insertTask: function(type, target, deps, commands) {
-    this.tasks.unshift({
+    var task;
+    for (var id in this.tasks) {
+      if (this.tasks[id].target === target) {
+
+        utils.log('task ' + target + ' has been already inserted.');
+        task = this.tasks[id];
+        return;
+      }
+    }
+    this.tasks.push({
       type: type,
       target: target,
       deps: deps || [],
@@ -129,7 +138,10 @@ DependencyGraph.prototype = {
    *                               same time.
    */
   executeBackend: function(parallelNum) {
-    var envArray = ['-C', 'build_stage', '-j' + parallelNum];
+    // We use EXECUTE_BY_SCRIPT flag to identify the makefile is executed
+    // by script or user.
+    var envArray = ['-C', 'build_stage', '-j' + parallelNum,
+      'EXECUTE_BY_SCRIPT=1'];
     var envs = {};
     // Since we'll execute make by the makefile we generated, we need to make
     // sure previous ENV has been parsed to it.

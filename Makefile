@@ -53,7 +53,7 @@
 
 
 # Enable new build system, see https://wiki.mozilla.org/Gaia/Build/NewBuildSystem
-ENABLE_CONFIGURE_STEP=0
+ENABLE_CONFIGURE_STEP?=0
 
 # Eliminate use of the built-in implicit rules to get faster.
 MAKEFLAGS=-r

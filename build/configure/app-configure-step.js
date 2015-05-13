@@ -1,6 +1,6 @@
 'use strict';
 
-var utils = require('utils');
+var utils = require('./../utils');
 
 var DependencyGraph = require('./dependency-graph');
 var BuildConfig = require('./build-config');
@@ -76,7 +76,9 @@ AppConfigureStep.prototype = {
     this.mainMake.insertTask(null,
       this.options.PROFILE_DIR,
       [
-        this.appMkPath
+        this.appMkPath,
+        utils.joinPath(this.options.GAIA_DIR, 'build', 'configure')
+
       ], [
         // We use EXECUTE_BY_SCRIPT flag to identify the makefile is executed
         // by script or user.

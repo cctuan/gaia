@@ -1,6 +1,6 @@
 'use strict';
 
-var utils = require('utils');
+var utils = require('./../utils');
 var DependencyGraph = require('./dependency-graph');
 var AppConfigureStep = require('./app-configure-step');
 var BuildConfig = require('./build-config');
@@ -28,8 +28,12 @@ const PRE_APP_BUILD_STEPS = [
  * @param {object} options - BUILD_CONFIG from build-config.in.
  * @constructor
  */
-var ConfigureStep = function(options) {
-  this.options = options;
+var ConfigureStep = function() {
+  try {
+    this.options = JSON.parse(utils.getEnv('BUILD_CONFIG'));
+  } catch (e) {
+    throw 'Cannot parse BUILD_CONFIG data';
+  }
   this.buildConfig = new BuildConfig();
 };
 
@@ -54,6 +58,7 @@ ConfigureStep.prototype = {
       this.options.PROFILE_DIR,
       [
         utils.joinPath(this.options.STAGE_DIR, '*', 'Makefile'),
+        utils.joinPath(this.options.GAIA_DIR, 'build', 'configure'),
         commonMkPath
       ], [
         // We use EXECUTE_BY_SCRIPT flag to identify the makefile is executed
@@ -73,7 +78,6 @@ ConfigureStep.prototype = {
     this.postAppConfig();
     // build-config.in has contained all necessary ENV data for the generated
     // makefile.
-
     this.mainMake.genBackend(this.buildConfig.getOutput('makefile'));
 
     // Execute the generated makefile directly.
@@ -171,7 +175,5 @@ ConfigureStep.prototype = {
   }
 };
 
-exports.execute = function(options) {
-  var configStep = new ConfigureStep(options);
-  configStep.start();
-};
+var configStep = new ConfigureStep();
+configStep.start();

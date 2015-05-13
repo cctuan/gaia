@@ -499,6 +499,8 @@ TEST_DIRS ?= $(GAIA_DIR)/tests
 PROFILE_DIR?=$(GAIA_DIR)$(SEP)$(PROFILE_FOLDER)
 COREWEBAPPS_DIR?=$(PROFILE_DIR)
 
+CONFIGURE_JS?=$(GAIA_DIR)$(SEP)build$(SEP)configure$(SEP)configure.js
+
 define BUILD_CONFIG
 { \
   "ADB" : "$(patsubst "%",%,$(ADB))", \
@@ -561,7 +563,7 @@ define BUILD_CONFIG
   "APP" : "$(APP)", \
   "XPCSHELLSDK" : "$(XPCSHELLSDK)", \
   "CPU_NUM" : "$(CPU_NUM)", \
-  "ENABLE_CONFIGURE_STEP": "$(ENABLE_CONFIGURE_STEP)"
+  "ENABLE_CONFIGURE_STEP": "$(ENABLE_CONFIGURE_STEP)" \
 }
 endef
 
@@ -585,7 +587,7 @@ build-app: app
 .PHONY: app
 app: b2g_sdk profile-dir
 ifeq ($(ENABLE_CONFIGURE_STEP),1)
-	@$(call $(BUILD_RUNNER),configure/configure)
+	@node --harmony $(CONFIGURE_JS) BUILD_CONFIG=$(BUILD_CONFIG)
 else
 	@$(call $(BUILD_RUNNER),app)
 endif

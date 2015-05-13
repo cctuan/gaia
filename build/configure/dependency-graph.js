@@ -1,6 +1,6 @@
 'use strict';
 
-var utils = require('utils');
+var utils = require('./../utils');
 
 /**
  * DependencyGraph module can help you to generate new build backend, you can
@@ -151,14 +151,15 @@ DependencyGraph.prototype = {
       throw 'BUILD_CONFIG cannot be passed to JSON object';
     }
     for (var env in envs) {
-      envArray.push(env + '=' + envs[env]);
+      envArray.push(env + '="' + envs[env] + '"');
     }
 
     var make = new utils.Commander('make');
     make.initPath(utils.getEnvPath());
-    make.run(envArray, function(exitCode) {
-      if (exitCode !== 0) {
-        throw 'error';
+    make.run(envArray, function(stdout, stderr) {
+      utils.log(stdout);
+      if (stderr) {
+        throw stderr;
       }
     });
   }

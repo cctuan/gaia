@@ -16,7 +16,7 @@
 console: false, java: false, module: false, requirejsVars, navigator,
 document, importScripts, self, location, Components, FileUtils */
 
-var requirejs, require, define, xpcUtil;
+var requirejs, require, define, xpcUtil, configureDecider;
 (function (console, args, readFileFunc) {
     var fileName, env, fs, vm, path, exec, rhinoContext, dir, nodeRequire,
         nodeDefine, exists, reqMain, loadedOptimizedLib, existsForNode, Cc, Ci,
@@ -29,6 +29,7 @@ var requirejs, require, define, xpcUtil;
         //Used by jslib/xpconnect/args.js
         xpconnectArgs = args,
         readFile = typeof readFileFunc !== 'undefined' ? readFileFunc : null;
+
 
     function showHelp() {
         console.log('See https://github.com/jrburke/r.js for usage.');
@@ -4248,6 +4249,10 @@ define('xpconnect/file', ['prim'], function (prim) {
             var destFile = xpfile(destFileName),
             srcFile = xpfile(srcFileName);
 
+            if (typeof configureDecider === 'object' &&
+                typeof configureDecider.addFileWatcher === 'function') {
+                configureDecider.addFileWatcher([srcFile.path]);
+            }
             //logger.trace("Src filename: " + srcFileName);
             //logger.trace("Dest filename: " + destFileName);
 
@@ -28817,12 +28822,15 @@ define('build', function (require) {
     function createRjsApi() {
         //Create a method that will run the optimzer given an object
         //config.
-        requirejs.optimize = function (config, callback, errback) {
+        requirejs.optimize = function (config, callback, errback, configDecider) {
             if (!loadedOptimizedLib) {
                 loadLib();
                 loadedOptimizedLib = true;
             }
 
+            if (configDecider) {
+                configureDecider = configDecider;
+            }
             //Create the function that will be called once build modules
             //have been loaded.
             var runBuild = function (build, logger, quit) {

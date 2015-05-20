@@ -103,7 +103,10 @@ module.exports = {
         return /^\./.test(path.basename(src));
       },
       path: src,
-      leafName: path.basename(src)
+      leafName: path.basename(src),
+      get lastModifiedTime() {
+        return fileStat.mtime;
+      }
     };
   },
 

@@ -12,7 +12,7 @@ var utils = require('./../utils');
  * @constructor
  */
 var DependencyGraph = function(filename) {
-  this.tasks = [];
+  this.targets = {};
   this.filename = filename || this.FILENAME;
   this.env = utils.getEnv('BUILD_CONFIG');
 };
@@ -23,82 +23,61 @@ DependencyGraph.prototype = {
    * Insert new task target.
    * FIXME: Currently we only support Makefile form.
    *
-   * @param {string} type - type can be 'phony', 'include' and others. if we
-   *                        assigh others it will generate as below:
+   * @param {string} type - type can be empty or 'phony'
+   *                        if we leave empty, it will generate as below:
    *                        |target|: |deps|
    *                          |commands|
-   *
-   *                        if we assign 'include', we assume you won't set deps
-   *                        and commands and generate like below:
-   *                        include |target|
    *
    *                        if we assign 'phony', it will generate as below:
    *                        .PHONY: |target|
    *                        |target|: |deps|
    *                          |commands|
    *
-   * @param {string} target - the target name of the task
+   * @param {string} targetName - the target name of the task
    * @param {string[]} deps - all the dependency, they should be targets name we
    *                          already inserted.
    * @param {string[]} commands - the command to execute in this target.
    */
-  insertTask: function(type, target, deps, commands) {
-    var task;
-    for (var id in this.tasks) {
-      if (this.tasks[id].target === target) {
-
-        utils.log('task ' + target + ' has been already inserted.');
-        task = this.tasks[id];
-        return;
-      }
-    }
-    this.tasks.push({
-      type: type,
-      target: target,
-      deps: deps || [],
+  insertTask: function(type, targetName, deps, commands) {
+    var target = this.targets[targetName] = {
+      type: type || '',
+      deps: {},
       commands: commands || []
-    });
+    };
+    if (Array.isArray(deps)) {
+      deps.forEach(function(dep) {
+        target.deps[dep] = true;
+      });
+    }
   },
 
   /**
    * Insert dep to target.
-   * @param {string} target - the target should already be inserted, or we will
-   *                          create a new phony target.
+   * @param {string} targetName - the target should already be inserted, or we
+   *                              will create a new phony target.
    * @param {string} dep - the new dependency to add.
    */
-  insertDep: function(target, dep) {
-    var task;
-    for (var id in this.tasks) {
-      task = this.tasks[id];
-      if (task.target === target) {
-        break;
-      }
-    }
-    if (!task) {
-      this.insertTask('phony', target, [dep]);
-    } else if (task.deps.indexOf(dep) === -1) {
-      task.deps.push(dep);
+  insertDep: function(targetName, dep) {
+    var target = this.targets[targetName];
+    if (!target) {
+      this.insertTask('phony', targetName, [dep]);
+    } else {
+      target.deps[dep] = true;
     }
   },
 
   /**
    * Add new command to target.
-   * @param {string} target - the target should already be inserted, or we will
-   *                          create a new phony target.
+   * @param {string} targetName - the target should already be inserted, or we
+   *                              will create a new phony target.
    * @param {string} command - the new command to add.
    */
-  insertCommand: function(target, command) {
-    var task;
-    for (var id in this.tasks) {
-      task = this.tasks[id];
-      if (task.target === target) {
-        break;
-      }
-    }
-    if (!task) {
-      this.insertTask('phony', target, [], [command]);
+  insertCommand: function(targetName, command) {
+    var target = this.targets[targetName];
+    if (!target) {
+      this.insertTask('phony', targetName, [], [command]);
     } else {
-      task.commands.push(command);
+      target.commands.push(command);
     }
   },
 
@@ -113,20 +92,21 @@ DependencyGraph.prototype = {
     var result = '#THIS IS A GENERATED FILE, PLEASE DO NOT EDIT IT#\n' +
       (defaultLine || '') + '\n';
     var outputFile = utils.getFile(this.filename);
-    this.tasks.forEach(function(task) {
-      if (task.type === 'phony') {
-        result += '.PHONY: ' + task.target + '\n';
+    for (let targetName in this.targets) {
+      let target = this.targets[targetName];
+      if (target.type === 'phony') {
+        result += '.PHONY: ' + targetName + '\n';
       }
       var depsContent = '';
-      task.deps.forEach(function(dep) {
+      for (let dep in target.deps) {
         depsContent += ' ' + dep;
-      }, this);
-      result += '' + task.target + ':' + depsContent + '\n';
-      task.commands.forEach(function(command) {
+      }
+      result += '' + targetName + ':' + depsContent + '\n';
+      target.commands.forEach(function(command) {
         result += '\t' + command + '\n';
       });
       result += '\n';
-    }, this);
+    }
     utils.writeContent(outputFile, result);
   },
 

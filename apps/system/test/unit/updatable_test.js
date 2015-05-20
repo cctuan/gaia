@@ -1,7 +1,24 @@
 'use strict';
 
-requireApp('system/js/updatable.js');
+/* global
+   AppUpdatable,
+   appWindowManager,
+   asyncStorage,
+   MocksHelper,
+   MockApp,
+   MockAppWindowManager,
+   MockAppsMgmt,
+   MockChromeEvent,
+   MockCustomDialog,
+   MockNavigatorBattery,
+   MockNavigatorSettings,
+   MockService,
+   MockUpdateManager,
+   MockUtilityTray,
+   SystemUpdatable
+ */
 
+requireApp('system/js/updatable.js');
 requireApp('system/test/unit/mock_app.js');
 requireApp('system/test/unit/mock_asyncStorage.js');
 requireApp('system/test/unit/mock_update_manager.js');
@@ -10,6 +27,7 @@ requireApp('system/test/unit/mock_apps_mgmt.js');
 requireApp('system/test/unit/mock_chrome_event.js');
 requireApp('system/test/unit/mock_utility_tray.js');
 requireApp('system/test/unit/mock_navigator_battery.js');
+requireApp('system/shared/test/unit/mocks/mock_service.js');
 requireApp('system/shared/test/unit/mocks/mock_custom_dialog.js');
 requireApp('system/shared/test/unit/mocks/mock_manifest_helper.js');
 requireApp('system/shared/test/unit/mocks/mock_navigator_moz_settings.js');
@@ -20,7 +38,8 @@ var mocksHelperForUpdatable = new MocksHelper([
   'AppWindowManager',
   'UtilityTray',
   'ManifestHelper',
-  'asyncStorage'
+  'asyncStorage',
+  'Service'
 ]).init();
 
 suite('system/Updatable', function() {
@@ -70,6 +89,7 @@ suite('system/Updatable', function() {
     mockApp = new MockApp();
     subject = new AppUpdatable(mockApp);
 
+    window.appWindowManager = new MockAppWindowManager();
     MockNavigatorSettings.mSettings[BATTERY_THRESHOLD_UNPLUGGED] = 25;
     MockNavigatorSettings.mSettings[BATTERY_THRESHOLD_PLUGGED] = 10;
 
@@ -82,6 +102,10 @@ suite('system/Updatable', function() {
       };
     };
     subject._dispatchEvent = fakeDispatchEvent;
+
+    var fakeScreen = document.createElement('div');
+    fakeScreen.id = 'screen';
+    document.body.appendChild(fakeScreen);
   });
 
   teardown(function() {
@@ -89,6 +113,7 @@ suite('system/Updatable', function() {
 
     subject._dispatchEvent = realDispatchEvent;
     lastDispatchedEvent = null;
+    MockService.currentApp = null;
   });
 
   function downloadAvailableSuite(name, setupFunc) {
@@ -137,7 +162,7 @@ suite('system/Updatable', function() {
 
     test('should remember about the update on startup', function() {
       asyncStorage.mItems[SystemUpdatable.KNOWN_UPDATE_FLAG] = true;
-      var systemUpdatable = new SystemUpdatable();
+      var systemUpdatable = new SystemUpdatable(); // jshint ignore:line
       assert.equal(MockUpdateManager.mCheckForUpdatesCalledWith, true);
     });
 
@@ -157,7 +182,7 @@ suite('system/Updatable', function() {
       });
 
       test('should kill the app if downloaded', function() {
-        assert.equal(MockAppWindowManager.mLastKilledOrigin, mockApp.origin);
+        assert.equal(window.appWindowManager.mLastKilledOrigin, mockApp.origin);
       });
     });
 
@@ -357,7 +382,7 @@ suite('system/Updatable', function() {
         suite('application of the download', function() {
           test('should apply if the app is not in foreground', function() {
             mockApp.mTriggerDownloadAvailable();
-            MockAppWindowManager.mActiveApp = { origin: 'homescreen' };
+            MockService.currentApp = { origin: 'homescreen' };
             mockApp.mTriggerDownloadSuccess();
             assert.isNotNull(MockAppsMgmt.mLastAppApplied);
             assert.equal(MockAppsMgmt.mLastAppApplied.mId, mockApp.mId);
@@ -366,7 +391,7 @@ suite('system/Updatable', function() {
           test('should wait for appwillclose if it is', function() {
             var origin = 'http://testapp.gaiamobile.org';
             mockApp.origin = origin;
-            MockAppWindowManager.mActiveApp = mockApp;
+            MockService.currentApp = mockApp;
 
             mockApp.mTriggerDownloadAvailable();
             mockApp.mTriggerDownloadSuccess();
@@ -382,10 +407,11 @@ suite('system/Updatable', function() {
           });
 
           test('should kill the app before applying the update', function() {
+            MockService.currentApp = { origin: 'test' };
             mockApp.mTriggerDownloadAvailable();
             mockApp.mTriggerDownloadSuccess();
-            assert.equal('http://testapp.gaiamobile.org',
-                         MockAppWindowManager.mLastKilledOrigin);
+            assert.equal('https://testapp.gaiamobile.org',
+                         appWindowManager.mLastKilledOrigin);
           });
         });
       });
@@ -773,7 +799,6 @@ suite('system/Updatable', function() {
           MockNavigatorBattery.charging = true;
           subject.getBatteryPercentageThreshold().then(
             function(threshold) {
-              console.log('ok');
               assert.equal(
                 threshold,
                 MockNavigatorSettings.mSettings[BATTERY_THRESHOLD_PLUGGED]
@@ -896,31 +921,64 @@ suite('system/Updatable', function() {
       });
 
       suite('low battery', function() {
+        var event;
         setup(function() {
           asyncStorage.setItem(SystemUpdatable.KNOWN_UPDATE_FLAG, true);
           MockUtilityTray.show();
           MockNavigatorBattery.level = 0.1;
-          var event = new MockChromeEvent({
+          event = new MockChromeEvent({
             type: 'update-prompt-apply'
           });
-          subject.handleEvent(event);
         });
 
-        testSystemApplyPromptBatteryNok(MID_CHARGE);
+        suite('ota update package', function() {
+          setup(function() {
+            event.detail.isOSUpdate = false;
+            subject.handleEvent(event);
+          });
+
+          testSystemApplyPromptBatteryOk();
+        });
+
+        suite('fota update package', function() {
+          setup(function() {
+            event.detail.isOSUpdate = true;
+            subject.handleEvent(event);
+          });
+
+          testSystemApplyPromptBatteryNok(MID_CHARGE);
+        });
       });
 
       suite('high battery', function() {
+        var event;
         setup(function() {
           asyncStorage.setItem(SystemUpdatable.KNOWN_UPDATE_FLAG, true);
           MockUtilityTray.show();
           MockNavigatorBattery.level = 0.9;
-          var event = new MockChromeEvent({
+          event = new MockChromeEvent({
             type: 'update-prompt-apply'
           });
           subject.handleEvent(event);
         });
 
-        testSystemApplyPromptBatteryOk();
+        suite('ota update package', function() {
+          setup(function() {
+            event.detail.isOSUpdate = false;
+            subject.handleEvent(event);
+          });
+
+          testSystemApplyPromptBatteryOk();
+        });
+
+        suite('fota update package', function() {
+          setup(function() {
+            event.detail.isOSUpdate = true;
+            subject.handleEvent(event);
+          });
+
+          testSystemApplyPromptBatteryOk();
+        });
       });
     });
   }

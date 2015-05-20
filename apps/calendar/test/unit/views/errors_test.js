@@ -1,13 +1,14 @@
-suiteGroup('Views.Errors', function() {
-  'use strict';
+define(function(require) {
+'use strict';
 
-  var subject, app, errorName;
+var Errors = require('views/errors');
+var core = require('core');
+
+suite('Views.Errors', function() {
+  var subject, errorName;
 
   setup(function() {
-    app = testSupport.calendar.app();
-    subject = new Calendar.Views.Errors({
-      app: app
-    });
+    subject = new Errors();
 
     subject.showErrors = function(list) {
       errorName = list[0].name;
@@ -15,7 +16,9 @@ suiteGroup('Views.Errors', function() {
   });
 
   test('offline event', function() {
-    subject.app.syncController.emit('offline');
+    core.syncController.emit('offline');
     assert.deepEqual(errorName, 'offline');
   });
+});
+
 });

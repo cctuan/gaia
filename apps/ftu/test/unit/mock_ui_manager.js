@@ -1,4 +1,6 @@
 'use strict';
+/* global DataMobile */
+/* exported MockUIManager */
 
 var MockUIManager = {
   domSelectors: [
@@ -39,6 +41,7 @@ var MockUIManager = {
     'xck-retries-left',
     'xck-input',
     'xck-error',
+    'xck-info',
     // SIM info
     'sim-info-screen',
     'sim-info-back',
@@ -78,9 +81,9 @@ var MockUIManager = {
     'time-configuration-label',
     'time-form',
     // 3G
-    'data-connection-switch',
+    'data-connection-checkbox',
     // Geolocation
-    'geolocation-switch',
+    'geolocation-checkbox',
     // Tutorial
     'lets-go-button',
     'update-lets-go-button',
@@ -96,6 +99,8 @@ var MockUIManager = {
     'offline-newsletter-error-dialog',
     'invalid-email-error-dialog'
   ],
+  DARK_THEME: '#242d33',
+  LIGHT_THEME: '#eeeeee',
 
   mSetup: function muim_mSuiteSetup() {
     this.domSelectors.forEach(function createElementRef(name) {
@@ -124,7 +129,8 @@ var MockUIManager = {
   displayOfflineDialog: function() {},
   hideActivationScreenFromScreenReader: function() {},
   init: function() {},
-  initTZ: function() {}
+  initTZ: function() {},
+  changeStatusBarColor: function(color) {}
 };
 
 function toCamelCase(str) {

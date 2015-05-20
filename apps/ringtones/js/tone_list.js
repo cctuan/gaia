@@ -53,7 +53,6 @@ var ToneList = (function() {
     var dummyDiv = document.createElement('div');
     dummyDiv.innerHTML = htmlText;
     var element = dummyDiv.firstElementChild;
-    navigator.mozL10n.translate(element);
 
     return element;
   }
@@ -100,7 +99,9 @@ var ToneList = (function() {
       if (tone.subtitle) {
         var subtitle = document.createElement('p');
         subtitle.classList.add('subtitle');
-        subtitle.textContent = tone.subtitle;
+        var bdi = document.createElement('bdi');
+        bdi.textContent = tone.subtitle;
+        subtitle.appendChild(bdi);
         item.querySelector('.name').parentNode.appendChild(subtitle);
       }
 

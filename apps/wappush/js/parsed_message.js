@@ -144,15 +144,6 @@
 
       obj.text = indicationNode.textContent;
 
-      // 'si-id' attribute, optional, string
-      if (indicationNode.hasAttribute('si-id')) {
-        obj.id = indicationNode.getAttribute('si-id');
-      } else if (obj.href) {
-        /* WAP-167 5.2.1: If the 'si-id' attribute is not specified, its value
-         * is considered to be the same as the value of the 'href' attribute */
-        obj.id = obj.href;
-      }
-
       // 'created' attribute, optional, date in ISO 8601 format
       if (indicationNode.hasAttribute('created')) {
         var date = new Date(indicationNode.getAttribute('created'));
@@ -175,10 +166,18 @@
         obj.action = 'signal-medium';
       }
 
-      /* If the message has a 'delete' action but no 'si-id' field than it's
-       * malformed and should be immediately discarded, see WAP-167 6.2 */
-      if (obj.action === 'delete' && !obj.id) {
+      // 'si-id' attribute, optional, string
+      if (indicationNode.hasAttribute('si-id')) {
+        obj.id = indicationNode.getAttribute('si-id');
+      } else if (obj.action === 'delete') {
+        /* If the message has a 'delete' action but no 'si-id' field than it's
+         * malformed and should be immediately discarded, see WAP-167 6.2 */
         return null;
+      } else if (obj.href) {
+        /* If the 'si-id' attribute is not specified then its value is
+         * considered to be the same as the value of the 'href' attribute,
+         * see WAP-167 5.2.1 */
+        obj.id = obj.href;
       }
     } else if (message.contentType === 'text/vnd.wap.sl') {
       // SL message
@@ -197,9 +196,17 @@
     } else if (message.contentType === 'text/vnd.wap.connectivity-xml') {
       // Client provisioning (CP) message
       obj.provisioning = Provisioning.fromMessage(message);
+
       // Security information is mandatory for the application. The application
       // must discard any message with no security information.
       if (!obj.provisioning.authInfo) {
+        return null;
+      }
+
+      var authInfo = obj.provisioning.authInfo;
+      // Let's discard any message that was not successfully authenticated by
+      // gecko.
+      if (authInfo.checked && !authInfo.pass) {
         return null;
       }
 

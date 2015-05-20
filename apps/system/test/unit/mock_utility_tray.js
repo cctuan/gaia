@@ -1,3 +1,6 @@
+'use strict';
+/* exported MockUtilityTray */
+
 var MockUtilityTray = {
   init: function() {
   },
@@ -8,6 +11,9 @@ var MockUtilityTray = {
 
   hide: function() {
     this.mShown = false;
+  },
+
+  updateNotificationCount: function() {
   },
 
   mShown: false,

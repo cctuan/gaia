@@ -8,10 +8,13 @@
     <link rel="stylesheet" href="style/open.css" type="text/css" />
     <link rel="stylesheet" href="shared/style/status.css" type="text/css" />
     <!-- Localization -->
-    <link rel="manifest" href="manifest.webapp">
+    <meta name="defaultLanguage" content="en-US">
+    <meta name="availableLanguages" content="en-US">
     <link rel="localization" href="locales/gallery.{locale}.properties">
+    <link rel="localization" href="/shared/locales/media/media.{locale}.properties">
     <!-- Shared code -->
     <script type="text/javascript" src="shared/js/l10n.js"></script>
+    <script defer src="shared/js/l10n_date.js"></script>
     <script type="text/javascript" defer src="shared/js/gesture_detector.js"></script>
     <script type="text/javascript" defer src="shared/js/media/downsample.js"></script>
     <script type="text/javascript" defer src="shared/js/media/media_frame.js"></script>
@@ -23,15 +26,16 @@
     <script type="text/javascript" defer src="shared/js/device_storage/get_unused_filename.js"></script>
     <!-- Specific code -->
     <script type="text/javascript" defer src="js/config.js"></script>
+    <script type="text/javascript" defer src="js/nfc.js"></script>
     <script type="text/javascript" defer src="js/open.js"></script>
     <!-- Web Components -->
     <script defer src="shared/elements/config.js"></script>
-    <script defer src="shared/elements/gaia-header/dist/script.js"></script>
-    <link rel="stylesheet" type="text/css" href="shared/elements/gaia-theme/style.css" />
-    <link rel="stylesheet" type="text/css" href="shared/elements/gaia-icons/style.css" />
+    <link rel="stylesheet" type="text/css" href="app://theme.gaiamobile.org/shared/elements/gaia-theme/gaia-theme.css">
+    <link rel="stylesheet" type="text/css" href="shared/elements/gaia-icons/gaia-icons.css">
+    <script defer src="shared/elements/gaia-header/dist/gaia-header.js"></script>
   </head>
 
-  <body role="application">
+  <body role="application" class="theme-media">
     <section id="open" role="region" class="skin-dark">
       <gaia-header id="header" action="back">
         <h1 id="filename"></h1>

@@ -1,5 +1,4 @@
 'use strict';
-/* global exports, require */
 
 var utils = require('./utils');
 
@@ -18,6 +17,18 @@ function setWallpaper(settings, config) {
     wallpaper = utils.resolve(
       utils.joinPath(config.GAIA_DISTRIBUTION_DIR, 'wallpapers', 'default.jpg'),
       config.GAIA_DIR);
+  }
+
+  if (!wallpaper.exists()) {
+    wallpaper = utils.resolve(
+      utils.joinPath('build', 'config', 'wallpaper_' +
+        config.GAIA_DEVICE_TYPE + devpixels + '.jpg'), config.GAIA_DIR);
+  }
+
+  if (!wallpaper.exists()) {
+    wallpaper = utils.resolve(
+      utils.joinPath('build', 'config', 'wallpaper_' +
+        config.GAIA_DEVICE_TYPE + '.jpg'), config.GAIA_DIR);
   }
 
   if (!wallpaper.exists()) {
@@ -201,11 +212,20 @@ function setHomescreenURL(settings, config) {
 
 function writeSettings(settings, config) {
   // Finally write the settings file
-  let settingsFile = utils.getFile(config.STAGE_DIR, 'settings_stage.json');
-  utils.log('settings.js', 'Writing settings file: ' + settingsFile.path);
+  let profileDir = utils.getFile(config.PROFILE_DIR);
+  let settingsFile = utils.getFile(config.PROFILE_DIR, 'settings.json');
+  let defaultsSettings = utils.getFile(
+    config.PROFILE_DIR, 'defaults', 'settings.json');
+
+  utils.ensureFolderExists(profileDir);
   let content = JSON.stringify(settings);
   utils.writeContent(settingsFile, content + '\n');
-  utils.log('settings.js', 'Settings file has been written');
+  utils.log('settings.js', 'Writing settings file: ' + settingsFile.path);
+
+  var defaultSettingFolder = utils.getFile(profileDir.path, 'defaults');
+  utils.ensureFolderExists(defaultSettingFolder);
+  utils.writeContent(defaultsSettings, content + '\n');
+  utils.log('settings.js', 'Writing settings file: ' + defaultsSettings.path);
 }
 
 function execute(config) {
@@ -236,6 +256,9 @@ function execute(config) {
   // Set the ftu ping URL -- we set this regardless of NOFTU for now
   settings['ftu.pingURL'] = config.FTU_PING_URL;
 
+  // Whether or not performance and usage data are shared by default
+  settings['debug.performance_data.shared'] = config.SHARE_PERF_USAGE === '1';
+
   // Set the rocketbar URL
   settings['rocketbar.searchAppURL'] = utils.gaiaOriginURL('search',
     config.GAIA_SCHEME, config.GAIA_DOMAIN, config.GAIA_PORT) + '/index.html';
@@ -244,27 +267,35 @@ function execute(config) {
   settings['rocketbar.newTabAppURL'] = utils.gaiaOriginURL('search',
     config.GAIA_SCHEME, config.GAIA_DOMAIN, config.GAIA_PORT) + '/index.html';
 
-  settings['debugger.remote-mode'] = config.REMOTE_DEBUGGER ? 'adb-only'
-                                                            : 'disabled';
+  settings['debugger.remote-mode'] = config.REMOTE_DEBUGGER === '1' ?
+    'adb-only' : 'disabled';
 
   if (config.PRODUCTION === '1') {
     settings['feedback.url'] = 'https://input.mozilla.org/api/v1/feedback/';
     settings['debugger.remote-mode'] = 'disabled';
+    settings['gaia.system.checkForUpdates'] = true;
+  }
+
+  if (config.PRODUCTION === '0') {
+    settings['dom.mozApps.signed_apps_installable_from'] =
+      'https://marketplace.firefox.com,https://marketplace.allizom.org';
+    settings['devtools.qps.enabled'] = true;
   }
 
   settings['language.current'] = config.GAIA_DEFAULT_LOCALE;
 
-  if (config.DEVICE_DEBUG) {
+  if (config.DEVICE_DEBUG === '1') {
     settings['debugger.remote-mode'] = 'adb-devtools';
   }
 
-  if (config.NO_LOCK_SCREEN) {
+  if (config.NO_LOCK_SCREEN === '1') {
     settings['lockscreen.enabled'] = false;
     settings['lockscreen.locked'] = false;
   }
 
-  if (config.SCREEN_TIMEOUT >= 0) {
-    settings['screen.timeout'] = config.SCREEN_TIMEOUT;
+  var screenTimeout = parseInt(config.SCREEN_TIMEOUT, 10);
+  if (screenTimeout >= 0) {
+    settings['screen.timeout'] = screenTimeout;
   }
 
   setDefaultKeyboardLayouts(config.GAIA_DEFAULT_LOCALE, settings, config);
@@ -287,7 +318,6 @@ function execute(config) {
   }).then(function() {
     overrideSettings(settings, config);
   }).then(function() {
-    // Set the homescreen URL
     setHomescreenURL(settings, config);
   }).then(function() {
     writeSettings(settings, config);

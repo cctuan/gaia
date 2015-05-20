@@ -1,5 +1,7 @@
 'use strict';
 
+/* jshint node: true */
+
 var utils = require('./utils');
 var sh = new utils.Commander('sh');
 var Q = utils.Q;
@@ -13,7 +15,7 @@ sh.initPath(utils.getEnvPath());
  */
 function needsB2gRestart(appName) {
   // b2g should be restarted if these app name is assigned by APP=appname
-  var appList = ['system', 'callscreen', 'browser'];
+  var appList = ['system', 'callscreen'];
   return (appList.indexOf(appName) !== -1);
 }
 
@@ -97,8 +99,9 @@ function getRemoteInstallPath(adb) {
   // Read the file as JSON
   // If there were no webapps ever installed on the device (likely purged in
   // the previous step), default to /system/b2g
+  var content;
   try {
-    var content = utils.getJSON(tempFile);
+    content = utils.getJSON(tempFile);
   } catch (e) {
     return '/system/b2g';
   }
@@ -113,7 +116,7 @@ function getRemoteInstallPath(adb) {
     }
   }
   return '/data/local';
-};
+}
 
 function execute(options) {
   const buildAppName = options.BUILD_APP_NAME;
@@ -180,14 +183,14 @@ function execute(options) {
   }).then(function() {
     if (buildAppName === '*') {
       return sh.run(['-c', adb + ' push ' +
-        '"shared/elements/gaia-icons/fonts/gaia-icons.ttf" ' +
-        '//system/fonts/hidden/gaia-icons.ttf']);
+        '"' + options.DEFAULT_GAIA_ICONS_FONT + '"' +
+        ' //system/fonts/hidden/gaia-icons.ttf']);
     }
   }).then(function() {
     if (buildAppName === '*') {
       return sh.run(['-c', adb + ' push ' +
-        '"shared/style/keyboard_symbols/Keyboard-Symbols.ttf" ' +
-        '//system/fonts/hidden/Keyboard-Symbols.ttf']);
+        '"' + options.DEFAULT_KEYBOAD_SYMBOLS_FONT + '"' +
+        ' //system/fonts/hidden/Keyboard-Symbols.ttf']);
     }
   }).then(function() {
     if (buildAppName === '*' || restartB2g) {
@@ -196,7 +199,6 @@ function execute(options) {
     } else {
       var Q3 = Q.defer();
       var manifest;
-      var appPid;
       Q3.resolve();
       return Q3.promise.then(function() {
       // Some app folder name is different with the process name,

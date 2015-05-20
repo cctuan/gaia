@@ -1,10 +1,8 @@
 /* global DataMobile, Navigation, SimManager, TimeManager,
           UIManager, WifiManager, ImportIntegration, Tutorial,
-          VersionHelper */
+          VersionHelper, LanguageManager */
 /* exported AppManager */
 'use strict';
-
-var _ = navigator.mozL10n.get;
 
 function notifyCollection() {
   navigator.mozApps.getSelf().onsuccess = function(evt) {
@@ -34,6 +32,7 @@ var AppManager = {
   init: function init(versionInfo) {
     this.isInitialized = true;
 
+    LanguageManager.init();
     UIManager.init();
     Navigation.init();
 
@@ -105,8 +104,9 @@ navigator.mozL10n.ready(function showBody() {
       AppManager.init(versionInfo);
     } else {
       UIManager.initTZ();
-      UIManager.mainTitle.innerHTML = _('language');
+      if (!UIManager.mainTitle.hasAttribute('data-l10n-id')) {
+        UIManager.mainTitle.setAttribute('data-l10n-id', 'language');
+      }
     }
-
   });
 });

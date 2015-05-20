@@ -1,6 +1,43 @@
 // This file contains Gallery code related to the fullscreen view
-
 'use strict';
+/* global
+  $,
+  CONFIG_MAX_IMAGE_PIXEL_SIZE,
+  CONFIG_MAX_PICK_PIXEL_SIZE,
+  CONFIG_REQUIRED_EXIF_PREVIEW_HEIGHT,
+  CONFIG_REQUIRED_EXIF_PREVIEW_WIDTH,
+  cropResizeRotate,
+  currentFileIndex,
+  currentView,
+  deleteFile,
+  Dialogs,
+  editPhotoIfCardNotFull,
+  ensureFileBackedBlob,
+  files,
+  frames:true,
+  fullscreenButtons,
+  fullscreenView,
+  GestureDetector,
+  getCurrentFile,
+  getVideoFile,
+  isPhone,
+  LAYOUT_MODE,
+  LazyLoader,
+  MediaFrame,
+  NFC,
+  photodb,
+  setView,
+  share,
+  showFileInformation,
+  Spinner,
+  TRANSITION_FRACTION,
+  TRANSITION_SPEED,
+  updateFocusThumbnail
+*/
+/* exported
+  clearFrames,
+  showFile
+*/
 
 var frames = $('frames');
 
@@ -9,9 +46,9 @@ var frames = $('frames');
 // reused when we pan to the next or previous photo: next becomes
 // current, current becomes previous etc.  See nextFile() and
 // previousFile().  Note also that the Frame object is not a DOM
-// element.  Use currentFrame.container to refer to the div
+// element.  Use currentFrame.container to refer to the section
 // element. The frame constructor creates an <img> element, a <video>
-// element, and video player controls within the div, and you can refer to
+// element, and video player controls within the section, and you can refer to
 // those as currentFrame.image and currentFrame.video.player and
 // currentFrame.video.controls.
 var maxImageSize = CONFIG_MAX_IMAGE_PIXEL_SIZE;
@@ -44,10 +81,13 @@ fullscreenButtons.delete.onclick = deleteSingleItem;
 
 // Clicking the Edit button while viewing a photo switches to edit mode
 fullscreenButtons.edit.onclick = function() {
-  loader.load(['js/ImageEditor.js', 'shared/js/media/crop_resize_rotate.js'],
-              function() {
-                editPhotoIfCardNotFull(currentFileIndex);
-              });
+  LazyLoader.load(['js/ImageEditor.js',
+                   'js/image_processor_thread.js',
+                   'shared/js/media/crop_resize_rotate.js',
+                   'shared/style/action_menu.css'
+                  ], function() {
+                    editPhotoIfCardNotFull(currentFileIndex);
+                  });
 };
 
 // In fullscreen mode, the share button shares the current item
@@ -55,15 +95,17 @@ fullscreenButtons.share.onclick = shareSingleItem;
 
 // Clicking the information button will display information about the photo.
 fullscreenButtons.info.onclick = function() {
-  loader.load(['js/info.js', 'shared/style/confirm.css', 'style/info.css'],
-              function() {
-                showFileInformation(files[currentFileIndex]);
-              });
+  LazyLoader.load(['js/info.js', 'shared/style/confirm.css', 'style/info.css'],
+                  function() {
+                    showFileInformation(files[currentFileIndex]);
+                  });
 };
 
 // Use the GestureDetector.js library to handle gestures.
 // This will generate tap, pan, swipe and transform events
 new GestureDetector(frames).startDetecting();
+
+var frameOffset = 0; // how far are the frames swiped side-to-side?
 
 // Handle gesture events
 frames.addEventListener('tap', tapHandler);
@@ -71,6 +113,7 @@ frames.addEventListener('dbltap', dblTapHandler);
 frames.addEventListener('pan', panHandler);
 frames.addEventListener('swipe', swipeHandler);
 frames.addEventListener('transform', transformHandler);
+frames.addEventListener('wheel', wheelHandler);
 
 currentFrame.video.onfullscreentap =
   previousFrame.video.onfullscreentap =
@@ -95,8 +138,9 @@ currentFrame.video.onplaying =
   function hideToolbarOnPlay() {
     this.isToolbarHidden =
       fullscreenView.classList.contains('toolbar-hidden');
-    if (!this.isToolbarHidden)
+    if (!this.isToolbarHidden) {
       fullscreenView.classList.add('toolbar-hidden');
+    }
   };
 
 currentFrame.video.onpaused =
@@ -127,30 +171,33 @@ nextFrame.container.addEventListener('transitionend', removeTransition);
 function deleteSingleItem() {
   var msg;
   if (files[currentFileIndex].metadata.video) {
-    msg = navigator.mozL10n.get('delete-video?');
+    msg = 'delete-video?';
   }
   else {
-    msg = navigator.mozL10n.get('delete-photo?');
+    msg = 'delete-photo?';
   }
   // We need to disable NFC sharing when showing delete confirmation dialog
-  setNFCSharing(false);
+  NFC.unshare();
 
   Dialogs.confirm({
-    message: msg,
-    cancelText: navigator.mozL10n.get('cancel'),
-    confirmText: navigator.mozL10n.get('delete'),
-    danger: true
+    messageId: msg,
+    cancelId: 'cancel',
+    confirmId: 'delete',
+    danger: true,
+    bodyClass: 'showing-dialog'
   }, function() { // onSuccess
-    // disable delete and share button to prevent operations while delete item
+    // disable delete, edit and share button to prevent
+    // operations while delete item
     fullscreenButtons.delete.classList.add('disabled');
     fullscreenButtons.share.classList.add('disabled');
+    fullscreenButtons.edit.classList.add('disabled');
 
     deleteFile(currentFileIndex);
     // Enable NFC sharing when done deleting and returns to fullscreen view
-    setNFCSharing(true);
+    NFC.share(getCurrentFile);
   }, function() { // onCancel
     // Enable NFC sharing when cancels delete and returns to fullscreen view
-    setNFCSharing(true);
+    NFC.share(getCurrentFile);
   });
 }
 
@@ -176,8 +223,8 @@ function shareSingleItem() {
       // This is only tricky case. If we are sharing an image that uses
       // EXIF orientation for correct display, rotate it before sharing
       // so that the recieving app doesn't have to know about EXIF
-      loader.load(['shared/js/media/crop_resize_rotate.js'],
-                  shareModifiedImage);
+      LazyLoader.load(['shared/js/media/crop_resize_rotate.js'],
+                      shareModifiedImage);
     }
   }
 
@@ -185,18 +232,20 @@ function shareSingleItem() {
     var metadata = fileinfo.metadata;
     var button = fullscreenButtons.share;
     button.classList.add('disabled');
-    showSpinner();
+    Spinner.show();
     var maxsize = CONFIG_MAX_PICK_PIXEL_SIZE || CONFIG_MAX_IMAGE_PIXEL_SIZE;
     cropResizeRotate(currentFrame.imageblob, null,
                      maxsize || null, null, metadata,
                      function(error, rotatedBlob) {
-                       hideSpinner();
-                       button.classList.remove('disabled');
                        if (error) {
                          console.error('Error while rotating image: ', error);
                          rotatedBlob = currentFrame.imageblob;
                        }
-                       share([rotatedBlob], currentFrame.imageblob.name);
+                       ensureFileBackedBlob(rotatedBlob, function(file) {
+                         Spinner.hide();
+                         button.classList.remove('disabled');
+                         share([file], currentFrame.imageblob.name);
+                       });
                      });
   }
 }
@@ -210,8 +259,9 @@ function tapHandler(e) {
   // is the second tap and we're about to get a double tap event
   // 2. currentFrame has not yet loaded any image or video.
   if (taptimer ||
-      (!currentFrame.displayingImage && !currentFrame.displayingVideo))
+      (!currentFrame.displayingImage && !currentFrame.displayingVideo)) {
     return;
+  }
 
   // If we don't get a second tap soon, then treat this as a single tap
   taptimer = setTimeout(function() {
@@ -222,8 +272,9 @@ function tapHandler(e) {
 
 // Dispatch double tap events, but only when displaying a photo
 function dblTapHandler(e) {
-  if (currentFrame.displayingVideo)
+  if (currentFrame.displayingVideo) {
     return;
+  }
 
   clearTimeout(taptimer);
   taptimer = null;
@@ -263,22 +314,25 @@ function doubletapOnPhoto(e) {
   // decodes the full-size version of the photo and that can cause OOM
   // errors if there is also metadata scanning going on with large images.
   // XXX: Remove this when bug 854795 is fixed.
-  if (photodb.parsingBigFiles)
+  if (photodb.parsingBigFiles) {
     return;
+  }
 
   var scale;
-  if (currentFrame.fit.scale > currentFrame.fit.baseScale)   // If zoomed in
+  if (currentFrame.fit.scale > currentFrame.fit.baseScale) {   // If zoomed in
     scale = currentFrame.fit.baseScale / currentFrame.fit.scale; // zoom out
-  else                                                       // Otherwise
+  } else {                                                       // Otherwise
     scale = 2;                                                   // zoom in
+  }
 
   currentFrame.zoom(scale, e.detail.clientX, e.detail.clientY, 200);
 }
 
 // Pan the item sideways when the user moves their finger across the screen
 function panHandler(event) {
-  if (transitioning)
+  if (transitioning) {
     return;
+  }
 
   var dx = event.detail.relative.dx;
   var dy = event.detail.relative.dy;
@@ -314,29 +368,44 @@ function panHandler(event) {
   }
 
   // Don't swipe past the end of the last item or past the start of the first
-  if ((currentFileIndex === 0 && frameOffset > 0) ||
-      (currentFileIndex === files.length - 1 && frameOffset < 0)) {
-    frameOffset = 0;
+  // Handle frameOffset reset in RTL when directions are reversed. See 1099458
+  if (navigator.mozL10n.language.direction === 'ltr') {
+    if ((currentFileIndex === 0 && frameOffset > 0) ||
+        (currentFileIndex === files.length - 1 && frameOffset < 0)) {
+      frameOffset = 0;
+    }
+  } else {
+    if ((currentFileIndex === 0 && frameOffset < 0) ||
+        (currentFileIndex === files.length - 1 && frameOffset > 0)) {
+      frameOffset = 0;
+    }
   }
 
   // If the frameOffset has changed since we started, reposition the frames
-  if (frameOffset !== oldFrameOffset)
+  if (frameOffset !== oldFrameOffset) {
     setFramesPosition();
+  }
 }
 
 // When the user lifts their finger after panning we get this event
 function swipeHandler(event) {
+  if (transitioning) {
+    return;
+  }
+
   // If we just panned within a zoomed-in photo, and the frames are not
   // shifted at all, then we don't have to do anything here.
-  if (frameOffset === 0)
+  if (frameOffset === 0) {
     return;
+  }
 
   // 1 means we're going to the next item -1 means the previous
   var direction = (frameOffset < 0) ? 1 : -1;
 
   // If we're in a right-to-left locale, reverse those directions
-  if (navigator.mozL10n.language.direction === 'rtl')
+  if (navigator.mozL10n.language.direction === 'rtl') {
     direction *= -1;
+  }
 
   // Did we pan far enough or swipe fast enough to transition to
   // a different item?
@@ -355,23 +424,25 @@ function swipeHandler(event) {
 
   // If all of these conditions hold, then we'll transition to the
   // next photo or the previous photo
+  var time;
   if (direction !== 0 && (farenough || fastenough) &&
       samedirection && fileexists) {
 
     // Compute how long the transition should take based on the velocity
     var speed = Math.max(Math.abs(velocity), TRANSITION_SPEED);
-    var time = (window.innerWidth - Math.abs(frameOffset)) / speed;
+    time = (window.innerWidth - Math.abs(frameOffset)) / speed;
 
     // Transition frames in the appropriate direction
-    if (direction === 1)
+    if (direction === 1) {
       nextFile(time);
-    else
+    } else {
       previousFile(time);
+    }
   }
   else if (frameOffset !== 0) {
     // Otherwise, just restore the current item by undoing
     // the translations we added during panning
-    var time = Math.abs(frameOffset) / TRANSITION_SPEED;
+    time = Math.abs(frameOffset) / TRANSITION_SPEED;
 
     currentFrame.container.style.transition =
       nextFrame.container.style.transition =
@@ -386,18 +457,33 @@ function swipeHandler(event) {
   }
 }
 
+// When a screen reader swipes with two fingers
+function wheelHandler(event) {
+  if (event.deltaMode !== event.DOM_DELTA_PAGE || !event.deltaX) {
+    return;
+  }
+
+  if (event.deltaX > 0) {
+    nextFile(150);
+  } else {
+    previousFile(150);
+  }
+}
+
 // We also support pinch-to-zoom
 function transformHandler(e) {
-  if (transitioning)
+  if (transitioning) {
     return;
+  }
 
   // Don't allow zooming while we're still scanning for photos and
   // have found large photos without previews on the card.  Zooming in
   // decodes the full-size version of the photo and that can cause OOM
   // errors if there is also metadata scanning going on with large images.
   // XXX: Remove this when bug 854795 is fixed.
-  if (photodb.parsingBigFiles)
+  if (photodb.parsingBigFiles) {
     return;
+  }
 
   currentFrame.zoom(e.detail.relative.scale,
                     e.detail.midpoint.clientX,
@@ -417,8 +503,9 @@ function setupFrameContent(n, frame) {
   var fileinfo = files[n];
 
   // If we're already displaying this file in this frame, then do nothing
-  if (fileinfo.name === frame.filename)
+  if (fileinfo.name === frame.filename) {
     return;
+  }
 
   // Remember what file we're going to display
   frame.filename = fileinfo.name;
@@ -448,22 +535,34 @@ function setupFrameContent(n, frame) {
 }
 
 var FRAME_BORDER_WIDTH = 3;
-var frameOffset = 0; // how far are the frames swiped side-to-side?
 
 function setFramesPosition() {
-  // XXX for RTL languages we should swap next and previous sides
   var width = window.innerWidth + FRAME_BORDER_WIDTH;
   currentFrame.container.style.transform =
     'translateX(' + frameOffset + 'px)';
-  nextFrame.container.style.transform =
-    'translateX(' + (frameOffset + width) + 'px)';
-  previousFrame.container.style.transform =
-    'translateX(' + (frameOffset - width) + 'px)';
+  if (navigator.mozL10n.language.direction === 'ltr') {
+    nextFrame.container.style.transform =
+      'translateX(' + (frameOffset + width) + 'px)';
+    previousFrame.container.style.transform =
+      'translateX(' + (frameOffset - width) + 'px)';
+  }
+  else {
+    // For RTL languages we swap next and previous sides
+    nextFrame.container.style.transform =
+      'translateX(' + (frameOffset - width) + 'px)';
+    previousFrame.container.style.transform =
+      'translateX(' + (frameOffset + width) + 'px)';
+  }
 
   // XXX Bug 1021782 add 'current' class to currentFrame
   nextFrame.container.classList.remove('current');
   previousFrame.container.classList.remove('current');
   currentFrame.container.classList.add('current');
+
+  // Hide adjacent frames from screen reader
+  nextFrame.container.setAttribute('aria-hidden', true);
+  previousFrame.container.setAttribute('aria-hidden', true);
+  currentFrame.container.removeAttribute('aria-hidden');
 }
 
 function resetFramesPosition() {
@@ -480,10 +579,11 @@ function showFile(n) {
 
   // Disable the edit button if this is a video or mediaDB is scanning
   if (files[currentFileIndex].metadata.video ||
-      photodb.scanning)
+      photodb.scanning) {
     fullscreenButtons.edit.classList.add('disabled');
-  else
+  } else {
     fullscreenButtons.edit.classList.remove('disabled');
+  }
   // Always bring delete and share button back after show file
   fullscreenButtons.delete.classList.remove('disabled');
   fullscreenButtons.share.classList.remove('disabled');
@@ -511,17 +611,18 @@ function clearFrames() {
 // This is used when the user pans.
 function nextFile(time) {
   // If already displaying the last one, do nothing.
-  if (currentFileIndex === files.length - 1)
+  if (currentFileIndex === files.length - 1) {
     return;
+  }
 
   // If the current frame is using a <video> element instead of just
   // displaying a poster image, reset it back to just the image
-  if (currentFrame.displayingVideo && currentFrame.video.playerShowing)
+  if (currentFrame.displayingVideo && currentFrame.video.playerShowing) {
     currentFrame.video.init();
+  }
 
   // Set a flag to ignore pan and zoom gestures during the transition.
   transitioning = true;
-  setTimeout(function() { transitioning = false; }, time);
 
   // Set transitions for the visible frames
   var transition = 'transform ' + time + 'ms ease';
@@ -546,6 +647,8 @@ function nextFile(time) {
   currentFrame.container.addEventListener('transitionend', function done(e) {
     this.removeEventListener('transitionend', done);
 
+    transitioning = false;
+
     // Reposition the item that just transitioned off the screen
     // to reset any zooming and panning
     previousFrame.reset();
@@ -553,26 +656,28 @@ function nextFile(time) {
 
   // Disable the edit button if this is a video or
   // mediaDB is scanning, enable otherwise
-  if (currentFrame.displayingVideo || photodb.scanning)
+  if (currentFrame.displayingVideo || photodb.scanning) {
     fullscreenButtons.edit.classList.add('disabled');
-  else
+  } else {
     fullscreenButtons.edit.classList.remove('disabled');
+  }
 }
 
 // Just like nextFile() but in the other direction
 function previousFile(time) {
   // if already displaying the first one, do nothing.
-  if (currentFileIndex === 0)
+  if (currentFileIndex === 0) {
     return;
+  }
 
   // If the current frame is using a <video> element instead of just
   // displaying a poster image, reset it back to just the image.
-  if (currentFrame.displayingVideo && currentFrame.video.playerShowing)
+  if (currentFrame.displayingVideo && currentFrame.video.playerShowing) {
     currentFrame.video.init();
+  }
 
   // Set a flag to ignore pan and zoom gestures during the transition.
   transitioning = true;
-  setTimeout(function() { transitioning = false; }, time);
 
   // Set transitions for the visible frames
   var transition = 'transform ' + time + 'ms ease';
@@ -596,14 +701,18 @@ function previousFile(time) {
   // When the transition is done do some cleanup
   currentFrame.container.addEventListener('transitionend', function done(e) {
     this.removeEventListener('transitionend', done);
+
+    transitioning = false;
+
     // Reset the size and position of the item that just panned off
     nextFrame.reset();
   });
 
   // Disable the edit button if we're now viewing a video or mediaDB
   // is scanning, enable otherwise
-  if (currentFrame.displayingVideo || photodb.scanning)
+  if (currentFrame.displayingVideo || photodb.scanning) {
     fullscreenButtons.edit.classList.add('disabled');
-  else
+  } else {
     fullscreenButtons.edit.classList.remove('disabled');
+  }
 }

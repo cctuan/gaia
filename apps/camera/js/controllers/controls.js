@@ -45,6 +45,7 @@ ControlsController.prototype.bindEvents = function() {
   this.app.on('newthumbnail', this.onNewThumbnail);
   this.app.once('loaded', this.onceAppLoaded);
   this.app.on('busy', this.onCameraBusy);
+  this.app.on('localized', this.view.localize);
 
   // View
   this.view.on('modechanged', this.onViewModeChanged);
@@ -56,6 +57,14 @@ ControlsController.prototype.bindEvents = function() {
   this.app.on('timer:started', this.onTimerStarted);
   this.app.on('timer:cleared', this.onTimerStopped);
   this.app.on('timer:ended', this.onTimerStopped);
+
+  // Settings
+  this.app.on('settings:opened', this.onSettingsOpened);
+  this.app.on('settings:closed', this.onSettingsClosed);
+
+  // Preview gallery
+  this.app.on('previewgallery:opened', this.view.hide);
+  this.app.on('previewgallery:closed', this.view.show);
 
   debug('events bound');
 };
@@ -111,17 +120,10 @@ ControlsController.prototype.configureMode = function() {
  * the camera becomes 'ready' from
  * hereon after.
  *
- * `.setupSwitch()` adds the dragging interactions
- * to the mode-switch. We do this after the app
- * has loaded and in a `setTimeout` to avoid
- * causing a forced-sync-layout which is
- * bad for performance.
- *
  * @private
  */
 ControlsController.prototype.onceAppLoaded = function() {
   this.app.on('ready', this.restore);
-  setTimeout(this.view.setupSwitch, 50);
   this.view.enable();
 };
 
@@ -153,6 +155,8 @@ ControlsController.prototype.onCaptureClick = function() {
 ControlsController.prototype.onRecordingChange = function(recording) {
   this.view.set('recording', recording);
   if (!recording) { this.onRecordingEnd(); }
+  // Update capture button label when recording changes.
+  this.view.setCaptureLabel(recording);
 };
 
 /**
@@ -202,6 +206,25 @@ ControlsController.prototype.onTimerStarted = function() {
 ControlsController.prototype.onTimerStopped = function() {
   this.captureHighlightOff();
   this.view.set('timer', 'inactive');
+};
+
+/**
+ * Make controls invisible to the screen reader since they are behind settings
+ * overlay.
+ *
+ * @private
+ */
+ControlsController.prototype.onSettingsOpened = function() {
+  this.view.setScreenReaderVisible(false);
+};
+
+/**
+ * Make controls visible to the screen reader again when settings are closed.
+ *
+ * @private
+ */
+ControlsController.prototype.onSettingsClosed = function() {
+  this.view.setScreenReaderVisible(true);
 };
 
 ControlsController.prototype.onCameraBusy = function() {

@@ -15,7 +15,7 @@
 
 #balance-tab .overview .info {
   transform: translateX(-4.0rem);
-  transition: transform 0.5s;
+  transition: transform var(--transition-duration);
 }
 
 #balance-tab .overview .end {
@@ -39,7 +39,7 @@
 }
 
 /* ERROR MESSAGES */
-section.content .error-messages[aria-hidden="true"] {
+section.content .error-messages[hidden] {
   transform: translateY(-10rem);
   display: block !important;
   height: 0;

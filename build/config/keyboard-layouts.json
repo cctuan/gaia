@@ -1,6 +1,7 @@
 {
   "layout"  : {
     "af": [
+        {"layoutId": "af", "app": ["apps", "keyboard"]},
         {"layoutId": "en", "app": ["apps", "keyboard"]}
     ],
     "ar": [
@@ -12,10 +13,10 @@
     ],
     "bg": [
         {"layoutId": "bg-BDS", "app": ["apps", "keyboard"]},
-        {"layoutId": "bg-Pho-Ban", "app": ["apps", "keyboard"]},
-        {"layoutId": "bg-Pho-Trad", "app": ["apps", "keyboard"]}
+        {"layoutId": "en", "app": ["apps", "keyboard"]}
     ],
     "bn-BD": [
+        {"layoutId": "bn-Avro", "app": ["apps", "keyboard"]},
         {"layoutId": "en", "app": ["apps", "keyboard"]}
     ],
     "bs": [
@@ -36,18 +37,21 @@
     "de": [
         {"layoutId": "de", "app": ["apps", "keyboard"]}
     ],
+    "ee": [
+        {"layoutId": "en-Africa", "app": ["apps", "keyboard"]}
+    ],
     "el": [
         {"layoutId": "el", "app": ["apps", "keyboard"]},
         {"layoutId": "en", "app": ["apps", "keyboard"]}
     ],
     "en-GB": [
-        {"layoutId": "en", "app": ["apps", "keyboard"]}
+        {"layoutId": "en-GB", "app": ["apps", "keyboard"]}
     ],
     "en-US": [
         {"layoutId": "en", "app": ["apps", "keyboard"]}
     ],
     "eo": [
-        {"layoutId": "en", "app": ["apps", "keyboard"]}
+        {"layoutId": "eo", "app": ["apps", "keyboard"]}
     ],
     "es": [
         {"layoutId": "es", "app": ["apps", "keyboard"]}
@@ -56,6 +60,7 @@
         {"layoutId": "en", "app": ["apps", "keyboard"]}
     ],
     "eu": [
+        {"layoutId": "eu", "app": ["apps", "keyboard"]},
         {"layoutId": "es", "app": ["apps", "keyboard"]},
         {"layoutId": "fr", "app": ["apps", "keyboard"]},
         {"layoutId": "en", "app": ["apps", "keyboard"]}
@@ -63,6 +68,9 @@
     "ff": [
         {"layoutId": "ff", "app": ["apps", "keyboard"]},
         {"layoutId": "fr", "app": ["apps", "keyboard"]},
+        {"layoutId": "en", "app": ["apps", "keyboard"]}
+    ],
+    "fi": [
         {"layoutId": "en", "app": ["apps", "keyboard"]}
     ],
     "fr": [
@@ -79,6 +87,9 @@
     ],
     "gl": [
         {"layoutId": "es", "app": ["apps", "keyboard"]}
+    ],
+    "ha": [
+        {"layoutId": "en-Africa", "app": ["apps", "keyboard"]}
     ],
     "he": [
         {"layoutId": "he", "app": ["apps", "keyboard"]},
@@ -97,8 +108,14 @@
     "hu": [
         {"layoutId": "hu", "app": ["apps", "keyboard"]}
     ],
+    "hy-AM": [
+        {"layoutId": "en", "app": ["apps", "keyboard"]}
+    ],
     "id": [
         {"layoutId": "en", "app": ["apps", "keyboard"]}
+    ],
+    "ig": [
+        {"layoutId": "en-Africa", "app": ["apps", "keyboard"]}
     ],
     "it": [
         {"layoutId": "it", "app": ["apps", "keyboard"]}
@@ -111,7 +128,16 @@
         {"layoutId": "ko", "app": ["apps", "keyboard"]},
         {"layoutId": "en", "app": ["apps", "keyboard"]}
     ],
+    "lg": [
+        {"layoutId": "en-Africa", "app": ["apps", "keyboard"]}
+    ],
     "lij": [
+        {"layoutId": "en", "app": ["apps", "keyboard"]}
+    ],
+    "ln": [
+        {"layoutId": "en-Africa", "app": ["apps", "keyboard"]}
+    ],
+    "lv": [
         {"layoutId": "en", "app": ["apps", "keyboard"]}
     ],
     "mk": [
@@ -144,6 +170,9 @@
     "pt-BR": [
         {"layoutId": "pt-BR", "app": ["apps", "keyboard"]}
     ],
+    "pt-PT": [
+        {"layoutId": "pt-PT", "app": ["apps", "keyboard"]}
+    ],
     "qps-ploc": [
         {"layoutId": "en", "app": ["apps", "keyboard"]}
     ],
@@ -167,7 +196,7 @@
         {"layoutId": "en", "app": ["apps", "keyboard"]}
     ],
     "sq": [
-        {"layoutId": "en", "app": ["apps", "keyboard"]}
+        {"layoutId": "sq", "app": ["apps", "keyboard"]}
     ],
     "sr": [
         {"layoutId": "sr-Cyrl", "app": ["apps", "keyboard"]},
@@ -182,6 +211,9 @@
     "sv-SE": [
         {"layoutId": "sv", "app": ["apps", "keyboard"]}
     ],
+    "sw": [
+        {"layoutId": "en-Africa", "app": ["apps", "keyboard"]}
+    ],
     "ta": [
         {"layoutId": "ta", "app": ["apps", "keyboard"]},
         {"layoutId": "en", "app": ["apps", "keyboard"]}
@@ -189,9 +221,21 @@
     "te": [
         {"layoutId": "en", "app": ["apps", "keyboard"]}
     ],
+    "th": [
+        {"layoutId": "th", "app": ["apps", "keyboard"]}
+    ],
+    "tn": [
+        {"layoutId": "en-Africa", "app": ["apps", "keyboard"]}
+    ],
+    "tl": [
+        {"layoutId": "en", "app": ["apps", "keyboard"]}
+    ],
     "tr": [
         {"layoutId": "tr-Q", "app": ["apps", "keyboard"]},
         {"layoutId": "tr-F", "app": ["apps", "keyboard"]}
+    ],
+    "uk": [
+        {"layoutId": "en", "app": ["apps", "keyboard"]}
     ],
     "ur": [
         {"layoutId": "en", "app": ["apps", "keyboard"]}
@@ -199,6 +243,15 @@
     "vi": [
         {"layoutId": "vi-Typewriter", "app": ["apps", "keyboard"]},
         {"layoutId": "fr", "app": ["apps", "keyboard"]}
+    ],
+    "wo": [
+        {"layoutId": "wo", "app": ["apps", "keyboard"]}
+    ],
+    "xh": [
+        {"layoutId": "en-Africa", "app": ["apps", "keyboard"]}
+    ],
+    "yo": [
+        {"layoutId": "en-Africa", "app": ["apps", "keyboard"]}
     ],
     "zh-CN": [
         {"layoutId": "zh-Hans-Pinyin", "app": ["apps", "keyboard"]},
@@ -209,10 +262,13 @@
         {"layoutId": "en", "app": ["apps", "keyboard"]}
     ],
     "zu": [
-        {"layoutId": "en", "app": ["apps", "keyboard"]}
+        {"layoutId": "en-Africa", "app": ["apps", "keyboard"]}
     ]
   },
   "langIndependentLayouts": [
       {"layoutId": "number", "app": ["apps", "keyboard"]}
+  ],
+  "fallbackLayouts": [
+    {"layoutId": "en", "app": ["apps", "keyboard"]}
   ]
 }

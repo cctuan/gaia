@@ -1,6 +1,5 @@
-/* -*- Mode: js; js-indent-level: 2; indent-tabs-mode: nil -*- */
-/* vim: set shiftwidth=2 tabstop=2 autoindent cindent expandtab: */
-
+/* global DownloadItem, DownloadUI, DownloadApiManager, DownloadsList,
+          LazyLoader, DownloadHelper */
 /*
  * This file is in charge of rendering & update the list of downloads.
  */
@@ -43,7 +42,7 @@
       emptyDownloadsContainer.hidden = true;
     }
 
-    editButton.className = isEmpty ? 'disabled' : '';
+    editButton.disabled = isEmpty;
   }
 
   function _newDownload(download) {
@@ -59,7 +58,7 @@
       return;
     }
 
-    if (!downloads || downloads.length == 0) {
+    if (!downloads || downloads.length === 0) {
       _checkEmptyList();
       return;
     }
@@ -121,16 +120,6 @@
     DownloadApiManager.updateDownload(download);
   }
 
-  function _delete(id) {
-    var elementToDelete = _getElementForId(id);
-    if (!elementToDelete) {
-      console.error('Item to delete not found');
-      return;
-    }
-    downloadsContainer.removeChild(elementToDelete);
-    _checkEmptyList();
-  }
-
   function _onDownloadAction(event) {
     if (isEditMode) {
       return;
@@ -165,6 +154,7 @@
         // paused -> downloading
         _restartDownload(download);
         break;
+      case 'finalized':
       case 'succeeded':
         // launch an app to view the download
         _showDownloadActions(download);
@@ -205,7 +195,7 @@
         });
       }
     };
-  };
+  }
 
   function _showDownloadActions(download) {
 
@@ -274,7 +264,7 @@
       numberOfDownloads = _getAllChecks().length;
     }
     // Delete button status
-    deleteButton.disabled = !(numberOfCheckedDownloads > 0);
+    deleteButton.disabled = (numberOfCheckedDownloads <= 0);
 
     // "Select all" button status
     selectAllButton.disabled = (numberOfCheckedDownloads === numberOfDownloads);
@@ -356,6 +346,8 @@
     // Add 'edit' stype
     downloadsPanel.classList.add('edit');
 
+    downloadsEditMenu.hidden = false;
+
     // Change edit mdoe status
     isEditMode = true;
     _updateButtonsStatus();
@@ -365,21 +357,47 @@
     // Remove "edit" styles
     downloadsPanel.classList.remove('edit');
 
+    downloadsEditMenu.hidden = true;
+
     // Clean vars
     isEditMode = false;
     numberOfDownloads = 0;
     numberOfCheckedDownloads = 0;
   }
 
+  function _downloadApiManagerListener(changeEvent) {
+    switch (changeEvent.type) {
+      case 'added':
+        // First we'll try and find an existing item with the download api id.
+        var element = null;
+        if (changeEvent.downloadApiId &&
+            (element = _getElementForId(changeEvent.downloadApiId))) {
+          // If we find one, we'll want to update it's id before updating the
+          // content.
+          DownloadItem.updateDownloadId(changeEvent.download, element);
+        }
+        else if ((element = _getElementForId(changeEvent.download.id))) {
+          // Secondly, try and find it by it's download id.
+          _update(changeEvent.download);
+        }
+        else {
+          // Lastly, if we didn't find it by downloadApiId or id, it's truly
+          // new to the user so we need to add it to the download list.
+          _newDownload(changeEvent.download);
+        }
+        break;
+    }
+  }
+
   var DownloadsList = {
     init: function(oncomplete) {
       var scripts = [
-        'js/downloads/download_api_manager.js',
-        'shared/js/download/download_store.js',
+        'shared/js/download/download_store.js', // Must be loaded first.
         'shared/js/download/download_ui.js',
         'shared/js/mime_mapper.js',
         'shared/js/download/download_helper.js',
         'shared/js/download/download_formatter.js',
+        'js/downloads/download_api_manager.js',
         'js/downloads/download_item.js'
       ];
 
@@ -405,9 +423,9 @@
         deselectAllButton =
           document.getElementById('downloads-edit-deselect-all');
 
-        // Localization of the nodes for avoiding weird repaintings
-        var noDownloadsTextEl = document.getElementById('dle-text');
-        var editModeTitle = document.getElementById('downloads-title-edit');
+        // Initialize the Api Manager and set our listener.
+        DownloadApiManager.init();
+        DownloadApiManager.setListener(_downloadApiManagerListener.bind(this));
 
         // Render the entire list
         DownloadApiManager.getDownloads(
@@ -434,7 +452,7 @@
 
   exports.DownloadsList = DownloadsList;
 
-}(this));
+}(window));
 
 // startup
 navigator.mozL10n.once(DownloadsList.init.bind(DownloadsList));

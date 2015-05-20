@@ -24,7 +24,8 @@
       query: collection.query,
       icon: collection.icon,
       pinned: collection.pinned,
-      decoratedIconBlob: collection.decoratedIconBlob
+      decoratedIconBlob: collection.decoratedIconBlob,
+      nonTranslatable: collection.nonTranslatable
     };
 
     // XXX: One listener per collection may not be ideal.
@@ -74,10 +75,10 @@
 
     update: GaiaGrid.GridItem.prototype.updateFromDatastore,
 
-    render: function(coordinates, index) {
+    render: function() {
       // Add 'collection' to the class list when the element gets created
       var setClassName = !this.element;
-      GaiaGrid.GridItem.prototype.render.call(this, coordinates, index);
+      GaiaGrid.GridItem.prototype.render.call(this);
       if (setClassName) {
         this.element.classList.add('collection');
         this.isEditable() && this.element.classList.add('editable');

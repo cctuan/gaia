@@ -5,7 +5,6 @@ marionette('App Usage Metrics >', function() {
   var assert = require('assert');
   var url = require('url');
 
-  var System = require('./lib/system');
   var Server = require('../../../../shared/test/integration/server');
   var Settings = require('../../../settings/test/marionette/app/app');
   var AppInstall = require('./lib/app_install');
@@ -26,20 +25,9 @@ marionette('App Usage Metrics >', function() {
 
   var client = marionette.client({
     apps: {
-      'fakealarm.gaiamobile.org': __dirname + '/fakealarmapp',
-      'fakemedia.gaiamobile.org': __dirname + '/fakemediaapp',
-      'fakemusic.gaiamobile.org': __dirname + '/fakemusic'
-    },
-    prefs: {
-      'dom.inter-app-communication-api.enabled': true,
-      'dom.w3c_touch_events.enabled': 1
-    },
-    settings: {
-      'ftu.manifestURL': null,
-      'homescreen.manifestURL':
-        'app://verticalhome.gaiamobile.org/manifest.webapp',
-      'keyboard.ftu.enabled': false,
-      'lockscreen.enabled': false
+      'fakealarm.gaiamobile.org': __dirname + '/../apps/fakealarmapp',
+      'fakemedia.gaiamobile.org': __dirname + '/../apps/fakemediaapp',
+      'fakemusic.gaiamobile.org': __dirname + '/../apps/fakemusic'
     }
   });
 
@@ -64,8 +52,6 @@ marionette('App Usage Metrics >', function() {
       serverRootURL = serverRootURL.substring(0, serverRootURL.length - 1);
       done(err);
     });
-
-    sys = new System(client);
   });
 
   suiteTeardown(function() {
@@ -77,6 +63,7 @@ marionette('App Usage Metrics >', function() {
     appInstall = new AppInstall(client);
     settings = new Settings(client);
     metrics = new AppUsageMetrics(client);
+    sys = client.loader.getAppClass('system');
 
     sys.waitForStartup();
     metrics.waitForStartup();
@@ -164,11 +151,8 @@ marionette('App Usage Metrics >', function() {
 
     function lockScreen() {
       client.executeScript(function() {
-        var lwm = window.wrappedJSObject.lockScreenWindowManager;
-        lwm.openApp();
-        window.wrappedJSObject.lockScreen.lock();
+        window.wrappedJSObject.Service.request('lock', { 'forcibly': true });
       });
-
       waitForEvent('lockscreen-appopened', checkMetrics);
     }
 
@@ -177,7 +161,7 @@ marionette('App Usage Metrics >', function() {
       assert.ok(metrics.getAppUsageTime(MEDIA_MANIFEST) > 0);
 
       client.executeScript(function() {
-        window.wrappedJSObject.lockScreen.unlock();
+        window.wrappedJSObject.Service.request('unlock', { 'forcibly': true });
       });
 
       client.apps.close(MEDIA_APP);

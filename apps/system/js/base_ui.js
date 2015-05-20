@@ -1,8 +1,7 @@
+/* global Service */
 'use strict';
-
-(function(window) {
+(function(exports) {
   var DEBUG = false;
-  var _id = 0;
 
   /**
    * The virtual class inherited by all UI in system which has
@@ -10,7 +9,7 @@
    *
    * @class BaseUI
    */
-  window.BaseUI = function BaseUI() {
+  var BaseUI = function BaseUI() {
   };
 
   BaseUI.prototype.EVENT_PREFIX = 'base-';
@@ -22,10 +21,18 @@
    * Overwrite `_registerEvents` to register event handler.
    */
   BaseUI.prototype.render = function bu_render() {
+    if (this.element) {
+      return;
+    }
     this.publish('willrender');
     this.containerElement.insertAdjacentHTML('afterbegin', this.view());
     this._fetchElements();
     this._registerEvents();
+    if (this.element) {
+      // Force a style flush so that if the UI is immediately shown, any
+      // transition associated with the visible class will play.
+      this.element.clientTop;
+    }
     this.publish('rendered');
   };
 
@@ -53,6 +60,11 @@
   BaseUI.prototype.show = function bu_show(ele) {
     ele = ele || this.element;
     ele.classList.add('visible');
+  };
+
+  BaseUI.prototype.isShown = function bu_isShown(ele) {
+    ele = ele || this.element;
+    return ele && ele.classList.contains('visible');
   };
 
   BaseUI.prototype.hide = function bu_hide(ele) {
@@ -112,10 +124,13 @@
   };
 
   BaseUI.prototype.debug = function bu_debug(msg) {
-    if (DEBUG && ('DEBUG' in this.constructor && this.constructor.DEBUG)) {
-      console.log('[' + this.CLASS_NAME + '][' + this.customID() + ']' +
-        '[' + System.currentTime() + ']' +
+    if (DEBUG || this.DEBUG) {
+      console.log('[' + (this.name || this.CLASS_NAME) + ']' +
+        '[' + (this.customID() || (this.index + 1) || this.instanceID) + ']' +
+        '[' + Service.currentTime() + ']' +
         Array.slice(arguments).concat());
     }
   };
-}(this));
+
+  exports.BaseUI = BaseUI;
+}(window));

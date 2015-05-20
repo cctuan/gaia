@@ -2,6 +2,14 @@
 /* global MockNavigationStack */
 /* global ConfirmDialog */
 /* exported MockContacts */
+/* exported COMMS_APP_ORIGIN */
+
+var COMMS_APP_ORIGIN = location.origin;
+
+var loadAsyncScriptsDeferred = {};
+loadAsyncScriptsDeferred.promise = new Promise((resolve) => {
+  loadAsyncScriptsDeferred.resolve = resolve;
+});
 
 var MockContacts = {
   getLength: function(prop) {
@@ -18,7 +26,6 @@ var MockContacts = {
   loadFacebook: function(cb) {
     cb();
   },
-  asyncScriptsLoaded: true,
   cardStateChanged: function() {
   },
   extServices: {
@@ -53,6 +60,11 @@ var MockContacts = {
     }
   },
   setCurrent: function(ct) {
-    
+
+  },
+  setCancelableHeader: function() {},
+  get asyncScriptsLoaded() {
+    loadAsyncScriptsDeferred.resolve();
+    return loadAsyncScriptsDeferred.promise;
   }
 };

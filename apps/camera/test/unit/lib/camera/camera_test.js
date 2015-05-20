@@ -37,7 +37,9 @@ suite('lib/camera/camera', function() {
     this.mozCamera = {
       release: sinon.stub(),
       setConfiguration: sinon.stub(),
-      capabilities: {}
+      capabilities: {},
+      addEventListener: sinon.stub(),
+      removeEventListener: sinon.stub()
     };
 
     this.options = {
@@ -83,7 +85,11 @@ suite('lib/camera/camera', function() {
       this.camera = new this.Camera(this.options);
 
       this.camera.mozCamera = {
-        startRecording: sinon.stub()
+        startRecording: sinon.stub().returns({
+          then: function(onSuccess, onError) {
+            onSuccess();
+          }
+        })
       };
 
       // Stub all camera methods
@@ -101,6 +107,11 @@ suite('lib/camera/camera', function() {
     test('Should emit a \'busy\' event', function() {
       this.camera.startRecording();
       sinon.assert.called(this.camera.busy);
+    });
+
+    test('It flags the camera as \'recording\' straight away', function() {
+      this.camera.startRecording();
+      sinon.assert.calledWith(this.camera.set, 'recording', true);
     });
 
     test('Should error if not enough storage space', function() {
@@ -201,9 +212,7 @@ suite('lib/camera/camera', function() {
     test('Should set the following onSuccess', function() {
       this.camera.createVideoFilepath =
         sinon.stub().callsArgWith(0, null, 'dir/my-video.3gp');
-      this.camera.mozCamera.startRecording.callsArg(3);
       this.camera.startRecording();
-      assert.ok(this.camera.set.calledWith('recording', true));
       assert.ok(this.camera.startVideoTimer.called);
       sinon.assert.called(this.camera.ready);
     });
@@ -211,9 +220,39 @@ suite('lib/camera/camera', function() {
     test('Should call onRecordingError on error', function() {
       this.camera.createVideoFilepath =
         sinon.stub().callsArgWith(0, null, 'dir/my-video.3gp');
-      this.camera.mozCamera.startRecording.callsArg(4);
+
+      // Call error
+      this.camera.mozCamera = {
+        startRecording: sinon.stub().returns({
+          then: function(onSuccess, onError) { onError(); }
+        })
+      };
+
       this.camera.startRecording();
       assert.ok(this.camera.onRecordingError.called);
+    });
+  });
+
+  suite('Camera#onRecordingError()', function() {
+    setup(function() {
+      this.navigatorMozl10n = navigator.mozL10n;
+      navigator.mozL10n = { get: sinon.stub() };
+      this.sandbox.stub(window, 'alert');
+      sinon.spy(this.camera, 'set');
+    });
+
+    teardown(function() {
+      navigator.mozL10n = this.navigatorMozl10n;
+    });
+
+    test('It sets `recording` to `false`', function() {
+      this.camera.onRecordingError();
+      sinon.assert.calledWith(this.camera.set, 'recording', false);
+    });
+
+    test('It calls ready()', function() {
+      this.camera.onRecordingError();
+      sinon.assert.called(this.camera.ready);
     });
   });
 
@@ -526,12 +565,15 @@ suite('lib/camera/camera', function() {
       this.camera.focus = {
         resume: function() {},
         focus: sinon.stub().callsArg(0),
-        getMode: sinon.spy()
+        getMode: sinon.spy(),
+        startFaceDetection : sinon.spy()
       };
 
       sinon.stub(this.camera, 'set');
       this.camera.mozCamera = {
-        takePicture: sinon.stub().callsArgWith(1, 'the-blob'),
+        takePicture: sinon.stub().returns({
+          then: function(onSuccess, onError) { onSuccess('the-blob'); }
+        }),
         resumePreview: sinon.stub()
       };
     });
@@ -619,8 +661,7 @@ suite('lib/camera/camera', function() {
       assert.isTrue(takePicture.calledBefore(resumePreview));
     });
 
-    test('Should call mozCamera.takePicture with the current rotation',
-      function() {
+    test('Should call mozCamera.takePicture with the current rotation', function() {
       this.camera.orientation.get.returns(90);
       this.camera.takePicture();
 
@@ -644,27 +685,24 @@ suite('lib/camera/camera', function() {
   });
 
   suite('Camera#onPreviewStateChange()', function() {
-    setup(function() {
-      this.camera = new this.Camera();
-      sinon.stub(this.camera, 'emit');
+    test('It doesn\'t fire \'busy\' event if \'stopped\' or \'paused\'', function() {
+      this.camera.onPreviewStateChange({ newState: 'stopped' });
+      assert.isFalse(this.camera.emit.calledWith('busy'));
     });
 
-    test('Should fire \'busy\' event if \'stopped\' or \'paused\'', function() {
-      this.camera.onPreviewStateChange('stopped');
-      assert.ok(this.camera.emit.calledWith('busy'));
-      this.camera.emit.reset();
-
-      this.camera.onPreviewStateChange('paused');
-      assert.ok(this.camera.emit.calledWith('busy'));
+    test('It doesn\'t fire \'ready\' event if \'started\'', function() {
+      this.camera.onPreviewStateChange({ newState: 'started' });
+      assert.isFalse(this.camera.emit.calledWith('ready'));
     });
 
-    test('Should not fire \'ready\' event for all other states', function() {
-      this.camera.onPreviewStateChange('something else');
-      assert.ok(this.camera.emit.calledWith('ready'));
-      this.camera.emit.reset();
+    test('It fire a `preview:*` event', function() {
+      this.camera.onPreviewStateChange({ newState: 'started' });
+      sinon.assert.calledWith(this.camera.emit, 'preview:started');
+    });
 
-      this.camera.onPreviewStateChange('other');
-      assert.ok(this.camera.emit.calledWith('ready'));
+    test('It stores the last known preview state', function() {
+      this.camera.onPreviewStateChange({ newState: 'started' });
+      assert.equal(this.camera.previewState, 'started');
     });
   });
 
@@ -678,17 +716,6 @@ suite('lib/camera/camera', function() {
       this.sandbox.stub(this.camera, 'requestCamera', function(camera, config) {
         self.camera.mozCamera = self.mozCamera;
       });
-
-      this.camera.isFirstLoad = false;
-    });
-
-    test('Should run first load if this is the first load', function() {
-      var camera = new this.Camera(this.options);
-      this.sandbox.stub(camera, 'firstLoad');
-
-      camera.load();
-
-      sinon.assert.calledOnce(camera.firstLoad);
     });
 
     test('Should not request camera until camera has finished releasing', function() {
@@ -722,52 +749,51 @@ suite('lib/camera/camera', function() {
       assert.isTrue(requestCamera.calledOnce);
     });
 
-    test('Should clear the previous `mozCameraConfig` if the `selectedCamera` changed', function() {
-      this.camera.load();
-      this.camera.selectedCamera = 'front';
-      this.camera.requestCamera.reset();
-
-      this.camera.mozCameraConfig = '<moz-camera-config>';
-
-      this.camera.load();
-      assert.equal(this.camera.mozCameraConfig, null);
-      sinon.assert.calledWith(this.camera.requestCamera, 'front', null);
-    });
-
     test('Should just `setupNewCamera` if selected camera has\'t changed', function() {
       this.camera.load();
       this.camera.requestCamera.reset();
 
       this.camera.load();
       assert.isTrue(this.camera.setupNewCamera.called);
+      sinon.assert.called(this.camera.ready);
       assert.isFalse(this.camera.requestCamera.called);
     });
 
-    test('Should call requestCamera with selectedCamera and mozCameraConfig', function() {
-
-      this.camera.mozCameraConfig = '<moz-camera-config>';
+    test('Should call requestCamera with selectedCamera', function() {
       this.camera.selectedCamera = '<selected-camera>';
       this.camera.load();
 
       sinon.assert.calledWith(
         this.camera.requestCamera,
-        '<selected-camera>',
-        '<moz-camera-config>'
+        '<selected-camera>'
       );
     });
   });
 
   suite('Camera#requestCamera()', function() {
     setup(function() {
+      var self = this;
+
       this.sandbox.stub(this.camera, 'setupNewCamera');
       this.sandbox.stub(this.camera, 'configureFocus');
-      navigator.mozCameras.getCamera.callsArgWith(2, this.mozCamera);
+
+      navigator.mozCameras.getCamera.returns({
+        then: function(onSuccess) {
+          onSuccess({ camera: self.mozCamera,
+                      configuration: {
+                        previewSize: '<preview-size>',
+                        pictureSize: '<picture-size>',
+                        recorderProfile: '<recorder-profile>' }
+                    });
+        }
+      });
+
       this.camera.mozCamera = this.mozCamera;
       this.camera.selectedCamera = 'back';
+      this.clock = this.sandbox.useFakeTimers();
     });
 
     test('Should emit a \'busy\', then \'ready\' event', function() {
-      navigator.mozCameras.getCamera.callsArgWith(2, this.mozCamera);
       this.camera.requestCamera();
 
       var busy = this.camera.emit.withArgs('busy');
@@ -791,29 +817,65 @@ suite('lib/camera/camera', function() {
       assert.isTrue(navigator.mozCameras.getCamera.calledWith('back', this.mozCameraConfig));
     });
 
-    test('Should flag a `this.configured` if a config was given', function() {
+    test('Should flag a `this.configured`', function() {
+      this.camera.configured = false;
       this.camera.requestCamera('back', { some: 'config' });
       assert.isTrue(this.camera.configured);
 
-      this.camera.requestCamera();
-      assert.isFalse(this.camera.configured);
+      this.camera.configured = false;
+      this.camera.requestCamera('front');
+      assert.isTrue(this.camera.configured);
     });
 
     test('Should call .setupNewCamera', function() {
       var callback = sinon.spy();
-      this.camera.requestCamera({}, callback);
-      assert.isTrue(this.camera.setupNewCamera.calledWith(this.mozCamera));
+      this.camera.requestCamera('back', { some: 'config' }, callback);
+      sinon.assert.calledWith(this.camera.setupNewCamera, this.mozCamera);
     });
 
     test('Should not configure camera on error', function() {
-      navigator.mozCameras.getCamera.callsArgWith(3, 'error');
+      navigator.mozCameras.getCamera.returns({
+        then: function(onSuccess, onError) { onError('error'); }
+      });
+
       this.camera.requestCamera();
       assert.isFalse(this.camera.setupNewCamera.called);
     });
 
-    test('Should emit a \'configured\' if the camera was loaded with a config', function() {
-      this.camera.requestCamera('back', { some: 'config' });
+    test('Should emit a \'configured\'', function() {
+      this.camera.requestCamera('back');
+      assert.equal(this.camera.givenPreviewSize, '<preview-size>');
+      assert.equal(this.camera.pictureSize, '<picture-size>');
+      assert.equal(this.camera.recorderProfile, '<recorder-profile>');
       sinon.assert.calledWith(this.camera.emit, 'configured');
+    });
+
+    test('It attempts to re-request the camera if \'HardwareClosed\'', function() {
+      navigator.mozCameras.getCamera.returns({
+        then: function(onSuccess, onError) {
+          onError('HardwareClosed');
+        }
+      });
+
+      // First attempt
+      this.camera.requestCamera();
+      sinon.assert.called(navigator.mozCameras.getCamera);
+      navigator.mozCameras.getCamera.reset();
+
+      this.clock.tick(1000);
+
+      // Second attempt
+      sinon.assert.called(navigator.mozCameras.getCamera);
+      navigator.mozCameras.getCamera.reset();
+
+      this.clock.tick(1000);
+
+      // Third attempt
+      sinon.assert.called(navigator.mozCameras.getCamera);
+      navigator.mozCameras.getCamera.reset();
+
+      // Doesn't attempt fourth time
+      sinon.assert.notCalled(navigator.mozCameras.getCamera);
     });
   });
 
@@ -822,19 +884,23 @@ suite('lib/camera/camera', function() {
       this.camera.mode = 'picture';
       this.camera.mozCamera = this.mozCamera;
       this.camera.recorderProfile = '720p';
-      this.mozCamera.setConfiguration.callsArg(1);
+      this.camera.pictureSize = { width: 800, height: 600 };
+      var config = {
+        mode: 'picture',
+        previewSize: { width: 200, height: 150 },
+        pictureSize: { width: 400, height: 300 },
+        recorderProfile: '720p'
+      };
+      this.mozCamera.setConfiguration.returns({
+        then: function(onSuccess) { onSuccess(config); }
+      });
       this.camera.focus = {
         configure: sinon.stub(),
         resume: sinon.stub()
       };
       this.sandbox.stub(this.camera, 'previewSize');
-      this.sandbox.spy(this.camera, 'saveBootConfig');
       this.camera.previewSize.returns({ width: 400, height: 300 });
-      this.clock = sinon.useFakeTimers();
-    });
-
-    teardown(function() {
-      this.clock.restore();
+      this.clock = this.sandbox.useFakeTimers();
     });
 
     test('Should call `mozCamera.setConfiguration` with expected config', function() {
@@ -843,24 +909,23 @@ suite('lib/camera/camera', function() {
 
       var config = this.mozCamera.setConfiguration.args[0][0];
 
+      // Requested configuration
       assert.deepEqual(config, {
         mode: 'picture',
-        previewSize: { width: 400, height: 300 },
+        pictureSize: { width: 800, height: 600 },
         recorderProfile: '720p'
       });
+
+      // Received configuration
+      assert.deepEqual(this.camera.givenPreviewSize, { width: 200, height: 150});
+      assert.deepEqual(this.camera.pictureSize, { width: 400, height: 300 });
+      assert.equal(this.camera.recorderProfile, '720p');
     });
 
     test('Should emit a \'configured\' event', function() {
       this.camera.configure();
       this.clock.tick(1);
       assert.isTrue(this.camera.emit.calledWith('configured'));
-    });
-
-    test('Should call `saveBootConfig`', function() {
-      this.camera.configure();
-      this.clock.tick(1);
-
-      assert.isTrue(this.camera.saveBootConfig.called);
     });
 
     test('Should not configure if there is no mozCamera', function() {
@@ -874,7 +939,7 @@ suite('lib/camera/camera', function() {
     test('Should flag dirty configuration', function() {
 
       // Make sure the callback isn't called
-      this.mozCamera.setConfiguration = sinon.stub();
+      this.mozCamera.setConfiguration = sinon.stub().returns({ then: () => {}});
 
       this.camera.configure();
       this.clock.tick(1);
@@ -884,8 +949,11 @@ suite('lib/camera/camera', function() {
 
     test('Should flag clean configuration once complete', function(done) {
       var self = this;
+      var onSuccess;
 
-      this.mozCamera.setConfiguration = sinon.stub();
+      this.mozCamera.setConfiguration.returns({
+        then: function(_onSuccess) { onSuccess = _onSuccess; }
+      });
 
       // Clean once configured
       this.camera.on('configured', function() {
@@ -901,9 +969,12 @@ suite('lib/camera/camera', function() {
       // Dirty while configuring
       assert.isFalse(this.camera.configured);
 
-      // Find the callback and call it
-      var callback = this.mozCamera.setConfiguration.args[0][1];
-      callback();
+      onSuccess({
+        mode: 'picture',
+        previewSize: { width: 400, height: 300 },
+        pictureSize: { width: 800, height: 600 },
+        recorderProfile: '720p'
+      });
     });
 
     test('Should defer calls until camera is \'ready\'', function() {
@@ -915,7 +986,7 @@ suite('lib/camera/camera', function() {
       sinon.assert.notCalled(this.mozCamera.setConfiguration);
 
       this.camera.ready();
-      this.clock.tick(1);
+      this.clock.tick(151);
 
       sinon.assert.called(this.mozCamera.setConfiguration);
       sinon.assert.calledWith(this.camera.emit, 'configured');
@@ -935,10 +1006,10 @@ suite('lib/camera/camera', function() {
     });
 
     test('Should flag as busy, then ready', function() {
-      var self = this;
-
-      // Use async for this case
-      this.mozCamera.setConfiguration = sinon.stub();
+      var onSuccess;
+      this.mozCamera.setConfiguration.returns({
+        then: function(_onSuccess) { onSuccess = _onSuccess; }
+      });
 
       // Call and 'tick' past the debouce
       this.camera.configure();
@@ -948,37 +1019,57 @@ suite('lib/camera/camera', function() {
       assert.isTrue(this.camera.isBusy);
       sinon.assert.calledWith(this.camera.emit, 'busy');
 
-      var onSuccess = this.mozCamera.setConfiguration.args[0][1];
-
       // Manually call the callback
-      onSuccess();
+      onSuccess({
+        mode: 'picture',
+        previewSize: { width: 400, height: 300 },
+        pictureSize: { width: 800, height: 600 },
+        recorderProfile: '720p'
+      });
 
-      assert.isFalse(self.camera.isBusy);
-      sinon.assert.calledWith(self.camera.emit, 'ready');
+      assert.isFalse(this.camera.isBusy);
+      sinon.assert.called(this.camera.ready);
     });
 
     test('Should abort if `mozCamera` has since been released', function() {
-      this.mozCamera.setConfiguration = sinon.stub();
+      var onSuccess;
+      this.mozCamera.setConfiguration.returns({
+        then: function(_onSuccess) { onSuccess = _onSuccess; }
+      });
+
       this.camera.configure();
       this.clock.tick(1);
 
-      var onSuccess = this.mozCamera.setConfiguration.args[0][1];
-
-
-      onSuccess();
+      onSuccess({
+        mode: 'picture',
+        previewSize: { width: 400, height: 300 },
+        pictureSize: { width: 800, height: 600 },
+        recorderProfile: '720p'
+      });
 
       sinon.assert.calledWith(this.camera.emit, 'configured');
       this.camera.emit.reset();
-      this.mozCamera = null;
+      delete this.mozCamera;
 
       assert.isFalse(this.camera.emit.calledWith('configured'));
+    });
+
+    test('It stops any recording that make be in progress', function() {
+      sinon.stub(this.camera, 'stopRecording');
+      this.camera.configure();
+      this.clock.tick(1);
+      sinon.assert.called(this.camera.stopRecording);
     });
   });
 
   suite('Camera#release()', function() {
     setup(function() {
-      this.mozCamera.release.callsArgAsync(0);
+      this.mozCamera.release.returns({
+        then: function(onSuccess) { setTimeout(onSuccess); }
+      });
+
       this.camera.mozCamera = this.mozCamera;
+      this.camera.focus.stopFaceDetection = sinon.spy();
     });
 
     test('Should flag as `releasing` until released', function(done) {
@@ -1015,76 +1106,49 @@ suite('lib/camera/camera', function() {
       this.camera.release();
     });
 
+    test('Should not call stopFaceDetection', function() {
+      this.camera.release();
+      sinon.assert.notCalled(this.camera.focus.stopFaceDetection);
+    });
+
     test('Should call the callback with an error argument', function(done) {
       this.mozCamera.release = sinon.stub();
-      this.mozCamera.release.callsArgWithAsync(1, 'error');
+      this.mozCamera.release.returns({
+        then: function(onSuccess, onError) {
+          onError('error');
+        }
+      });
 
       this.camera.release(function(err) {
         assert.equal(err, 'error');
         done();
       });
     });
-  });
 
-  suite('Camera#firstLoad()', function() {
-    setup(function() {
-      this.bootConfig = {
-        mozCameraConfig: {},
-        recorderProfile: '720p',
-        pictureSize: { width: 400, height: 300 }
-      };
+    test('It clears any pending camera request timeout', function() {
+      this.sandbox.stub(window, 'setTimeout').returns('<timeout-id>');
+      this.sandbox.stub(window, 'clearTimeout');
 
-      sinon.stub(this.camera, 'requestCamera');
-      sinon.stub(this.camera, 'fetchBootConfig')
-        .returns(this.bootConfig);
-
-    });
-
-    test('Should fetch the boot config from storage', function() {
-      this.camera.firstLoad();
-      sinon.assert.called(this.camera.fetchBootConfig);
-    });
-
-    test('Should store the fetched `mozCameraConfig` in memory', function() {
-      this.camera.firstLoad();
-      assert.equal(this.camera.mozCameraConfig, this.bootConfig.mozCameraConfig);
-    });
-
-    test('Should set the pictureSize and recorderProfile once we have the camera', function() {
-      sinon.stub(this.camera, 'setRecorderProfile');
-      sinon.stub(this.camera, 'setPictureSize');
-
-      this.camera.firstLoad();
-
-      var onOnceNewCamera = this.camera.once.withArgs('newcamera').args[0][1];
-
-      onOnceNewCamera();
-
-      var setRecorderProfile = this.camera.setRecorderProfile.args[0];
-      var setPictureSize = this.camera.setPictureSize.args[0];
-
-      // SHould set each without configuring
-      assert.equal(setRecorderProfile[0], this.bootConfig.recorderProfile);
-      assert.deepEqual(setRecorderProfile[1], { configure: false });
-      assert.equal(setPictureSize[0], this.bootConfig.pictureSize);
-      assert.deepEqual(setPictureSize[1], { configure: false });
-    });
-  });
-
-  suite('Camera#fetchBootConfig()', function() {
-    setup(function() {
-      this.configStorage.getItem
-        .withArgs('cameraBootConfig')
-        .returns('{"mozCameraConfig":{},"pictureSize":{},"recorderProfile":"720p"}');
-    });
-
-    test('Should return the object from storage', function() {
-      var result = this.camera.fetchBootConfig();
-      assert.deepEqual(result, {
-        mozCameraConfig: {},
-        pictureSize: {},
-        recorderProfile: '720p'
+      navigator.mozCameras.getCamera.returns({
+        then: function(onSuccess, onError) {
+          onError('HardwareClosed');
+        }
       });
+
+      this.camera.requestCamera();
+      this.camera.release();
+
+      sinon.assert.calledWith(window.clearTimeout, '<timeout-id>');
+    });
+
+    test('Should clear cached camera parameters', function() {
+      this.camera.pictureSize = '<picture-size>';
+      this.camera.recorderProfile = '<recorder-profile>';
+      this.camera.givenPreviewSize = '<preview-size>';
+      this.camera.release();
+      assert.ok(!this.camera.pictureSize);
+      assert.ok(!this.camera.recorderProfile);
+      assert.ok(!this.camera.givenPreviewSize);
     });
   });
 
@@ -1115,54 +1179,6 @@ suite('lib/camera/camera', function() {
     test('Should set the focus state to the passed value', function() {
       this.camera.onAutoFocusChanged('autofocus');
       assert.ok(this.camera.set.calledWith('focus', 'autofocus'));
-    });
-  });
-
-  suite('Camera#saveBootConfig()', function() {
-    setup(function() {
-      this.options.cacheConfig = true;
-      this.camera = new this.Camera(this.options);
-    });
-
-    test('Should store the `picutureSize` and `mozCameraConfig`', function() {
-      this.camera.pictureSize = '<picture-size>';
-      this.camera.recorderProfile = '<recorder-profile>';
-      this.camera.mozCameraConfig = '<moz-camera-config>';
-      this.camera.saveBootConfig();
-
-      var data = JSON.parse(this.configStorage.setItem.args[0][1]);
-      assert.equal(data.pictureSize, '<picture-size>');
-      assert.equal(data.recorderProfile, '<recorder-profile>');
-      assert.equal(data.mozCameraConfig, '<moz-camera-config>');
-    });
-
-    test('Should not store anything if `cacheConfig` is off', function() {
-      this.options.cacheConfig = false;
-      this.camera = new this.Camera(this.options);
-      this.camera.saveBootConfig();
-      sinon.assert.notCalled(this.configStorage.setItem);
-    });
-
-    test('Should only store bootConfig if mode is \'picture\' and \'back\' camera', function() {
-      this.camera.selectedCamera = 'front';
-      this.camera.mode = 'video';
-      this.camera.saveBootConfig();
-      sinon.assert.notCalled(this.configStorage.setItem);
-
-      this.camera.selectedCamera = 'back';
-      this.camera.mode = 'video';
-      this.camera.saveBootConfig();
-      sinon.assert.notCalled(this.configStorage.setItem);
-
-      this.camera.selectedCamera = 'front';
-      this.camera.mode = 'picture';
-      this.camera.saveBootConfig();
-      sinon.assert.notCalled(this.configStorage.setItem);
-
-      this.camera.selectedCamera = 'back';
-      this.camera.mode = 'picture';
-      this.camera.saveBootConfig();
-      sinon.assert.called(this.configStorage.setItem);
     });
   });
 
@@ -1211,67 +1227,22 @@ suite('lib/camera/camera', function() {
       assert.equal(this.camera.mozCamera.flashMode, 'auto');
     });
 
-    test('Should suspend `this.mozCamera.flashMode`', function() {
-      this.camera.mozCamera.flashMode = 'on';
-      this.camera.suspendFlashMode();
-      assert.equal(this.camera.mozCamera.flashMode, 'off');
-      this.camera.restoreFlashMode();
-      assert.equal(this.camera.mozCamera.flashMode, 'on');
-    });
-
-    test('Should not set `this.mozCamera.flashMode` while suspensed', function() {
-      this.camera.mozCamera.flashMode = 'on';
-      this.camera.suspendFlashMode();
-      assert.equal(this.camera.mozCamera.flashMode, 'off');
-      this.camera.setFlashMode('auto');
-      assert.equal(this.camera.mozCamera.flashMode, 'off');
-      this.camera.restoreFlashMode();
-      assert.equal(this.camera.mozCamera.flashMode, 'auto');
-    });
-
-    test('Should remain suspended `this.mozCamera.flashMode` after first restore', function() {
-      this.camera.mozCamera.flashMode = 'on';
-      this.camera.suspendFlashMode();
-      assert.equal(this.camera.mozCamera.flashMode, 'off');
-      this.camera.suspendFlashMode();
-      assert.equal(this.camera.mozCamera.flashMode, 'off');
-      this.camera.restoreFlashMode();
-      assert.equal(this.camera.mozCamera.flashMode, 'off');
-      this.camera.restoreFlashMode();
-      assert.equal(this.camera.mozCamera.flashMode, 'on');
-    });
   });
 
   suite('Camera#updateFocusArea()', function() {
     setup(function() {
-      sinon.stub(this.camera, 'set');
       this.camera.mozCamera = { flashMode: null };
       this.camera.focus = {
         updateFocusArea: sinon.spy(),
       };
     });
 
-    test('Should suspend flash mode and restore when complete', function() {
-      this.camera.mozCamera.flashMode = 'on';
+    test('Should focus updateFocusArea', function() {
       this.camera.updateFocusArea();
-      assert.ok(this.camera.set.firstCall.calledWith('focus', 'focusing'));
-      assert.equal(this.camera.mozCamera.flashMode, 'off');
       assert.ok(this.camera.focus.updateFocusArea.called);
       this.camera.focus.updateFocusArea.callArgWith(1, 'focused');
-      assert.ok(this.camera.set.secondCall.calledWith('focus', 'focused'));
-      assert.equal(this.camera.mozCamera.flashMode, 'on');
     });
 
-    test('Should suspend flash mode and restore when interrupted but leave state as focusing', function() {
-      this.camera.mozCamera.flashMode = 'on';
-      this.camera.updateFocusArea();
-      assert.ok(this.camera.set.firstCall.calledWith('focus', 'focusing'));
-      assert.equal(this.camera.mozCamera.flashMode, 'off');
-      assert.ok(this.camera.focus.updateFocusArea.called);
-      this.camera.focus.updateFocusArea.callArgWith(1, 'interrupted');
-      assert.ok(this.camera.set.calledOnce);
-      assert.equal(this.camera.mozCamera.flashMode, 'on');
-    });
   });
 
   suite('Camera#setPictureSize()', function() {
@@ -1350,6 +1321,35 @@ suite('lib/camera/camera', function() {
       this.camera.mode = 'my-mode';
       assert.isTrue(this.camera.isMode('my-mode'));
       assert.isFalse(this.camera.isMode('not-my-mode'));
+    });
+  });
+
+  suite('Camera#ready()', function() {
+    setup(function() {
+      this.clock = this.sandbox.useFakeTimers();
+    });
+
+    test('It is debounced in case busy fires shortly after', function() {
+      this.camera.ready();
+      this.camera.ready();
+      this.camera.ready();
+      this.camera.ready();
+
+      this.clock.tick(150);
+
+      assert.isTrue(this.camera.emit.withArgs('ready').calledOnce);
+    });
+  });
+
+  suite('Camera#busy()', function() {
+    setup(function() {
+      this.camera.readyTimeout = '<ready-timeout>';
+      this.sandbox.stub(window, 'clearTimeout');
+    });
+
+    test('It clears the ready timeout', function() {
+      this.camera.busy();
+      sinon.assert.calledWith(window.clearTimeout, '<ready-timeout>');
     });
   });
 });

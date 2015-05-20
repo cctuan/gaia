@@ -46,10 +46,9 @@ var CostControl = (function() {
       costcontrol = {
         iccId: iccId,
         request: request,
-        isBalanceRequestSMS: isBalanceRequestSMS,
-        getDataUsageWarning: function _getDataUsageWarning() {
-          return 0.8;
-        }
+        lastDataResults: {},
+        lastDataResultsPerApp: {},
+        isBalanceRequestSMS: isBalanceRequestSMS
       };
 
       debug('Cost Control ready!');
@@ -99,7 +98,7 @@ var CostControl = (function() {
       function _requestDataStatistics() {
         SimManager.requestDataSimIcc(function(dataSim) {
           requestDataStatistics(configuration, settings, callback, dataSim,
-                                result, requestObj.apps);
+                                result, requestObj);
         });
       }
 
@@ -427,38 +426,44 @@ var CostControl = (function() {
   // Ask statistics API for mobile and wifi data usage
   var DAY = 24 * 3600 * 1000; // 1 day
   function requestDataStatistics(configuration, settings, callback, dataSimIcc,
-                                 result, apps) {
+                                 result, requestParameters) {
     debug('Statistics out of date. Requesting fresh data...');
+    var apps = requestParameters && requestParameters.apps;
+    var start = requestParameters && requestParameters.startDate;
+    var end = requestParameters && requestParameters.endDate;
 
-    var maxAge = 1000 * statistics.maxStorageAge;
-    var minimumStart = new Date(Date.now() - maxAge);
-    debug('The max age for samples is ' + minimumStart);
+    if (!start) {
+      var maxAge = 1000 * statistics.maxStorageAge;
+      var minimumStart = new Date(Date.now() - maxAge);
+      debug('The max age for samples is ' + minimumStart);
 
-    // If settings.lastCompleteDataReset is not set let's use the past week.
-    // This is only for not breaking dogfooders build and this can be remove at
-    // some point in the future (and since this sentence has been said multiple
-    // times this code will probably stay here for a while).
-    var start = new Date(settings.lastCompleteDataReset ||
-                         Date.now() - 7 * DAY);
-    if (start < minimumStart) {
-      console.warn('Start date is surpassing the maximum age for the ' +
-                   'samples. Setting to ' + minimumStart);
-      start = minimumStart;
+      // If settings.lastCompleteDataReset is not set let's use the past week.
+      // This is only for not breaking dogfooders build and this can be remove
+      // at some point in the future (and since this sentence has been said
+      // multiple times this code will probably stay here for a while).
+      start = new Date(settings.lastCompleteDataReset ||
+                       Date.now() - 7 * DAY);
+      if (start < minimumStart) {
+        console.warn('Start date is surpassing the maximum age for the ' +
+                     'samples. Setting to ' + minimumStart);
+        start = minimumStart;
+      }
     }
+
     start = Toolkit.toMidnight(start);
 
-    var today = Toolkit.toMidnight(new Date());
+    if (!end) {
+      var today = Toolkit.toMidnight(new Date());
+      var tomorrow = new Date();
+      tomorrow.setTime(today.getTime() + DAY);
 
-    var tomorrow = new Date();
-    tomorrow.setTime(today.getTime() + DAY);
-
-    var end = Toolkit.toMidnight(settings.nextReset ?
-                         new Date(settings.nextReset.getTime() - DAY) :
-                         tomorrow);
-
+      end = Toolkit.toMidnight(settings.nextReset ?
+                               new Date(settings.nextReset.getTime() - DAY) :
+                               tomorrow);
+    }
     if (start > end) {
       console.error('Start date is higher than end date. This must not ' +
-                    'happen. Maybe the clock has changed');
+                    'happen. Changed end date to day after startDate');
       end = new Date(start.getTime() + DAY);
     }
 
@@ -474,7 +479,6 @@ var CostControl = (function() {
         updateDataUsage();
       }
     }
-
 
     function updateDataUsage() {
       var lastDataUsage = {
@@ -494,7 +498,7 @@ var CostControl = (function() {
         }
       };
 
-      function saveLastDataUsage() {
+      function saveLastDataUsage(perApp) {
         // XXX: raw samples are apparently too much to persist,
         //      so we only store aggregate totals
 
@@ -502,6 +506,13 @@ var CostControl = (function() {
         Object.keys(lastDataUsage).forEach(function(key) {
           var value = lastDataUsage[key];
           if (key === 'wifi' || key === 'mobile') {
+
+            // If saving per app totals we should retain the totals for the
+            // global query, persisted in settings by the time of this call.
+            if (perApp) {
+              value = settings.lastDataUsage[key];
+            }
+
             savedUsage[key] = { apps: {}, total: value.total };
             Object.keys(value.apps).forEach(function(manifest) {
               savedUsage[key].apps[manifest] = {
@@ -575,7 +586,13 @@ var CostControl = (function() {
         var result = request.result;
         var data = adaptData(result);
         var manifestURL = request.result.appManifestURL;
-        if (manifestURL) {
+        // ignore the 'null' manifestURL
+        if (manifestURL && manifestURL !== 'null') {
+          var isBrowser = request.result.browsingTrafficOnly &&
+                          manifestURL === Common.SYSTEM_MANIFEST;
+          if (isBrowser) {
+            manifestURL = Common.BROWSER_APP.manifestURL;
+          }
           network.apps[manifestURL] = {
             samples: data[0],
             total: data[1]
@@ -600,11 +617,19 @@ var CostControl = (function() {
         aggregateSamples(lastDataUsage.wifi);
       }
 
-      saveLastDataUsage();
+      var perApp = apps && apps.length > 0;
+      saveLastDataUsage(perApp);
 
       result.status = 'success';
       result.data = lastDataUsage;
 
+      // Once bug 1083680 is solved, both caches should contain the same values
+      // so we could use only `costcontrol.lastDataResults`.
+      if (perApp) {
+        costcontrol.lastDataResultsPerApp = lastDataUsage;
+      } else {
+        costcontrol.lastDataResults = lastDataUsage;
+      }
       debug('Returning up to date statistics.');
       if (callback) {
         callback(result);
@@ -623,7 +648,17 @@ var CostControl = (function() {
       if (apps && apps.length > 0) {
         requests = [];
         apps.forEach(function(manifestURL) {
-          requests.push(requestSamples({ appManifestURL: manifestURL }));
+          // Ignoring the system app because of the system traffic is going to
+          // be calculated (Front-end workaround for Bug 1083680)
+          if (manifestURL !== Common.SYSTEM_MANIFEST) {
+            var options = { appManifestURL: manifestURL };
+            // Browser app is included on System app
+            if (manifestURL === Common.BROWSER_APP.manifestURL) {
+              options.appManifestURL = Common.SYSTEM_MANIFEST;
+              options.browsingTrafficOnly = true;
+            }
+            requests.push(requestSamples(options));
+          }
         });
       } else {
         requests = [requestSamples()];

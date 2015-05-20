@@ -19,7 +19,7 @@ marionette('week view', function() {
 
   setup(function() {
     app = new Calendar(client);
-    app.launch({ hideSwipeHint: true });
+    app.launch();
     week = app.week;
     app.openWeekView();
   });
@@ -249,31 +249,74 @@ marionette('week view', function() {
     });
   });
 
-  test('double tap', function() {
-    week.waitForHourScrollEnd();
+  suite('double tap', function() {
+    var dateIso, time, editEvent;
 
-    // we always click on the day that is in the middle of the screen
-    var day = week.days[7].scriptWith(function(el) {
-      return el.dataset.date;
+    setup(function() {
+      editEvent = app.editEvent;
+
+      week.waitForHourScrollEnd();
+
+      // we always click on the day that is in the middle of the screen
+      var day = week.days[7].scriptWith(function(el) {
+        return el.dataset.date;
+      });
+      dateIso = (new Date(day)).toISOString().slice(0, 10);
+
+      // we always click the 3rd hour from the top
+      time = Math.floor((week.scrollTop + 100) / 50);
     });
-    var date = new Date(day);
-    var dateIso = date.toISOString().slice(0, 10);
 
-    // we always click the 3rd hour from the top
-    var time = Math.floor((week.scrollTop + 100) / 50);
+    test('fast', function() {
+      week.actions
+        .doubleTap(week.element, 200, 200)
+        .perform();
 
-    week.actions
-      .doubleTap(week.element, 200, 200)
-      .perform();
+      assertEditEvent();
+    });
 
-    var editEvent = app.editEvent;
-    editEvent.waitForDisplay();
+    test('slow + hide', function() {
+      week.actions
+        .tap(week.element, 200, 200)
+        .perform();
 
-    assert.equal(editEvent.startDate, dateIso, 'startDate');
-    assert.equal(editEvent.endDate, dateIso, 'endDate');
+      client.waitFor(function() {
+        return isShowingAddEventLink();
+      });
 
-    assert.equal(editEvent.startTime, pad(time) + ':00:00', 'startTime');
-    assert.equal(editEvent.endTime, pad(time + 1) + ':00:00', 'endTime');
+      // clicking on another hour should hide the link
+      week.actions
+        .tap(week.element, 200, 260)
+        .perform();
+
+      client.waitFor(function() {
+        return !isShowingAddEventLink();
+      });
+
+      week.actions
+        .tap(week.element, 200, 200)
+        .wait(0.5)
+        .tap(week.element, 200, 200)
+        .perform();
+
+      assertEditEvent();
+    });
+
+    function assertEditEvent() {
+      editEvent.waitForDisplay();
+
+      assert.equal(editEvent.startDate, dateIso, 'startDate');
+      assert.equal(editEvent.endDate, dateIso, 'endDate');
+
+      assert.equal(editEvent.startTime, pad(time) + ':00:00', 'startTime');
+      assert.equal(editEvent.endTime, pad(time + 1) + ':00:00', 'endTime');
+    }
+
+    function isShowingAddEventLink() {
+      return week.element.scriptWith(function(el) {
+        return !!el.querySelector('.md__add-event');
+      });
+    }
   });
 
   suite('12/24 hour format', function() {
@@ -300,6 +343,48 @@ marionette('week view', function() {
       var currentTime = pad(now.getHours()) + ':' + pad(now.getMinutes());
       assert.equal(week.currentTime.text(), currentTime);
     });
+  });
+
+  test('delete', function() {
+    app.createEvent({
+      title: 'Foo',
+      location: 'Bar'
+    });
+    client.waitFor(function() {
+      return app.week.events.length === 1;
+    }, { timeout: 2000 });
+
+    app.openMonthView();
+    app.monthDay.events[0].click();
+    app.readEvent.waitForDisplay();
+    app.readEvent.edit();
+    app.editEvent.waitForDisplay();
+    app.editEvent.delete();
+    app.month.waitForDisplay();
+    app.openWeekView();
+
+    client.waitFor(function() {
+      return app.week.events.length === 0;
+    }, { timeout: 2000 });
+  });
+
+  test('scroll to event', function() {
+    week.waitForHourScrollEnd();
+    week.scrollToTop();
+
+    var startDate = new Date();
+    startDate.setHours(13, 0, 0, 0);
+
+    app.createEvent({
+      title: 'Test Week View',
+      location: 'Somewhere',
+      startDate: startDate
+    });
+
+    week.waitForDisplay();
+
+    // scroll to 1h before event
+    week.waitForHourScrollEnd(12);
   });
 
   function pad(n) {

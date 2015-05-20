@@ -2,14 +2,15 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-from marionette.by import By
+from marionette_driver import By, Wait
+
 from gaiatest.apps.base import Base
 
 
 class NewEmail(Base):
     # Write new email
 
-    _view_locator = (By.CSS_SELECTOR, '#cardContainer .card-compose')
+    _view_locator = (By.CSS_SELECTOR, '#cardContainer cards-compose')
     _to_locator = (By.CSS_SELECTOR, '#cardContainer .card.center .cmp-to-text.cmp-addr-text')
     _cc_locator = (By.CSS_SELECTOR, '#cardContainer .card.center .cmp-cc-text.cmp-addr-text')
     _bcc_locator = (By.CSS_SELECTOR, '#cardContainer .card.center .cmp-bcc-text.cmp-addr-text')
@@ -20,7 +21,7 @@ class NewEmail(Base):
     def __init__(self, marionette):
         Base.__init__(self, marionette)
         view = self.marionette.find_element(*self._view_locator)
-        self.wait_for_condition(lambda m: view.location['x'] == 0)
+        Wait(self.marionette).until(lambda m: view.location['x'] == 0)
 
     def type_to(self, value):
         self.marionette.find_element(*self._to_locator).tap()

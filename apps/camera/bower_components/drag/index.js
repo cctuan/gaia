@@ -20,6 +20,17 @@ module.exports = Drag;
 events(Drag.prototype);
 
 /**
+ * Pointer event abstraction to make
+ * it work for touch and mouse.
+ *
+ * @type {Object}
+ */
+var pointer = [
+  { down: 'touchstart', up: 'touchend', move: 'touchmove' },
+  { down: 'mousedown', up: 'mouseup', move: 'mousemove' }
+]['ontouchstart' in window ? 0 : 1];
+
+/**
  * Drag creates a draggable 'handle' element,
  * constrained within a 'container' element.
  *
@@ -56,39 +67,44 @@ function Drag(options) {
   this.onTouchEnd = this.onTouchEnd.bind(this);
   this.slideDuration = options.slideDuration || 140;
   this.tapTime = options.tapTime || 180;
-  this.configureTransition();
   this.bindEvents();
 }
 
 Drag.prototype.bindEvents = function() {
-  this.container.el.addEventListener('touchstart', this.onTouchStart);
-  this.container.el.addEventListener('touchend', this.onTouchEnd);
-  this.handle.el.addEventListener('touchmove', this.onTouchMove);
-};
-
-Drag.prototype.configureTransition = function() {
-  this.handle.el.style.transitionTimingFunction = 'linear';
-  this.handle.el.style.transitionProperty = 'transform';
-  this.handle.el.style.willChange = 'transform';
+  this.container.el.addEventListener(pointer.down, this.onTouchStart);
 };
 
 Drag.prototype.onTouchStart = function(e) {
-  this.touch = e.touches[0];
+  this.updateDimensions();
+  this.touch = ~e.type.indexOf('mouse') ? e : e.touches[0];
   this.firstTouch = this.touch;
   this.startTime = e.timeStamp;
+
+  addEventListener(pointer.move, this.onTouchMove);
+  addEventListener(pointer.up, this.onTouchEnd);
 };
 
 Drag.prototype.onTouchMove = function(e) {
+  e.preventDefault();
+  e = ~e.type.indexOf('mouse') ? e : e.touches[0];
+
   var delta = {
-    x: e.touches[0].clientX - this.touch.clientX,
-    y: e.touches[0].clientY - this.touch.clientY
+    x: e.clientX - this.touch.clientX,
+    y: e.clientY - this.touch.clientY
   };
+
+  this.dragging = true;
   this.move(delta);
-  this.touch = e.touches[0];
+  this.touch = e;
 };
 
 Drag.prototype.onTouchEnd = function(e) {
   var tapped = (e.timeStamp - this.startTime) < this.tapTime;
+  this.dragging = false;
+
+  removeEventListener(pointer.move, this.onTouchMove);
+  removeEventListener(pointer.up, this.onTouchEnd);
+
   if (tapped) { this.emit('tapped', e); }
   else { this.emit('ended', e); }
 };
@@ -101,7 +117,7 @@ Drag.prototype.move = function(delta) {
 };
 
 Drag.prototype.set = function(pos) {
-  if (!this.edges) { return; }
+  if (!this.edges) { this.pendingSet = pos; return; }
   var x = typeof pos.x === 'string' ? this.edges[pos.x] : (pos.x || 0);
   var y = typeof pos.y === 'string' ? this.edges[pos.y] : (pos.y || 0);
   this.translate({ x: x, y: y });
@@ -118,18 +134,15 @@ Drag.prototype.snapToClosestEdge = function() {
   this.emit('snapped', edges);
 };
 
-Drag.prototype.translate = function(position) {
-  position = this.clamp(position);
-
+Drag.prototype.translate = function(options) {
+  var position = this.clamp(options);
   var translate = 'translate(' + position.x + 'px,' + position.y + 'px)';
-  var duration = this.transitionDuration(position);
   var ratio = {
     x: (position.x / this.max.x) || 0,
     y: (position.y / this.max.y) || 0
   };
 
-  // If there is a duration, set it
-  this.handle.el.style.transitionDuration = duration ? duration + 'ms' : '';
+  this.setTransition(position);
 
   // Set the transform to move the handle
   this.handle.el.style.transform = translate;
@@ -139,7 +152,6 @@ Drag.prototype.translate = function(position) {
 
   // Emit event with useful data
   this.emit('translate', {
-    duration: duration,
     position: {
       px: position,
       ratio: ratio
@@ -152,6 +164,15 @@ Drag.prototype.clamp = function(position) {
     x: Math.max(this.min.x, Math.min(this.max.x, position.x)),
     y: Math.max(this.min.y, Math.min(this.max.y, position.y)),
   };
+};
+
+/**
+ * [setTransition description]
+ * @param {[type]} position [description]
+ */
+Drag.prototype.setTransition = function(position) {
+  var duration = !this.dragging ? this.transitionDuration(position) : 0;
+  this.handle.el.style.transitionDuration = duration + 'ms';
 };
 
 Drag.prototype.transitionDuration = function(position) {
@@ -192,6 +213,14 @@ Drag.prototype.updateDimensions = function() {
     x: handle.left - container.left,
     y: handle.top - container.top
   };
+
+  this.clearPendingSet();
+};
+
+Drag.prototype.clearPendingSet = function() {
+  if (!this.pendingSet) { return; }
+  this.set(this.pendingSet);
+  delete this.pendingSet;
 };
 
 });})((function(n,w){'use strict';return typeof define=='function'&&define.amd?

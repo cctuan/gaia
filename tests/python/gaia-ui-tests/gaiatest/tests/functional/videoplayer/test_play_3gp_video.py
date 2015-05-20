@@ -20,12 +20,17 @@ class TestPlay3GPVideo(GaiaTestCase):
 
         video_player = VideoPlayer(self.marionette)
         video_player.launch()
-        video_player.wait_for_thumbnails_to_load(1, 'Video files found on device: %s' %self.data_layer.video_files)
+        video_player.wait_for_thumbnails_to_load(1)
 
         # Assert that there is at least one video available
         self.assertGreater(video_player.total_video_count, 0)
 
         first_video_name = video_player.first_video_name
+
+        self.assertEqual('none', self.data_layer.current_audio_channel)
+        # See bug 1109203, current_audio_channel switches context to the system
+        # app, so we need to return it back to the displayed app
+        self.apps.switch_to_displayed_app()
 
         # Click on the first video.
         fullscreen_video = video_player.tap_first_video_item()
@@ -43,3 +48,5 @@ class TestPlay3GPVideo(GaiaTestCase):
 
         # Check the name too. This will only work if the toolbar is visible.
         self.assertEqual(first_video_name, fullscreen_video.name)
+
+        self.assertEqual('content', self.data_layer.current_audio_channel)

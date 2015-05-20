@@ -183,20 +183,32 @@ var NOW = exports.NOW =
 };
 
 /**
+ * Like NOW, but uses performance.now instead. This means it can be reset or
+ * changed to a value different than the last window or worker lifetime value.
+ * Allows TIME_WARP overrides and falls back to Date.now. So while all the
+ * values are in milliseconds, if performance.now() is used, can have a decimal
+ * value indicating up to one thousandth of a millisecond.
+ */
+var perfObj = typeof performance !== 'undefined' ? performance : Date;
+exports.PERFNOW = function PERFNOW() {
+  return TIME_WARPED_NOW || perfObj.now();
+};
+
+/**
  * Make a timestamp some number of days in the past, quantized to midnight of
  * that day.  This results in rounding up; if it's noon right now and you
  * ask for 2 days ago, you really get 2.5 days worth of time.
  */
 var makeDaysAgo = exports.makeDaysAgo =
-      function makeDaysAgo(numDays, tzOffset) {
-  var past = quantizeDate((TIME_WARPED_NOW || Date.now()) + tzOffset) -
+      function makeDaysAgo(numDays) {
+  var past = quantizeDate(TIME_WARPED_NOW || Date.now()) -
                numDays * DAY_MILLIS;
   return past;
 };
 var makeDaysBefore = exports.makeDaysBefore =
-      function makeDaysBefore(date, numDaysBefore, tzOffset) {
+      function makeDaysBefore(date, numDaysBefore) {
   if (date === null)
-    return makeDaysAgo(numDaysBefore - 1, tzOffset);
+    return makeDaysAgo(numDaysBefore - 1);
   return quantizeDate(date) - numDaysBefore * DAY_MILLIS;
 };
 /**

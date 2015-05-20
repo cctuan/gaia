@@ -4,7 +4,9 @@ Keyboards.el = {
   menuLabel: 'Ελληνικό',
   imEngine: 'latin',
   types: ['text', 'url', 'email', 'password'],
+  basicLayoutKey: 'ABΓ',
   autoCorrectLanguage: 'el',
+  lang: 'el',
   upperCase: {
     'ς': 'ς'
   },

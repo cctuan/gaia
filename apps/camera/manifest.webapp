@@ -10,13 +10,14 @@
     "url": "https://github.com/mozilla-b2g/gaia"
   },
   "permissions": {
-    "storage":{},
+    "themeable":{},
     "device-storage:pictures":{ "access": "readwrite" },
     "device-storage:videos":{ "access": "readwrite" },
     "settings":{ "access": "readonly" },
     "camera":{},
     "geolocation":{},
     "audio-channel-notification":{},
+    "audio-channel-content":{},
     "feature-detection": {}
   },
   "activities": {

@@ -1,22 +1,23 @@
 /* -*- Mode: js; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- /
 /* vim: set shiftwidth=2 tabstop=2 autoindent cindent expandtab: */
 
-/*global ActivityWindowManager, SecureWindowFactory,
-         SecureWindowManager, HomescreenLauncher,
-         FtuLauncher, SourceView, ScreenManager, Places, Activities,
+/*global ActivityHandler, ActivityWindowManager, Browser, SecureWindowFactory,
+         SecureWindowManager, HomescreenLauncher, HomescreenWindowManager,
+         FtuLauncher, SourceView, ScreenManager, Places,
          DeveloperHUD, DialerAgent, RemoteDebugger, HomeGesture,
-         VisibilityManager, UsbStorage, InternetSharing, TaskManager,
-         TelephonySettings, SuspendingAppPriorityManager, TTLView,
+         VisibilityManager, UsbStorage, TaskManager, Import,
+         SuspendingAppPriorityManager, TTLView,
          MediaRecording, AppWindowFactory, SystemDialogManager,
          applications, Rocketbar, LayoutManager, PermissionManager,
-         SoftwareButtonManager, Accessibility, NfcUtils, ShrinkingUI,
-         TextSelectionDialog, InternetSharing, SleepMenu, AppUsageMetrics,
-         LockScreenNotifications, LockScreenPasscodeValidator, NfcManager,
-         ExternalStorageMonitor, LockScreenNotificationBuilder,
-         BrowserSettings, AppMigrator, SettingsMigrator, EuRoamingManager,
-         CellBroadcastSystem */
+         SoftwareButtonManager, Accessibility, NfcUtils,
+         TextSelectionDialog, SleepMenu, AppUsageMetrics,
+         LockScreenPasscodeValidator,
+         ExternalStorageMonitor, TrustedWindowManager,
+         BrowserSettings, AppMigrator, SettingsMigrator,
+         CpuManager, CellBroadcastSystem, EdgeSwipeDetector, QuickSettings,
+         BatteryOverlay, BaseModule, AppWindowManager, KeyboardManager,
+         DevToolsAuth */
 'use strict';
-
 
 /* === Shortcuts === */
 /* For hardware key handling that doesn't belong to anywhere */
@@ -40,8 +41,19 @@ window.addEventListener('load', function startup() {
    */
   function registerGlobalEntries() {
     /** @global */
+    KeyboardManager.init();
+
+    /** @global */
+    window.appWindowManager = new AppWindowManager();
+
+    /** @global */
+    window.inputWindowManager = new window.InputWindowManager();
+    window.inputWindowManager.start();
+
+    /** @global */
     window.activityWindowManager = new ActivityWindowManager();
     window.activityWindowManager.start();
+
     /** @global */
     window.secureWindowManager = window.secureWindowManager ||
       new SecureWindowManager();
@@ -51,17 +63,21 @@ window.addEventListener('load', function startup() {
     if (window.SuspendingAppPriorityManager) {
       window.suspendingAppPriorityManager = new SuspendingAppPriorityManager();
     }
+
     /** @global */
     window.systemDialogManager = window.systemDialogManager ||
       new SystemDialogManager();
 
     /** @global */
+    window.trustedWindowManager = window.trustedWindowManager ||
+      new TrustedWindowManager();
+    window.trustedWindowManager.start();
+
+    /** @global */
     window.lockScreenWindowManager = new window.LockScreenWindowManager();
     window.lockScreenWindowManager.start();
 
-    // To initilaize it after LockScreenWindowManager to block home button
-    // when the screen is locked.
-    window.AppWindowManager.init();
+    window.appWindowManager.start();
 
     /** @global */
     window.textSelectionDialog = new TextSelectionDialog();
@@ -113,10 +129,15 @@ window.addEventListener('load', function startup() {
   window.addEventListener('ftuskip', doneWithFTU);
 
   Shortcuts.init();
+
   ScreenManager.turnScreenOn();
 
+  // To make sure homescreen window manager can intercept webapps-launch event,
+  // we need to move the code here.
+  window.homescreenWindowManager = new HomescreenWindowManager();
+  window.homescreenWindowManager.start();
+
   // Please sort it alphabetically
-  window.activities = new Activities();
   window.accessibility = new Accessibility();
   window.accessibility.start();
   window.appMigrator = new AppMigrator();
@@ -125,19 +146,26 @@ window.addEventListener('load', function startup() {
   window.appUsageMetrics.start();
   window.appWindowFactory = new AppWindowFactory();
   window.appWindowFactory.start();
+  window.batteryOverlay = new BatteryOverlay();
+  window.batteryOverlay.start();
   window.cellBroadcastSystem = new CellBroadcastSystem();
   window.cellBroadcastSystem.start();
+  window.cpuManager = new CpuManager();
+  window.cpuManager.start();
   window.developerHUD = new DeveloperHUD();
   window.developerHUD.start();
+  window.devToolsAuth = new DevToolsAuth();
   /** @global */
   window.attentionWindowManager = new window.AttentionWindowManager();
   window.attentionWindowManager.start();
+  window.globalOverlayWindowManager = new window.GlobalOverlayWindowManager();
+  window.globalOverlayWindowManager.start();
   window.dialerAgent = new DialerAgent();
   window.dialerAgent.start();
+  window.edgeSwipeDetector = new EdgeSwipeDetector();
+  window.edgeSwipeDetector.start();
   window.externalStorageMonitor = new ExternalStorageMonitor();
   window.externalStorageMonitor.start();
-  window.euRoamingManager = new EuRoamingManager();
-  window.euRoamingManager.start();
   window.homeGesture = new HomeGesture();
   window.homeGesture.start();
   if (!window.homescreenLauncher) {
@@ -146,25 +174,17 @@ window.addEventListener('load', function startup() {
     // here.
     window.homescreenLauncher = new HomescreenLauncher();
   }
-  window.internetSharing = new InternetSharing();
-  window.internetSharing.start();
-  window.lockScreenNotifications = new LockScreenNotifications();
   window.lockScreenPasscodeValidator = new LockScreenPasscodeValidator();
   window.lockScreenPasscodeValidator.start();
-  window.lockScreenNotificationBuilder = new LockScreenNotificationBuilder();
   window.layoutManager = new LayoutManager();
   window.layoutManager.start();
   window.nfcUtils = new NfcUtils();
-  window.nfcManager = new NfcManager();
-  window.nfcManager.start();
   window.permissionManager = new PermissionManager();
   window.permissionManager.start();
   window.places = new Places();
   window.places.start();
   window.remoteDebugger = new RemoteDebugger();
   window.rocketbar = new Rocketbar();
-  window.shrinkingUI = new ShrinkingUI();
-  window.shrinkingUI.start();
   window.sleepMenu = new SleepMenu();
   window.sleepMenu.start();
   window.softwareButtonManager = new SoftwareButtonManager();
@@ -172,19 +192,19 @@ window.addEventListener('load', function startup() {
   window.sourceView = new SourceView();
   window.taskManager = new TaskManager();
   window.taskManager.start();
-  window.telephonySettings = new TelephonySettings();
-  window.telephonySettings.start();
   window.ttlView = new TTLView();
   window.visibilityManager = new VisibilityManager();
   window.visibilityManager.start();
   window.wallpaperManager = new window.WallpaperManager();
   window.wallpaperManager.start();
 
-  // unit tests call init() manually
+  // unit tests call start() manually
   if (navigator.mozL10n) {
     navigator.mozL10n.once(function l10n_ready() {
       window.mediaRecording = new MediaRecording();
       window.mediaRecording.start();
+      window.quickSettings = new QuickSettings();
+      window.quickSettings.start();
     });
   }
 
@@ -202,6 +222,12 @@ window.addEventListener('load', function startup() {
       { bubbles: true, cancelable: false,
         detail: { type: 'system-message-listener-ready' } });
   window.dispatchEvent(evt);
+
+
+  window.performance.mark('loadEnd');
+
+  window.core = BaseModule.instantiate('Core');
+  window.core && window.core.start();
 });
 
 window.usbStorage = new UsbStorage();
@@ -213,36 +239,12 @@ window.addEventListener('wallpaperchange', function(evt) {
     'url(' + evt.detail.url + ')';
 });
 
+
+window.browser = new Browser();
+window.browser.start();
+window.import = new Import();
+window.import.start();
+window.activityHandler = new ActivityHandler();
+window.activityHandler.start();
 window.browserSettings = new BrowserSettings();
 window.browserSettings.start();
-
-
-/* === XXX Bug 900512 === */
-// On some devices touching the hardware home button triggers
-// touch events at position 0,0. In order to make sure those does
-// not trigger unexpected behaviors those are captured here.
-function cancelHomeTouchstart(e) {
-  if (e.touches[0].pageX === 0 && e.touches[0].pageY === 0) {
-    e.preventDefault();
-    e.stopImmediatePropagation();
-  }
-}
-
-function cancelHomeTouchend(e) {
-  if (e.changedTouches[0].pageX === 0 && e.changedTouches[0].pageY === 0) {
-    e.preventDefault();
-    e.stopImmediatePropagation();
-  }
-}
-
-function cancelHomeClick(e) {
-  if (e.pageX === 0 && e.pageY === 0) {
-    e.preventDefault();
-    e.stopImmediatePropagation();
-  }
-}
-
-window.addEventListener('touchstart', cancelHomeTouchstart, true);
-window.addEventListener('touchend', cancelHomeTouchend, true);
-window.addEventListener('mousedown', cancelHomeClick, true);
-window.addEventListener('mouseup', cancelHomeClick, true);

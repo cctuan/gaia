@@ -2,10 +2,8 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-from marionette.by import By
-from marionette import Wait
-from marionette.errors import JavascriptException
-from marionette.errors import StaleElementException
+from marionette_driver import By, Wait
+from marionette_driver.errors import StaleElementException
 
 from gaiatest import GaiaTestCase
 from gaiatest.apps.ftu.app import Ftu
@@ -17,6 +15,9 @@ class TestFtu(GaiaTestCase):
     def setUp(self):
         GaiaTestCase.setUp(self)
 
+        # Reset timezone.user-selected setting as we change this in our testvars
+        self.data_layer.set_setting('time.timezone.user-selected', None)
+
         self.ftu = Ftu(self.marionette)
         self.ftu.launch()
 
@@ -24,9 +25,8 @@ class TestFtu(GaiaTestCase):
         Wait(self.marionette).until(lambda m: self.data_layer.is_wifi_enabled)
 
     def test_ftu_skip_tour(self):
-        """https://moztrap.mozilla.org/manage/case/3876/
-
-        https://moztrap.mozilla.org/manage/case/3879/
+        """
+        https://moztrap.mozilla.org/manage/case/6119/
         """
         ssid = self.testvars['wifi']['ssid']
         psk = self.testvars['wifi'].get('psk')

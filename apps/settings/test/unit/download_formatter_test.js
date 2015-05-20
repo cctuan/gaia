@@ -1,10 +1,10 @@
-
+/* global MocksHelper, MockL10n, DownloadFormatter, MockDownload */
 'use strict';
 
 require('/shared/test/unit/mocks/mock_download.js');
-requireApp('settings/test/unit/mock_l10n.js');
 require('/shared/js/download/download_formatter.js');
 require('/shared/test/unit/mocks/mock_lazy_loader.js');
+require('/shared/test/unit/mocks/mock_l10n.js');
 
 
 suite('DownloadFormatter', function() {
@@ -205,7 +205,6 @@ suite('DownloadFormatter', function() {
   });
 
   test(' getUUID', function() {
-    var now = new Date();
     var expectedUUID = 'download-69';
     var mockDownload = new MockDownload(
       {
@@ -219,7 +218,7 @@ suite('DownloadFormatter', function() {
   test(' getDate', function(done) {
     var now = new Date();
     var expectedPrettyDate = 'pretty' + now.toString();
-    var stub = sinon.stub(navigator.mozL10n, 'DateTimeFormat', function(date) {
+    sinon.stub(navigator.mozL10n, 'DateTimeFormat', function(date) {
       return {
         fromNow: function(date, useCompactFormat) {
           assert.isUndefined(useCompactFormat);

@@ -20,7 +20,6 @@ var mocksForFindMyDevice = new MocksHelper([
 ]).init();
 
 suite('FindMyDevice >', function() {
-  var realL10n;
   var realMozPower;
   var realMozApps;
   var fakeClock;
@@ -29,13 +28,6 @@ suite('FindMyDevice >', function() {
 
   var subject;
   setup(function(done) {
-    realL10n = navigator.mozL10n;
-    navigator.mozL10n = {
-      once: function(callback) {
-        callback();
-      }
-    };
-
     realMozPower = navigator.mozPower;
     navigator.mozPower = {
       factoryReset:function(reason) {}
@@ -116,8 +108,9 @@ suite('FindMyDevice >', function() {
         var lock = MockSettingsListener.getSettingsLock().locks.pop();
 
         var channel = Commands._ringer.mozAudioChannelType;
-        assert.equal(channel, 'content', 'use content channel');
-        assert.equal(lock['audio.volume.content'], 15, 'volume set to maximum');
+        assert.equal(channel, 'ringer', 'use notification channel');
+        assert.equal(lock['audio.volume.notification'], 15,
+          'volume set to maximum');
         assert.equal(Commands._ringer.paused, false, 'must be playing');
         assert.equal(Commands._ringer.src, ringtone, 'must use ringtone');
         sinon.assert.calledOnce(FindMyDevice.beginHighPriority);
@@ -391,8 +384,6 @@ suite('FindMyDevice >', function() {
   });
 
   teardown(function() {
-    navigator.mozL10n = realL10n;
-
     // clean up sinon.js stubs
     navigator.mozPower.factoryReset.restore();
 

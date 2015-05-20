@@ -1,45 +1,47 @@
 'use strict';
 
 var assert = require('assert');
-var Actions = require('marionette-client').Actions;
-var Home = require(
-  '../../../../apps/verticalhome/test/marionette/lib/home2');
-var Search = require(
-  '../../../../apps/search/test/marionette/lib/search');
-var System = require('./lib/system');
 var Rocketbar = require('./lib/rocketbar');
+var Server = require('../../../../shared/test/integration/server');
+var FULLSCREENNAVAPP = __dirname + '/../apps/fullscreennavapp';
 
 marionette('Browser - App /w Fullscreen Navigation Chrome', function() {
 
   var client = marionette.client({
-    prefs: {
-      'dom.w3c_touch_events.enabled': 1
-    },
-    settings: {
-      'ftu.manifestURL': null,
-      'lockscreen.enabled': false
-    },
     apps: {
-      'fullscreennavapp.gaiamobile.org': __dirname + '/fullscreennavapp',
+      'fullscreennavapp.gaiamobile.org': FULLSCREENNAVAPP,
     }
   });
 
-  var actions, home, rocketbar, search, system;
+  var actions, home, rocketbar, search, system, frame, server;
   var halfScreenHeight;
 
-  setup(function() {
-    actions = new Actions(client);
-    home = new Home(client);
+  setup(function(done) {
+    actions = client.loader.getActions();
+    home = client.loader.getAppClass('verticalhome');
     rocketbar = new Rocketbar(client);
-    search = new Search(client);
-    system = new System(client);
+    search = client.loader.getAppClass('search');
+    system = client.loader.getAppClass('system');
     system.waitForStartup();
-
-    search.removeGeolocationPermission();
 
     halfScreenHeight = client.executeScript(function() {
       return window.innerHeight;
     }) / 2;
+
+    var appOrigin = 'app://fullscreennavapp.gaiamobile.org';
+    frame = system.waitForLaunch(appOrigin);
+    client.switchToFrame(frame);
+    client.helper.waitForElement('body');
+    client.switchToFrame();
+    waitForOffscreen(system.Selector.appUrlbar);
+    Server.create(__dirname + '/fixtures/', function(err, _server) {
+      server = _server;
+      done(err);
+    });
+  });
+
+  teardown(function() {
+    server.stop();
   });
 
   function waitForOffscreen(selector) {
@@ -52,25 +54,14 @@ marionette('Browser - App /w Fullscreen Navigation Chrome', function() {
   }
 
   function expandRocketbar() {
-    actions
-      .press(system.topPanel)
-      .moveByOffset(0, halfScreenHeight)
-      .release()
-      .perform();
+    actions.flick(system.topPanel, 0, 0, 0, halfScreenHeight).perform();
     assert.ok(system.appUrlbar.displayed(), 'Rocketbar is displayed.');
   }
 
   test('test fullscreen chrome /w navigation', function() {
-    var appOrigin = 'app://fullscreennavapp.gaiamobile.org';
-    var frame = system.waitForLaunch(appOrigin);
-    client.switchToFrame(frame);
-    client.helper.waitForElement('body');
-    client.switchToFrame();
-    waitForOffscreen(System.Selector.appUrlbar);
-
     // Validate page 1
     expandRocketbar();
-    waitForOffscreen(System.Selector.appUrlbar);
+    waitForOffscreen(system.Selector.appUrlbar);
 
     // Validate page 2
     client.switchToFrame(frame);
@@ -81,6 +72,43 @@ marionette('Browser - App /w Fullscreen Navigation Chrome', function() {
     assert.ok(system.appChromeBack.displayed(), 'Back button is shown.');
     system.appChromeBack.click();
     assert.ok(system.appChromeForward.displayed(), 'Forward button is shown.');
-    waitForOffscreen(System.Selector.appUrlbar);
+    waitForOffscreen(system.Selector.appUrlbar);
+  });
+
+  test('test progressbar', function() {
+    client.switchToFrame(frame);
+    var url = server.url('sample.html');
+    var link = client.helper.waitForElement('#page2-link');
+    server.cork(url);
+    link.scriptWith(function(element, url) {
+      element.href = url;
+    }, [url]);
+    link.click();
+
+    client.switchToFrame();
+    expandRocketbar();
+    var selector = system.Selector.appChromeProgressBar;
+    var progressBar = system.appChromeProgressBar;
+    var chromeSize = system.appChrome.size();
+    client.waitFor(function() {
+      var pbPosition = progressBar.scriptWith(function(element) {
+        return element.getBoundingClientRect();
+      });
+      return pbPosition.y === chromeSize.height;
+    });
+
+    waitForOffscreen(selector);
+    client.waitFor(function() {
+      return !progressBar.displayed();
+    });
+
+    expandRocketbar();
+    client.waitFor(function() {
+      return progressBar.displayed();
+    });
+    server.uncork(url);
+    client.waitFor(function() {
+      return !progressBar.displayed();
+    });
   });
 });

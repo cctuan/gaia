@@ -1,12 +1,12 @@
-/* global MocksHelper, MockAppWindow, MockSystem, AttentionToaster */
+/* global MocksHelper, MockAppWindow, MockService, AttentionToaster */
 'use strict';
 
 requireApp('system/test/unit/mock_app_window.js');
-require('/shared/test/unit/mocks/mock_system.js');
+require('/shared/test/unit/mocks/mock_service.js');
 requireApp('system/test/unit/mock_rocketbar.js');
 
 var mocksForAttentionToaster = new MocksHelper([
-  'AppWindow', 'System'
+  'AppWindow', 'Service'
 ]).init();
 
 suite('system/AttentionToaster', function() {
@@ -81,9 +81,23 @@ suite('system/AttentionToaster', function() {
       at1.start();
       at1._currentToasterState = 'opened';
       at1._enter_opened();
-      MockSystem.locked = false;
+      MockService.locked = false;
+      MockService.mTopMostWindow = {
+        CLASS_NAME: 'AppWindow'
+      };
       this.sinon.clock.tick(at1.TOASTER_TIMEOUT);
       assert.equal(at1._currentToasterState, 'closing');
+    });
+
+  test('Enter opening state if being at closed state for 30sec.',
+    function() {
+      var app1 = new MockAppWindow(fakeAppConfig1);
+      var at1 = new AttentionToaster(app1);
+      at1.start();
+      at1._currentToasterState = 'closing';
+      at1._enter_closed('complete');
+      this.sinon.clock.tick(at1.RESPAWN_TIMEOUT);
+      assert.equal(at1._currentToasterState, 'opening');
     });
 
   test('Enter closed state while the attention window transition ends.',
@@ -106,6 +120,16 @@ suite('system/AttentionToaster', function() {
       assert.equal(at1._currentToasterState, 'opening');
     });
 
+  test('Enter opening state again while secure window is closed.',
+    function() {
+      var app1 = new MockAppWindow(fakeAppConfig1);
+      var at1 = new AttentionToaster(app1);
+      at1.start();
+      at1._currentToasterState = 'closed';
+      app1.element.dispatchEvent(new CustomEvent('_secure-appclosed'));
+      assert.equal(at1._currentToasterState, 'opening');
+    });
+
   test('Enter closing state while lockscreen window is closed.',
     function() {
       var app1 = new MockAppWindow(fakeAppConfig1);
@@ -116,15 +140,46 @@ suite('system/AttentionToaster', function() {
       assert.isTrue(at1._currentToasterState === 'closing');
     });
 
+  test('Enter closing state while secure window is opened.',
+    function() {
+      var app1 = new MockAppWindow(fakeAppConfig1);
+      var at1 = new AttentionToaster(app1);
+      at1.start();
+      at1._currentToasterState = 'opened';
+      app1.element.dispatchEvent(new CustomEvent('_secure-appopened'));
+      assert.equal(at1._currentToasterState, 'closing');
+    });
+
   test('Should not enter closing state if system is locked', function() {
     var app1 = new MockAppWindow(fakeAppConfig1);
     var at1 = new AttentionToaster(app1);
-    MockSystem.locked = true;
+    MockService.locked = true;
+    MockService.mTopMostWindow = {
+      isFullScreen: function() {
+        return false;
+      }
+    };
     at1._currentToasterState = 'opened';
     at1._enter_opened();
     this.sinon.clock.tick(at1.TOASTER_TIMEOUT);
     assert.equal(at1._currentToasterState, 'opened');
   });
+
+  test('Should enter closing state if fullscreen secure app is opened',
+    function() {
+      var app1 = new MockAppWindow(fakeAppConfig1);
+      var at1 = new AttentionToaster(app1);
+      MockService.locked = true;
+      MockService.mTopMostWindow = {
+        isFullScreen: function() {
+          return true;
+        }
+      };
+      at1._currentToasterState = 'opened';
+      at1._enter_opened();
+      this.sinon.clock.tick(at1.TOASTER_TIMEOUT);
+      assert.equal(at1._currentToasterState, 'closing');
+    });
 
   test('Should not trigger state change if the app is hidden or active',
     function() {

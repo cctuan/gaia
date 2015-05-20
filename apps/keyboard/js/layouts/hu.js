@@ -5,6 +5,7 @@ Keyboards.hu = {
   imEngine: 'latin',
   types: ['text', 'url', 'email', 'password'],
   autoCorrectLanguage: 'hu',
+  lang: 'hu',
   alt: {
     a: 'áàâäåãāæª',
     c: 'çćč',
@@ -41,12 +42,13 @@ Keyboards.hu = {
   ],
   pages: [undefined, {
     alt: {
-      '0': 'º',
-      '$': '€£¥',
-      '?': '¿',
-      '!': '.¡',
-      '-': '–',
-      '\"': '„”'
+      '0': ['º'],
+      '$': [ '€', '£', '¢', '¥'],
+      '"': ['„', '“', '”'],
+      '\'':['‘', '’'],
+      '?': ['¿'],
+      '!': ['.', '¡'],
+      '+': ['-', '×', '÷', '±']
     },
     // These are based on the en layout.
     keys: [
@@ -70,7 +72,7 @@ Keyboards.hu = {
             value: ','
           }
         }, { value: ':' }, { value: ';' }, { value: '"' },
-        { value: '\'' }, { value: '?' }, { value: '!' },
+        { value: '\'' }, { value: '!' }, { value: '?' },
         { value: '⌫', ratio: 1.5, keyCode: KeyEvent.DOM_VK_BACK_SPACE }
       ], [
         { value: '&nbsp', ratio: 8, keyCode: KeyboardEvent.DOM_VK_SPACE },

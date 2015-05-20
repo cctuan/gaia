@@ -1,26 +1,23 @@
-/*global Factory */
+define(function(require) {
+'use strict';
 
-requireApp('calendar/test/unit/provider/mock_stream.js');
-requireApp('calendar/test/unit/service/helper.js');
-requireLib('ext/ical.js');
-requireLib('ext/caldav.js');
-requireLib('ext/uuid.js');
-requireLib('service/caldav.js');
-requireLib('service/ical_recur_expansion.js');
-requireLib('models/account.js');
-requireLib('models/calendar.js');
+var AccountModel = require('models/account');
+var CalendarModel = require('models/calendar');
+var CaldavPullEvents = require('provider/caldav_pull_events');
+var CaldavService = require('service/caldav');
+var Responder = require('common/responder');
+var Factory = require('test/support/factory');
+var ServiceSupport = require('test/service/helper');
+var core = require('core');
 
-suiteGroup('Provider.CaldavPullEvents', function() {
-  'use strict';
-
+suite('Provider.CaldavPullEvents', function() {
   var fixtures;
   var ical;
   var subject;
-  var controller;
   var stream;
   var db;
-  var app;
   var service;
+  var storeFactory;
 
   function createSubject(options) {
     if (typeof(options) === 'undefined') {
@@ -35,17 +32,12 @@ suiteGroup('Provider.CaldavPullEvents', function() {
       options.account = account;
     }
 
-    stream = new Calendar.Responder();
+    stream = new Responder();
 
-    options.app = app;
-
-    return new Calendar.Provider.CaldavPullEvents(
-      stream,
-      options
-    );
+    return new CaldavPullEvents(stream, options);
   }
 
-  suiteSetup(function(done) {
+  setup(function(done) {
     ical = new ServiceSupport.Fixtures('ical');
     ical.load('single_event');
     ical.load('daily_event');
@@ -55,12 +47,10 @@ suiteGroup('Provider.CaldavPullEvents', function() {
 
     ServiceSupport.setExpansionLimit(10);
 
-    service = new Calendar.Service.Caldav(
-      new Calendar.Responder()
-    );
+    service = new CaldavService(new Responder());
   });
 
-  suiteTeardown(function() {
+  teardown(function() {
     ServiceSupport.resetExpansionLimit();
   });
 
@@ -86,9 +76,8 @@ suiteGroup('Provider.CaldavPullEvents', function() {
   }
 
   setup(function(done) {
-    app = testSupport.calendar.app();
-    db = app.db;
-    controller = app.timeController;
+    db = core.db;
+    storeFactory = core.storeFactory;
 
     db.open(function(err) {
       assert.ok(!err);
@@ -100,7 +89,7 @@ suiteGroup('Provider.CaldavPullEvents', function() {
 
   setup(function(done) {
     account = Factory.create('account');
-    app.store('Account').persist(account, done);
+    storeFactory.get('Account').persist(account, done);
   });
 
   var calendar;
@@ -110,7 +99,7 @@ suiteGroup('Provider.CaldavPullEvents', function() {
     calendar.accountId = account._id;
     calendar.remote.syncToken = 'not-same-as-other';
     calendar.syncToken = 'neq';
-    app.store('Calendar').persist(calendar, done);
+    storeFactory.get('Calendar').persist(calendar, done);
   });
 
   setup(function() {
@@ -133,9 +122,8 @@ suiteGroup('Provider.CaldavPullEvents', function() {
   test('initializer', function() {
     var subject = createSubject();
 
-    assert.instanceOf(subject.calendar, Calendar.Models.Calendar, '.calendar');
-    assert.instanceOf(subject.account, Calendar.Models.Account, '.account');
-    assert.equal(subject.app, app);
+    assert.instanceOf(subject.account, AccountModel, '.account');
+    assert.instanceOf(subject.calendar, CalendarModel, '.calendar');
   });
 
   suite('#eventIdFromRemote', function() {
@@ -224,7 +212,7 @@ suiteGroup('Provider.CaldavPullEvents', function() {
         times.length = 0;
 
         event = serviceEvent(name);
-        var stream = new Calendar.Responder();
+        var stream = new Responder();
 
         stream.on('occurrence', function(item) {
           times.push(item);
@@ -248,7 +236,7 @@ suiteGroup('Provider.CaldavPullEvents', function() {
 
         var result = subject.formatBusytime(time);
         var modelCopy = Object.create(result);
-        modelCopy = app.store('Busytime').initRecord(modelCopy);
+        modelCopy = storeFactory.get('Busytime').initRecord(modelCopy);
 
         assert.hasProperties(
           result,
@@ -304,7 +292,7 @@ suiteGroup('Provider.CaldavPullEvents', function() {
     var account;
 
     setup(function(done) {
-      accountStore = app.store('Account');
+      accountStore = storeFactory.get('Account');
       account = Factory.create('account');
       accountStore.persist(account, done);
     });
@@ -316,7 +304,7 @@ suiteGroup('Provider.CaldavPullEvents', function() {
       calendar.accountId = account._id;
       calendar.remote.syncToken = 'bug-809607';
       calendar.syncToken = 'bug-809607';
-      app.store('Calendar').persist(calendar, done);
+      storeFactory.get('Calendar').persist(calendar, done);
     });
 
     var subject;
@@ -334,7 +322,7 @@ suiteGroup('Provider.CaldavPullEvents', function() {
 
       // Set up to count events persisted.
       eventPersistCt = 0;
-      eventStore = app.store('Event');
+      eventStore = storeFactory.get('Event');
       eventStore.on('persist', function(id) {
         eventPersistCt++;
       });
@@ -401,8 +389,8 @@ suiteGroup('Provider.CaldavPullEvents', function() {
 
     setup(function() {
       removed.length = 0;
-      eventStore = app.store('Event');
-      componentStore = app.store('IcalComponent');
+      eventStore = storeFactory.get('Event');
+      componentStore = storeFactory.get('IcalComponent');
 
       eventStore.remove = function(id) {
         removed.push(id);
@@ -515,7 +503,7 @@ suiteGroup('Provider.CaldavPullEvents', function() {
       test('event', function(done) {
         eventStore.findByIds([newEvent._id], function(err, list) {
           done(function() {
-            assert.length(Object.keys(list), 1, 'saved events');
+            assert.lengthOf(Object.keys(list), 1, 'saved events');
             assert.ok(list[newEvent._id], 'saved event id');
           });
         });
@@ -524,19 +512,13 @@ suiteGroup('Provider.CaldavPullEvents', function() {
   });
 
   suite('#handleOccurrenceSync', function() {
-    var addedTimes = [];
     var times = [];
     var event;
 
     setup(function(done) {
       event = serviceEvent('dailyEvent');
-      addedTimes.length = 0;
 
-      controller.cacheBusytime = function(given) {
-        addedTimes.push(given);
-      };
-
-      var stream = new Calendar.Responder();
+      var stream = new Responder();
 
       stream.on('occurrence', function(item) {
         times.push(item);
@@ -565,7 +547,7 @@ suiteGroup('Provider.CaldavPullEvents', function() {
       assert.ok(alarms, 'has alarms');
 
       stream.emit('occurrence', times[0]);
-      assert.length(subject.busytimeQueue, 1);
+      assert.lengthOf(subject.busytimeQueue, 1);
 
       // ids are unique each time
       expected._id = subject.busytimeQueue[0]._id;
@@ -583,8 +565,6 @@ suiteGroup('Provider.CaldavPullEvents', function() {
         subject.alarmQueue.length, alarms.length,
         'moves moves to alarm queue'
       );
-
-      assert.equal(addedTimes[0]._id, expected._id, 'added times');
     });
 
   });
@@ -614,7 +594,7 @@ suiteGroup('Provider.CaldavPullEvents', function() {
       expected.calendarId = calendar._id;
 
       stream.emit('component', data);
-      assert.length(subject.icalQueue, 1);
+      assert.lengthOf(subject.icalQueue, 1);
 
       assert.deepEqual(
         subject.icalQueue[0],
@@ -629,7 +609,7 @@ suiteGroup('Provider.CaldavPullEvents', function() {
       };
 
       stream.emit('component', data);
-      assert.length(subject.icalQueue, 1);
+      assert.lengthOf(subject.icalQueue, 1);
 
       assert.ok(
         !('lastRecurrenceId' in subject.icalQueue[0]),
@@ -645,7 +625,7 @@ suiteGroup('Provider.CaldavPullEvents', function() {
       // the results by using the same object during the test.
       var control = serviceEvent('recurringEvent');
       control = subject.formatEvent(control);
-      assert.length(control.remote.exceptions, 2);
+      assert.lengthOf(control.remote.exceptions, 2);
 
       var exceptions = control.remote.exceptions;
       delete control.remote.exceptions;
@@ -657,8 +637,8 @@ suiteGroup('Provider.CaldavPullEvents', function() {
       var event = serviceEvent('recurringEvent');
       stream.emit('event', event);
 
-      assert.length(subject.eventQueue, 3);
-      assert.length(subject.icalQueue, 1);
+      assert.lengthOf(subject.eventQueue, 3);
+      assert.lengthOf(subject.icalQueue, 1);
 
       assert.hasProperties(
         subject.icalQueue[0],
@@ -699,33 +679,22 @@ suiteGroup('Provider.CaldavPullEvents', function() {
 
       stream.emit('event', newEvent);
 
-      assert.length(
+      assert.lengthOf(
         subject.eventQueue,
         1
       );
     });
 
     test('event new', function() {
-      var calledWith;
-      controller.cacheEvent = function() {
-        calledWith = arguments;
-      };
-
       var event = serviceEvent('singleEvent');
       stream.emit('event', event);
-
-      assert.hasProperties(
-        calledWith[0].remote,
-        event.remote,
-        'caches remote event'
-      );
 
       assert.deepEqual(
         subject.eventQueue,
         [subject.formatEvent(event)]
       );
     });
-
   });
+});
 
 });

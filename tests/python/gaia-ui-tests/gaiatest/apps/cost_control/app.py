@@ -2,7 +2,7 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-from marionette.by import By
+from marionette_driver import expected, By, Wait
 from gaiatest.apps.base import Base
 
 
@@ -29,8 +29,12 @@ class CostControl(Base):
 
     @property
     def is_mobile_data_tracking_on(self):
-        mobileswitch = self.marionette.find_element(*self._mobile_data_tracking_locator)
-        return mobileswitch.is_selected()
+        # The following should work, but doesn't, see bug 1113742. We use execute_script instead, for now
+        # mobileswitch = self.marionette.find_element(*self._mobile_data_tracking_locator)
+        # return mobileswitch.is_selected()
+        return self.marionette.execute_script("""
+            return window.wrappedJSObject.document.getElementById('mobileCheck').checked;
+        """)
 
     @property
     def is_wifi_data_tracking_on(self):
@@ -54,8 +58,10 @@ class CostControl(Base):
         ftu_step3.tap_lets_go()
 
     def tap_settings(self):
-        self.wait_for_element_displayed(*self._settings_button_locator)
-        self.marionette.find_element(*self._settings_button_locator).tap()
+        settings = Wait(self.marionette).until(
+            expected.element_present(*self._settings_button_locator))
+        Wait(self.marionette).until(expected.element_displayed(settings))
+        settings.tap()
         from gaiatest.apps.cost_control.regions.settings import Settings
         return Settings(self.marionette)
 
@@ -69,6 +75,7 @@ class CostControl(Base):
 
     def switch_to_ftu(self):
         ftu_iframe = self.marionette.find_element(*self._ftu_frame_locator)
-        self.wait_for_condition(lambda m: 'non-ready' not in ftu_iframe.get_attribute('class')
-                                and ftu_iframe.is_displayed())
+        Wait(self.marionette).until(
+            lambda m: 'non-ready' not in ftu_iframe.get_attribute('class') and
+            ftu_iframe.is_displayed())
         self.marionette.switch_to_frame(ftu_iframe)

@@ -1,6 +1,5 @@
 'use strict';
-/* global applications, BrowserConfigHelper, AppWindowManager,
-          homescreenLauncher, AppWindow */
+/* global applications, BrowserConfigHelper, AppWindow */
 /* jshint nonew: false */
 
 (function(exports) {
@@ -49,6 +48,7 @@
       window.addEventListener('webapps-launch', this.preHandleEvent);
       window.addEventListener('webapps-close', this.preHandleEvent);
       window.addEventListener('open-app', this.preHandleEvent);
+      window.addEventListener('openwindow', this.preHandleEvent);
       window.addEventListener('appopenwindow', this.preHandleEvent);
       window.addEventListener('applicationready', (function appReady(e) {
         window.removeEventListener('applicationready', appReady);
@@ -69,6 +69,7 @@
       window.removeEventListener('webapps-launch', this.preHandleEvent);
       window.removeEventListener('webapps-close', this.preHandleEvent);
       window.removeEventListener('open-app', this.preHandleEvent);
+      window.removeEventListener('openwindow', this.preHandleEvent);
       window.removeEventListener('appopenwindow', this.preHandleEvent);
     },
 
@@ -98,20 +99,22 @@
 
     handleEvent: function awf_handleEvent(evt) {
       var detail = evt.detail;
-      var manifestURL = detail.manifestURL;
-      if (!manifestURL) {
+      if (evt.type === '_opened' || evt.type === '_terminated') {
+        if (this._launchingApp === detail) {
+          this.forgetLastLaunchingWindow();
+        }
+        return;
+      }
+      if (!detail.url && !detail.manifestURL) {
         return;
       }
 
-      var config = new BrowserConfigHelper(detail.url, detail.manifestURL);
-
-      if (!config.manifest) {
-        return;
-      }
+      var config = new BrowserConfigHelper(detail);
 
       config.evtType = evt.type;
 
       switch (evt.type) {
+        case 'openwindow':
         case 'appopenwindow':
         case 'webapps-launch':
           config.timestamp = detail.timestamp;
@@ -173,29 +176,53 @@
         return;
       }
       if (config.isActivity && config.inline) {
-        this.publish('launchactivity', config, document.body);
+        this.publish('launchactivity', config);
         return;
       }
 
       // The rocketbar currently handles the management of normal search app
       // launches. Requests for the 'newtab' page will continue to filter
       // through and publish the launchapp event.
-      if (config.manifest.role === 'search' &&
+      if (config.manifest && config.manifest.role === 'search' &&
           config.url.indexOf('newtab.html') === -1) {
         return;
       }
-      var app = AppWindowManager.getApp(config.origin, config.manifestURL);
+      var app = window.appWindowManager.getApp(config.origin,
+        config.manifestURL);
       if (app) {
         if (config.evtType == 'appopenwindow') {
           app.browser.element.src = config.url;
         }
         app.reviveBrowser();
-      } else if (config.origin !== homescreenLauncher.origin) {
-        new AppWindow(config);
-      } else if (config.origin == homescreenLauncher.origin) {
-        homescreenLauncher.getHomescreen(true);
+      } else {
+        // homescreenWindowManager already listens webapps-launch and open-app.
+        // We don't need to check if the launched app is homescreen.
+        this.forgetLastLaunchingWindow();
+        this.trackLauchingWindow(config);
       }
       this.publish('launchapp', config);
+    },
+
+    trackLauchingWindow: function(config) {
+      var app = new AppWindow(config);
+      if (config.stayBackground) {
+        return;
+      }
+      this._launchingApp = app;
+      this._launchingApp.element.addEventListener('_opened', this);
+      this._launchingApp.element.addEventListener('_terminated', this);
+    },
+
+    forgetLastLaunchingWindow: function() {
+      if (this._launchingApp && this._launchingApp.element) {
+        this._launchingApp.element.removeEventListener('_opened', this);
+        this._launchingApp.element.removeEventListener('_terminated', this);
+      }
+      this._launchingApp = null;
+    },
+
+    isLaunchingWindow: function() {
+      return !!this._launchingApp;
     },
 
     /**

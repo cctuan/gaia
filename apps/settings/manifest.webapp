@@ -2,13 +2,13 @@
   "name": "Settings",
   "description": "Gaia Settings",
   "type": "certified",
-  "launch_path": "/index.html#root",
+  "launch_path": "/index.html#",
   "developer": {
     "name": "The Gaia Team",
     "url": "https://github.com/mozilla-b2g/gaia"
   },
   "permissions": {
-    "storage":{},
+    "themeable":{},
     "browser": {},
     "embed-apps": {},
     "mobileconnection":{},
@@ -33,7 +33,7 @@
     "audio-channel-notification":{},
     "audio-channel-alarm":{},
     "downloads":{},
-    "nfc":{ "access": "readonly" },
+    "nfc":{},
     "sms":{},
     "firefox-accounts": {}
   },
@@ -42,7 +42,21 @@
       "filters": {
         "target": "device"
        },
+      "href": "index.html#activity-configure",
+      "disposition": "inline"
+    },
+    "moz_configure_window": {
+      "filters": {
+        "target": "device"
+      },
+      "href": "index.html#moz-configure-window",
       "disposition": "window"
+    }
+  },
+  "connections": {
+    "settingsstk": {
+      "description": "Communicate between Settings app and System app for SIM Toolkit.",
+      "rules": {}
     }
   },
   "locales": {

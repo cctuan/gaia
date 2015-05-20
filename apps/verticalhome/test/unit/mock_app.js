@@ -7,7 +7,9 @@ function MockApp() {
 }
 
 MockApp.prototype = {
-  HIDDEN_ROLES: ['system', 'keyboard', 'homescreen', 'search'],
+  HIDDEN_ROLES: [
+    'system', 'keyboard', 'homescreen', 'search', 'addon', 'langpack'
+  ],
   init: function() {
     MockApp.initialized = true;
   },
@@ -24,7 +26,11 @@ MockApp.prototype = {
         MockApp.mItems.push(detail);
       }
     },
-    removeUntilDivider: function() {},
+    appendItemToExpandedGroup: function(detail) {
+      if (detail) {
+        MockApp.mItems.push(detail);
+      }
+    },
     removeIconByIdentifier: function(identifier) {
       delete MockApp.mIcons[identifier];
     },

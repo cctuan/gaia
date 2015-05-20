@@ -1,3 +1,6 @@
+/* global FxaModuleEnterEmail, FxaModuleErrorOverlay, FxaModuleOverlay,
+          FxModuleServerRequest, FxaModuleStates, FxaModuleUI,
+          HtmlImports, LoadElementHelper, MocksHelper, MockL10n */
 'use strict';
 
 // Helper for loading the elements
@@ -9,6 +12,8 @@ requireApp('system/fxa/js/fxam_module.js');
 requireApp('system/fxa/js/fxam_states.js');
 requireApp('system/fxa/js/fxam_manager.js');
 requireApp('system/fxa/js/fxam_overlay.js');
+requireApp('system/js/browser_frame.js');
+requireApp('system/js/entry_sheet.js');
 requireApp('system/fxa/js/fxam_error_overlay.js');
 
 // Mockuped code
@@ -39,8 +44,6 @@ var mocksHelperForEmailModule = new MocksHelper([
   'FxaModuleErrors'
 ]);
 
-mocha.globals(['FxModuleServerRequest', 'FxaModuleErrors']);
-
 suite('Screen: Enter email', function() {
   var realL10n;
   suiteSetup(function(done) {
@@ -48,7 +51,7 @@ suite('Screen: Enter email', function() {
     navigator.mozL10n = MockL10n;
     // we have to special-case the l10n stub for the fxa-notice element
     var l10nStub = sinon.stub(navigator.mozL10n, 'get');
-    var noticeStr = 'By proceeding, I agree to the {{tos}} and {{pn}} of ' +
+    var noticeStr = 'By proceeding, I agree to the {{ tos }} and {{ pn }} ' +
                     'Firefox cloud services';
     l10nStub.withArgs('fxa-notice')
       .returns(noticeStr);
@@ -71,6 +74,67 @@ suite('Screen: Enter email', function() {
     mocksHelperForEmailModule.suiteTeardown();
   });
 
+  suite(' > External links EntrySheet ', function() {
+    var privacyLink, termsLink, showErrorOverlaySpy, clickEvent,
+      closeEntrySheetSpy, mockEntrySheet;
+
+    setup(function() {
+      privacyLink = document.getElementById('fxa-privacy');
+      termsLink = document.getElementById('fxa-terms');
+      showErrorOverlaySpy = this.sinon.spy(FxaModuleErrorOverlay, 'show');
+      clickEvent = new MouseEvent('click', {
+        bubbles: true,
+        cancelable: true,
+        view: window
+      });
+      closeEntrySheetSpy = sinon.spy();
+      mockEntrySheet = {close: closeEntrySheetSpy};
+      FxaModuleEnterEmail.entrySheet = mockEntrySheet;
+    });
+
+    teardown(function() {
+      FxaModuleErrorOverlay.show.restore();
+      privacyLink = termsLink = showErrorOverlaySpy = clickEvent = null;
+      FxaModuleEnterEmail.entrySheet = null;
+    });
+
+    test(' > Should not be shown if navigator.onLine is false', function() {
+      var realOnLine = Object.getOwnPropertyDescriptor(navigator, 'onLine');
+      Object.defineProperty(navigator, 'onLine', {
+        configurable: true,
+        get: function() {
+          return false;
+        },
+        set: function() {}
+      });
+      var showErrorSpy = this.sinon.spy(FxaModuleEnterEmail,
+        'showErrorResponse');
+      privacyLink.dispatchEvent(clickEvent);
+      termsLink.dispatchEvent(clickEvent);
+      assert.ok(showErrorSpy.calledTwice);
+      FxaModuleEnterEmail.showErrorResponse.restore();
+      realOnLine ? Object.defineProperty(navigator, 'onLine', realOnLine) :
+        delete navigator.onLine;
+    });
+
+    test(' > Should be dismissed on "home" event', function() {
+      window.dispatchEvent(new CustomEvent('home'));
+      assert.ok(closeEntrySheetSpy.calledOnce);
+      assert.isNull(FxaModuleEnterEmail.entrySheet);
+    });
+
+    test(' > Should be dismissed on "holdhome" event', function() {
+      window.dispatchEvent(new CustomEvent('holdhome'));
+      assert.ok(closeEntrySheetSpy.calledOnce);
+      assert.isNull(FxaModuleEnterEmail.entrySheet);
+    });
+
+    test(' > Should be dismissed on "activityrequesting" event', function() {
+      window.dispatchEvent(new CustomEvent('activityrequesting'));
+      assert.ok(closeEntrySheetSpy.calledOnce);
+      assert.isNull(FxaModuleEnterEmail.entrySheet);
+    });
+  });
 
   suite(' > email input ', function() {
     var emailInput;

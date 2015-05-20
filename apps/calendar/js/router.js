@@ -1,13 +1,13 @@
-/*jshint loopfunc: true */
-Calendar.Router = (function() {
+/* jshint loopfunc: true */
+define(function(require, exports, module) {
 'use strict';
 
-/**
- * Constants
- */
 var COPY_METHODS = ['start', 'stop', 'show'];
 
-function Router(page) {
+var core = require('core');
+var page = require('ext/page');
+
+function Router() {
   var i = 0;
   var len = COPY_METHODS.length;
 
@@ -15,13 +15,17 @@ function Router(page) {
   this._activeObjects = [];
 
   for (; i < len; i++) {
-    this[COPY_METHODS[i]] = this.page[COPY_METHODS[i]].bind(this.page);
+    this[COPY_METHODS[i]] = page[COPY_METHODS[i]].bind(page);
   }
 
   this._lastState = this._lastState.bind(this);
 }
 
 Router.prototype = {
+
+  go: function(path, context) {
+    this.show(path, context);
+  },
 
   /**
    * Tells router to manage the object.
@@ -110,7 +114,7 @@ Router.prototype = {
 
       /*jshint loopfunc: true */
       for (i = 0; i < numViews; i++) {
-        Calendar.App.view(views[i], function(view) {
+        core.viewFactory.get(views[i], function(view) {
           viewObjs.push(view);
           len--;
 
@@ -122,6 +126,10 @@ Router.prototype = {
     }
 
     function setPath(ctx, next) {
+      // set the theme color based on the view
+      var meta = document.querySelector('meta[name="theme-color"]');
+      meta.setAttribute('content', meta.dataset[options.color || 'default']);
+
       // Only set the dataset path after the view has loaded
       // its resources. Otherwise, there is some flash and
       // jank while styles start to apply and the view is only
@@ -174,6 +182,8 @@ Router.prototype = {
   }
 };
 
-return Router;
+// router is singleton to simplify dependency graph, specially since it's
+// needed by notifications and it could get into weird race conditions
+module.exports = new Router();
 
-}());
+});

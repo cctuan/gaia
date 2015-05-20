@@ -1,4 +1,3 @@
-/*global define, setTimeout */
 /*
  * Custom events lib. Notable features:
  *
@@ -10,9 +9,9 @@
  *   code via a throw within the listener group notification.
  * - new evt.Emitter() can be used to create a new instance of an
  *   event emitter.
- * - Uses "this" insternally, so always call object with the emitter args
- *
+ * - Uses "this" internally, so always call object with the emitter args.
  */
+'use strict';
 define(function() {
 
   var evt,
@@ -47,8 +46,9 @@ define(function() {
       var self = this,
           fired = false;
       function one() {
-        if (fired)
+        if (fired) {
           return;
+        }
         fired = true;
         fn.apply(null, arguments);
         // Remove at a further turn so that the event
@@ -86,10 +86,11 @@ define(function() {
      * @param  {Function} fn listener.
      */
     latestOnce: function(id, fn) {
-      if (this[id] && !this._pendingEvents[id])
+      if (this[id] && !this._pendingEvents[id]) {
         fn(this[id]);
-      else
+      } else {
         this.once(id, fn);
+      }
     },
 
     removeListener: function(id, fn) {
@@ -100,8 +101,9 @@ define(function() {
         if (i !== -1) {
           listeners.splice(i, 1);
         }
-        if (listeners.length === 0)
+        if (listeners.length === 0) {
           delete this._events[id];
+        }
       }
     },
 
@@ -116,8 +118,9 @@ define(function() {
       if (listeners) {
         this.emit.apply(this, arguments);
       } else {
-        if (!this._pendingEvents[id])
+        if (!this._pendingEvents[id]) {
           this._pendingEvents[id] = [];
+        }
         this._pendingEvents[id].push(slice.call(arguments, 1));
       }
     },
@@ -125,6 +128,7 @@ define(function() {
     emit: function(id) {
       var args = slice.call(arguments, 1),
           listeners = this._events[id];
+
       if (listeners) {
         listeners.forEach(function(fn) {
           try {
@@ -134,6 +138,8 @@ define(function() {
             // can complete. While this messes with the
             // stack for the error, continued operation is
             // valued more in this tradeoff.
+            // This also means we do not need to .catch()
+            // for the wrapping promise.
             setTimeout(function() {
               throw e;
             });

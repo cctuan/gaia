@@ -70,6 +70,8 @@
 
   HomescreenWindow.prototype = Object.create(AppWindow.prototype);
 
+  HomescreenWindow.prototype.constructor = HomescreenWindow;
+
   HomescreenWindow.prototype._DEBUG = false;
 
   HomescreenWindow.prototype.CLASS_NAME = 'HomescreenWindow';
@@ -86,7 +88,10 @@
       this.url = app.origin + '/index.html#root';
 
       this.browser_config =
-        new BrowserConfigHelper(this.origin, this.manifestURL);
+        new BrowserConfigHelper({
+          url: this.origin,
+          manifestURL: this.manifestURL
+        });
 
       // Necessary for b2gperf now.
       this.name = this.browser_config.name;
@@ -99,17 +104,15 @@
       this.isHomescreen = true;
     };
 
-  HomescreenWindow.REGISTERED_EVENTS =
-    ['_opening', '_localized', 'mozbrowserclose', 'mozbrowsererror',
-      'mozbrowservisibilitychange', 'mozbrowserloadend', '_orientationchange',
-      '_focus'];
+  HomescreenWindow.REGISTERED_EVENTS = AppWindow.REGISTERED_EVENTS;
 
   HomescreenWindow.SUB_COMPONENTS = {
     'transitionController': window.AppTransitionController,
     'modalDialog': window.AppModalDialog,
     'valueSelector': window.ValueSelector,
     'authDialog': window.AppAuthenticationDialog,
-    'childWindowFactory': window.ChildWindowFactory
+    'childWindowFactory': window.ChildWindowFactory,
+    'statusbar': window.AppStatusbar
   };
 
   HomescreenWindow.prototype.openAnimation = 'zoom-out';
@@ -161,15 +164,11 @@
   };
 
   HomescreenWindow.prototype.view = function hw_view() {
-    return '<div class="appWindow homescreen" id="homescreen">' +
-              '<div class="titlebar">' +
-              ' <div class="notifications-shadow"></div>' +
-              ' <div class="statusbar-shadow titlebar-maximized"></div>' +
-              ' <div class="statusbar-shadow titlebar-minimized"></div>' +
-              '</div>' +
-              '<div class="fade-overlay"></div>' +
-              '<div class="browser-container"></div>' +
-           '</div>';
+    var content = `<div class="appWindow homescreen" id="homescreen">
+              <div class="fade-overlay"></div>
+              <div class="browser-container"></div>
+           </div>`;
+    return content;
   };
 
   HomescreenWindow.prototype.eventPrefix = 'homescreen';
@@ -192,7 +191,8 @@
         // Just kill front window but not switch to the first page.
         this.frontWindow.kill();
       } else {
-        this.browser.element.src = this.browser_config.url + Date.now();
+        var urlWithoutHash = this.browser_config.url.split('#')[0];
+        this.browser.element.src = urlWithoutHash + '#' + Date.now();
       }
     }
 

@@ -139,9 +139,9 @@
       document.getElementById('non2-select-weekday'));
 
     function _setResetTimeToDefault(evt) {
-      var firstWeekDay = parseInt(navigator.mozL10n.get('weekStartsOnMonday'),
-                                  10);
-      var defaultResetTime = (evt.target.value === 'weekly') ? firstWeekDay : 1;
+      var today = new Date();
+      var defaultResetTime = (evt.target.value === 'weekly') ?
+        today.getDay() : today.getDate();
       ConfigManager.setOption({ resetTime: defaultResetTime });
     }
 
@@ -158,9 +158,9 @@
 
     if (window.location.hash === '#PREPAID' ||
         window.location.hash === '#POSTPAID') {
-      wizard.querySelector('.authed-sim').setAttribute('aria-hidden', false);
+      wizard.querySelector('.authed-sim').hidden = false;
     } else {
-      wizard.querySelector('.nonauthed-sim').setAttribute('aria-hidden', false);
+      wizard.querySelector('.nonauthed-sim').hidden = false;
     }
   }
 
@@ -195,11 +195,6 @@
   // NAVIGATION
 
   function reset(track) {
-    // Set wizard progess section
-    wizard.classList.add('total-steps-' + track.length);
-    wizard.classList.remove('step-' + (step + 1));
-    wizard.classList.add('step-1');
-
     // Reposition screens
     var currentScreen = document.getElementById(currentTrack[step]);
     var newStartScreen = document.getElementById(track[0]);
@@ -208,7 +203,7 @@
     newStartScreen.dataset.viewport = 'right';
     delete newStartScreen.dataset.viewport;
 
-    for (var i = 1; i < track.lenght; i += 1) {
+    for (var i = 1; i < track.length; i += 1) {
       var id = track[i];
       if (id) {
         var screen = document.getElementById(id);
@@ -236,10 +231,6 @@
     delete nextScreen.dataset.viewport;
     currentScreen.dataset.viewport = 'left';
 
-    // Advance progress bar
-    wizard.classList.remove('step-' + (step + 1));
-    wizard.classList.add('step-' + (step + 2));
-
     step += 1;
 
     // Validate when in step 2 in order to restore buttons and errors
@@ -262,10 +253,6 @@
     // Enter the previous screen
     delete prevScreen.dataset.viewport;
     currentScreen.dataset.viewport = 'right';
-
-    // Back progress bar
-    wizard.classList.remove('step-' + (step + 1));
-    wizard.classList.add('step-' + step);
 
     step -= 1;
   }

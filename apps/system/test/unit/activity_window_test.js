@@ -1,10 +1,11 @@
-/* global AppWindow, ActivityWindow, MocksHelper */
+/* global AppWindow, ActivityWindow, MocksHelper, BaseModule, MockContextMenu */
 'use strict';
 
 requireApp('system/test/unit/mock_orientation_manager.js');
 requireApp('system/shared/test/unit/mocks/mock_manifest_helper.js');
 requireApp('system/shared/test/unit/mocks/mock_settings_listener.js');
 requireApp('system/test/unit/mock_applications.js');
+requireApp('system/test/unit/mock_context_menu.js');
 
 requireApp('system/shared/test/unit/mocks/mock_screen_layout.js');
 
@@ -27,11 +28,22 @@ suite('system/ActivityWindow', function() {
       'name': 'Fake Activity'
     }
   };
+  var fakeConfigFullScreen = {
+    'url': 'app://fakeact.gaiamobile.org/pick.html',
+    'oop': true,
+    'name': 'Fake Activity',
+    'manifestURL': 'app://fakeact.gaiamobile.org/manifest.webapp',
+    'origin': 'app://fakeact.gaiamobile.org',
+    'manifest': {
+      'name': 'Fake Activity',
+      'fullscreen': true
+    }
+  };
 
   setup(function(done) {
     stubById = this.sinon.stub(document, 'getElementById', function(id) {
       var element = document.createElement('div');
-      if (id.indexOf('AppWindow') >= 0 || id.indexOf('activity-window') >= 0) {
+      if (id.indexOf('AppWindow') >= 0 || id.indexOf('ActivityWindow') >= 0) {
         var container = document.createElement('div');
         container.className = 'browser-container';
         element.appendChild(container);
@@ -39,12 +51,20 @@ suite('system/ActivityWindow', function() {
 
       return element;
     });
-    requireApp('system/js/system.js');
+    requireApp('system/js/service.js');
     requireApp('system/js/browser_config_helper.js');
     requireApp('system/js/browser_frame.js');
+    requireApp('system/js/base_module.js');
     requireApp('system/js/app_window.js');
     requireApp('system/js/browser_mixin.js');
-    requireApp('system/js/activity_window.js', done);
+    requireApp('system/js/activity_window.js', function() {
+      this.sinon.stub(BaseModule, 'instantiate', function(name) {
+        if (name === 'BrowserContextMenu') {
+          return MockContextMenu;
+        }
+      });
+      done();
+    }.bind(this));
   });
 
   teardown(function() {
@@ -107,6 +127,11 @@ suite('system/ActivityWindow', function() {
 
     test('copy fullscreen from caller', function() {
       var activity = new ActivityWindow(fakeConfig, appF);
+      assert.isTrue(activity.element.classList.contains('fullscreen-app'));
+    });
+
+    test('prioritize fullscreen mode of the activity', function() {
+      var activity = new ActivityWindow(fakeConfigFullScreen, app);
       assert.isTrue(activity.element.classList.contains('fullscreen-app'));
     });
 

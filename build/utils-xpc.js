@@ -1,7 +1,7 @@
 'use strict';
 
-/* global require, Services, dump, FileUtils, exports, OS, Promise, Reflect */
-/* jshint -W079, -W118 */
+/* global Services, dump, FileUtils, OS */
+/* jshint -W118 */
 
 const { Cc, Ci, Cr, Cu, CC } = require('chrome');
 
@@ -14,36 +14,30 @@ Cu.import('resource://gre/modules/reflect.jsm');
 
 var utils = require('./utils.js');
 var subprocess = require('sdk/system/child_process/subprocess');
+var downloadMgr = require('./download-manager').getDownloadManager();
+
+const UUID_FILENAME = 'uuid.json';
+
 /**
  * Returns an array of nsIFile's for a given directory
  *
  * @param  {nsIFile} dir       directory to read.
  * @param  {boolean} recursive set to true in order to walk recursively.
- * @param  {RegExp}  filter    optional filter for file names.
- * @param  {boolean} include   set to true in order to include file matched by
- *                             filter, set to false to exclude.
  *
  * @returns {Array}            list of nsIFile's.
  */
-function ls(dir, recursive, pattern, include) {
+function ls(dir, recursive) {
   let results = [];
-  if (!dir.exists()) {
+  if (!dir || !dir.exists()) {
     return results;
   }
 
   let files = dir.directoryEntries;
   while (files.hasMoreElements()) {
     let file = files.getNext().QueryInterface(Ci.nsILocalFile);
-    //  include |  pattern.test()  |  result
-    //    true  |     false        |   false
-    //    true  |     true         |   true
-    //    false |     false        |   true
-    //    false |     true         |   false
-    if (!pattern || !(include ^ pattern.test(file.leafName))) {
-      results.push(file);
-      if (recursive && file.isDirectory()) {
-        results = results.concat(ls(file, true, pattern, include));
-      }
+    results.push(file);
+    if (recursive && file.isDirectory()) {
+      results = results.concat(ls(file, true));
     }
   }
   return results;
@@ -64,7 +58,7 @@ function isExternalApp(webapp) {
       'Firefox OS 2.1, please add it into metadata.json and update ' +
       'preload.py if you use this script to perload your apps. If you ' +
       'created metadata.json for non-external apps, please set "external" to ' +
-      'false. your metadata.json is in ' + webapp.sourceDirectoryFile.path);
+      'false. your metadata.json is in ' + webapp.sourceDirectoryFilePath);
   }
   if (!webapp.metaData || webapp.metaData.external === false) {
     return false;
@@ -146,7 +140,9 @@ function writeContent(file, content) {
  */
 function getFile() {
   try {
-    let file = new FileUtils.File(arguments[0]);
+    let first = utils.getOsType().indexOf('WIN') === -1 ?
+      arguments[0] : arguments[0].replace(/\//g, '\\');
+    let file = new FileUtils.File(first);
     if (arguments.length > 1) {
       let args = Array.prototype.slice.call(arguments, 1);
       args.forEach(function(dir) {
@@ -284,6 +280,52 @@ function readZipManifest(appDir) {
                   ' app (' + appDir.leafName + ')\n');
 }
 
+let UUID_MAPPING;
+
+function getUUIDMapping(config) {
+  if (UUID_MAPPING) {
+    return UUID_MAPPING;
+  }
+  UUID_MAPPING = {};
+  // Try to retrieve it from $GAIA_DISTRIBUTION_DIR/uuid.json if exists.
+  try {
+    var uuidFile = getFile(config.GAIA_DISTRIBUTION_DIR, UUID_FILENAME);
+    if (uuidFile.exists()) {
+      utils.log('webapp-manifests',
+        'uuid.json in GAIA_DISTRIBUTION_DIR found.');
+      UUID_MAPPING = JSON.parse(getFileContent(uuidFile));
+    }
+  } catch (e) {
+    // ignore exception if GAIA_DISTRIBUTION_DIR does not exist.
+  }
+  return UUID_MAPPING;
+}
+
+function getMD5hash(filePath) {
+  var file = getFile(filePath);
+  var istream = Cc['@mozilla.org/network/file-input-stream;1']
+    .createInstance(Ci.nsIFileInputStream);
+    istream.init(file, 0x01, 0o444, 0);
+  var hasher = Cc['@mozilla.org/security/hash;1']
+    .createInstance(Ci.nsICryptoHash);
+  hasher.init(hasher.MD5);
+
+  const PR_UINT32_MAX = 0xffffffff;
+  hasher.updateFromStream(istream, PR_UINT32_MAX);
+
+  function toHexString(charCode) {
+    return ('0' + charCode.toString(16)).slice(-2);
+  }
+
+  let data = hasher.finish(false);
+  let hash = [];
+  for (let i in data) {
+    hash.push(toHexString(data.charCodeAt(i)));
+  }
+
+  return hash.join('');
+}
+
 /**
  * Get an app's detail in an object. For example:
  * {
@@ -294,13 +336,10 @@ function readZipManifest(appDir) {
  * }
  *
  * @param app {string} - the app name
- * @param domain {string} - the domain name, like 'gaiamobile.org'
- * @param scheme {string} - 'http://' or 'app://'
- * @param port {string} - '8080' or keep null
- * @param stageDir {string} - the path of the build stage directory
+ * @param config {object} - the config object, with all env variables
  * @return {obeject} - the information of the webapp
  */
-function getWebapp(app, domain, scheme, port, stageDir) {
+function getWebapp(app, config) {
   let appDir = getFile(app);
   if (!appDir.exists()) {
     throw new Error(' -*- build/utils.js: file not found (' +
@@ -322,28 +361,28 @@ function getWebapp(app, domain, scheme, port, stageDir) {
   let manifestJSON = getJSON(manifest);
 
   // Use the folder name as the the domain name
-  let appDomain = appDir.leafName + '.' + domain;
+  let appDomain = appDir.leafName + '.' + config.GAIA_DOMAIN;
   if (manifestJSON.origin) {
     appDomain = utils.getNewURI(manifestJSON.origin).host;
   }
 
   let webapp = {
+    appDirPath: appDir.path, // appDir
     manifest: manifestJSON,
-    manifestFile: manifest,
-    buildManifestFile: manifest,
-    url: scheme + appDomain,
+    manifestFilePath: manifest.path, // manifestFile
+    url: config.GAIA_SCHEME + appDomain,
     domain: appDomain,
-    sourceDirectoryFile: manifestFile.parent,
-    buildDirectoryFile: manifestFile.parent,
+    sourceDirectoryFilePath: manifestFile.parent.path, // sourceDirectoryFile
     sourceDirectoryName: appDir.leafName,
     sourceAppDirectoryName: appDir.parent.leafName
   };
 
   // External webapps have a `metadata.json` file
-  let metaData = webapp.sourceDirectoryFile.clone();
+  let metaData = manifestFile.parent.clone();
   metaData.append('metadata.json');
   if (metaData.exists()) {
-    webapp.pckManifest = readZipManifest(webapp.sourceDirectoryFile);
+    webapp.pckManifest = readZipManifest(
+      getFile(webapp.sourceDirectoryFilePath));
     webapp.metaData = getJSON(metaData);
     webapp.appStatus = utils.getAppStatus(webapp.metaData.type || 'web');
   } else {
@@ -351,65 +390,43 @@ function getWebapp(app, domain, scheme, port, stageDir) {
   }
 
   // Some webapps control their own build
-  webapp.buildDirectoryFile = utils.getFile(stageDir,
-    webapp.sourceDirectoryName);
-  webapp.buildManifestFile = utils.getFile(webapp.buildDirectoryFile.path,
-    'manifest.webapp');
+  webapp.buildDirectoryFilePath = joinPath(config.STAGE_DIR,
+    webapp.sourceDirectoryName); // buildDirectoryFile
+  webapp.buildManifestFilePath = joinPath(webapp.buildDirectoryFilePath,
+    'manifest.webapp'); // buildManifestFile
+
+  // Generate the webapp folder name in the profile. Only if it's privileged
+  // and it has an origin in its manifest file it'll be able to specify a custom
+  // folder name. Otherwise, generate an UUID to use as folder name.
+  var webappTargetDirName;
+  if (isExternalApp(webapp)) {
+    var type = webapp.appStatus;
+    var isPackaged = false;
+    if (webapp.pckManifest) {
+      isPackaged = true;
+      if (webapp.metaData.origin) {
+        throw new Error('External webapp `' + webapp.sourceDirectoryName +
+                        '` can not have origin in metadata because is ' +
+                        'packaged');
+      }
+    }
+    if (type === 2 && isPackaged && webapp.pckManifest.origin) {
+      webappTargetDirName = utils.getNewURI(webapp.pckManifest.origin).host;
+    } else {
+      // uuid is used for webapp directory name, save it for further usage
+      let mapping = getUUIDMapping(config);
+      var uuid = mapping[webapp.sourceDirectoryName] ||
+                 generateUUID().toString();
+      mapping[webapp.sourceDirectoryName] = webappTargetDirName = uuid;
+    }
+  } else {
+    webappTargetDirName = webapp.domain;
+  }
+  webapp.profileDirectoryFilePath = joinPath(config.COREWEBAPPS_DIR, 'webapps',
+                                              webappTargetDirName);
 
   return webapp;
 }
-
-/**
- * Get the collection of the information of webapps.
- *
- * @param appdirs {[string]} - the list of all app names
- * @param domain {string} - the domain name, like 'gaiamobile.org'
- * @param scheme {string} - 'http://' or 'app://'
- * @param port {string} - '8080' or keep null
- * @param stageDir {string} - the path of the build stage directory
- * @return {[obeject]} - the list of information of the webapps
- */
-function makeWebappsObject(appdirs, domain, scheme, port, stageDir) {
-  var apps = [];
-  appdirs.forEach(function(app) {
-    var webapp = getWebapp(app, domain, scheme, port, stageDir);
-    if (webapp) {
-      apps.push(webapp);
-    }
-  });
-  return apps;
-}
-
-/**
- * Information of Gaia building session. For example, if we `getInstance`
- * from it, the result would be:
- * {
- *    stageDir: the path of the `build_stage` directory,
- *    engine: 'firefox' or 'b2g'
- *    ...
- *    distributionDir: the path of the `distribution` directory
- * }
- */
-var gaia = {
-  config: {},
-  getInstance: function(config) {
-    if (JSON.stringify(this.config) !== JSON.stringify(config) ||
-      !this.instance) {
-      this.config = config;
-      this.instance = {
-        stageDir: getFile(this.config.STAGE_DIR),
-        engine: this.config.GAIA_ENGINE,
-        sharedFolder: getFile(this.config.GAIA_DIR, 'shared'),
-        webapps: makeWebappsObject(this.config.GAIA_APPDIRS.split(' '),
-          this.config.GAIA_DOMAIN, this.config.GAIA_SCHEME,
-          this.config.GAIA_PORT, this.config.STAGE_DIR),
-        aggregatePrefix: 'gaia_build_',
-        distributionDir: this.config.GAIA_DISTRIBUTION_DIR
-      };
-    }
-    return this.instance;
-  }
-};
 
 // FIXME (Bug 952901): because TBPL use path style like C:/path1/path2 for
 // LOCALE_BASEDIR but we expect C:\path1\path2, so we need convert it if this
@@ -508,7 +525,7 @@ function deleteFile(path, recursive) {
  */
 function listFiles(path, type, recursive, exclude) {
   var file = (typeof path === 'string' ? getFile(path) : path);
-  if (!file.isDirectory()) {
+  if (!file || !file.isDirectory()) {
     throw new Error('the path is not a directory.');
   }
   var files = ls(file, recursive === true, exclude);
@@ -527,7 +544,7 @@ function listFiles(path, type, recursive, exclude) {
 
 /**
  * Check if a file or directory exists.
- * Note: this function is a wrapper function  for node.js
+ * Note: this function is a wrapper function for node.js
  *
  * @param path {string} - the path; must not come with '../' or './'
  */
@@ -537,7 +554,7 @@ function fileExists(path) {
 
 /**
  * Create dir and its parents.
- * Note: this function is a wrapper function  for node.js
+ * Note: this function is a wrapper function for node.js
  *
  * @param path {string} - the path; must not come with '../' or './'
  */
@@ -547,7 +564,7 @@ function mkdirs(path) {
 
 /**
  * join all path.
- * Note: this function is a wrapper function  for node.js
+ * Note: this function is a wrapper function for node.js
  */
 function joinPath() {
   return OS.Path.join.apply(OS.Path, arguments);
@@ -578,19 +595,16 @@ function basename(path) {
  * @param  {string}  path       the file to copy,
  * @param  {string}  toParent   where to put the new file,
  * @param  {string}  name       the name of the new file,
- * @param  {boolean} override   set to true to overwride it if it is existed.
 
  * Note: this function is a wrapper function for node.js
  */
-function copyFileTo(path, toParent, name, override) {
+function copyFileTo(path, toParent, name) {
   var file = ((typeof path === 'string') ? getFile(path) : path);
   var parentFile = getFile(toParent);
   ensureFolderExists(parentFile);
-  if (override) {
-    var toFile = getFile(toParent, name);
-    if (toFile.exists()) {
-      toFile.remove(true);
-    }
+  var toFile = getFile(toParent, name);
+  if (toFile.exists()) {
+    toFile.remove(true);
   }
   file.copyTo(parentFile, name);
 }
@@ -602,11 +616,10 @@ function copyFileTo(path, toParent, name, override) {
  * @param  {string}  path       the directory to copy,
  * @param  {string}  toParent   where to put the new directory,
  * @param  {string}  name       the name of the copied directory,
- * @param  {boolean} override   set to true to overwride it if it is existed.
 
  * Note: this function is a wrapper function for node.js
  */
-function copyDirTo(path, toParent, name, override) {
+function copyDirTo(path, toParent, name) {
   var dir = ((typeof path === 'string') ? getFile(path) : path);
   var parentFile = getFile(toParent);
   ensureFolderExists(parentFile);
@@ -615,9 +628,9 @@ function copyDirTo(path, toParent, name, override) {
   var files = ls(dir, false);
   files.forEach(function(file) {
     if (file.isFile()) {
-      copyFileTo(file.path, newFolderName, file.leafName, true);
+      copyFileTo(file.path, newFolderName, file.leafName);
     } else if (file.isDirectory()) {
-      copyDirTo(file.path, newFolderName, file.leafName, true);
+      copyDirTo(file.path, newFolderName, file.leafName);
     }
   });
 }
@@ -637,6 +650,10 @@ function createXMLHttpRequest() {
   var ret = new XMLHttpRequest();
   ret.mozBackgroundRequest = true;
   return ret;
+}
+
+function download(url, dest, callback, errorCallback) {
+  downloadMgr.download(url, dest, callback, errorCallback);
 }
 
 /**
@@ -673,15 +690,6 @@ function readJSONFromPath(path) {
   } else {
     throw new Error('The path is not a file.');
   }
-}
-
-/**
- * Write content to a file
- * The 'path' must not come with '../' or './' .
- * Note: this function is a wrapper for node.js
- */
-function writeContentToFile(path, content) {
-  writeContent(getFile(path), content);
 }
 
 /**
@@ -948,14 +956,19 @@ function Commander(cmd) {
     var process = Cc['@mozilla.org/process/util;1']
                   .createInstance(Ci.nsIProcess);
     try {
-      log('cmd', command + ' ' + args.join(' '));
       process.init(_file);
-      process.run(true, args, args.length);
-    } catch (e) {
-      throw new Error('having trouble when execute ' + command +
-        ' ' + args.join(' '));
+      process.runw(true, args, args.length);
+      callback && callback(process.exitValue);
+    } catch (err) {
+      callback && callback(1);
+      throw err;
     }
-    callback && callback();
+
+    processEvents(function () {
+      return {
+        wait: false
+      };
+    });
   };
 
   /**
@@ -989,6 +1002,12 @@ function getEnv(name) {
   return env.get(name);
 }
 
+function setEnv(name, value) {
+  var env = Cc['@mozilla.org/process/environment;1'].
+            getService(Ci.nsIEnvironment);
+  env.set(name, value);
+}
+
 /**
  * Get PATH of the environment
  * @return {[string]}
@@ -1007,6 +1026,31 @@ function getEnvPath() {
     paths = p.split(':');
   }
   return paths;
+}
+
+/**
+ * Get an new process instance
+ * @return {nsIProcess}
+ */
+function spawnProcess(module, appOptions) {
+  var proc = Cc['@mozilla.org/process/util;1'].createInstance(Ci.nsIProcess);
+  var xpcshell = utils.getEnv('XPCSHELLSDK');
+  var args = [
+    '-f', utils.getEnv('GAIA_DIR') + '/build/xpcshell-commonjs.js',
+    '-e', 'run("' + module + '", "' + JSON.stringify(appOptions)
+      .replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '");'
+  ];
+  proc.init(utils.getFile(xpcshell));
+  proc.run(false, args, args.length);
+  return proc;
+}
+
+function processIsRunning(proc) {
+  return proc.isRunning;
+}
+
+function getProcessExitCode(proc) {
+  return proc.exitValue;
 }
 
 /**
@@ -1062,10 +1106,9 @@ function getDocument(content) {
  * @param zip {nsIZipWriter} - the zip file
  * @param pathInZip {string} - the relative path to the new file
  * @param data {string} - the content of the file
- * @param time {string} - the timestamp of the file
  * @param compression {number} - the enum shows above
  */
-function addEntryContentWithTime(zip, pathInZip, data, time, compression) {
+function addFileToZip(zip, pathInZip, data, compression) {
   if (!data) {
     return;
   }
@@ -1086,10 +1129,8 @@ function addEntryContentWithTime(zip, pathInZip, data, time, compression) {
     input.init(data, -1, -1, 0);
   }
 
-  zip.addEntryStream(
-    pathInZip, time || 0, compression, input, false);
+  zip.addEntryStream(pathInZip, Date.now() * 1000, compression, input, false);
   input.close();
-
 }
 
 /**
@@ -1103,6 +1144,10 @@ function getCompression(type) {
     case 'best':
       return Ci.nsIZipWriter.COMPRESSION_BEST;
   }
+}
+
+function hasFileInZip(zip, pathInZip) {
+  return zip.hasEntry(pathInZip);
 }
 
 /**
@@ -1141,21 +1186,21 @@ function copyRec(source, target) {
 
 /**
  * Create an empty ZIP file.
- * For users, the way to read/write a ZIP file is
- *
- * 1. create an nsIZipWriter
- * 2. open it with the open method, which
- * 3. puts an nsIFile as the first argument
- *
- * For example:
- *
- *  createZip().open(getFile(<some file>, <mode>))
  *
  * @return {nsIZipWriter}
  */
-function createZip() {
+function createZip(zipPath) {
   var zip = Cc['@mozilla.org/zipwriter;1'].createInstance(Ci.nsIZipWriter);
+  // PR_RDWR | PR_CREATE_FILE | PR_TRUNCATE
+  zip.open(getFile(zipPath), 0x04 | 0x08 | 0x20);
   return zip;
+}
+
+function closeZip(zip) {
+  if (zip.alignStoredFiles) {
+    zip.alignStoredFiles(4096);
+  }
+  zip.close();
 }
 
 /**
@@ -1201,14 +1246,44 @@ var scriptLoader = {
       if (withoutCache) {
         uri += '?d=' + new Date().getTime();
       }
-      Services.scriptloader.loadSubScript(uri, exportObj);
+      Services.scriptloader.loadSubScript(uri, exportObj, 'UTF-8');
       this.scripts[filePath] = true;
     } catch(e) {
       delete this.scripts[filePath];
-      throw 'cannot load script from ' + filePath;
+      throw 'Utils.scriptLoader: Cannot load script from ' + filePath +
+            ': ' + e.toString();
     }
   }
 };
+
+/**
+ * Run specific build task on Node.js if RUN_ON_NODE is on, otherwise we go back
+ * to XPCShell.
+ */
+function NodeHelper() {
+  if (getEnv('RUN_ON_NODE') === '1') {
+    var node = new Commander('node');
+    node.initPath(getEnvPath());
+    this.require = function(path, options) {
+      node.run(['--harmony', '-e', 'require("./build/' + path + '").execute(' +
+        JSON.stringify(options) + ')']);
+    };
+  } else {
+    this.require = function(path, options) {
+      return require(path).execute(options);
+    };
+  }
+}
+
+function relativePath(from, to) {
+  var fromFile = utils.getFile(from);
+  var toFile = utils.getFile(to);
+  return toFile.getRelativeDescriptor(fromFile);
+}
+
+function normalizePath(path) {
+  return OS.Path.normalize(path);
+}
 
 exports.Q = Promise;
 exports.ls = ls;
@@ -1218,7 +1293,6 @@ exports.getFile = getFile;
 exports.ensureFolderExists = ensureFolderExists;
 exports.getJSON = getJSON;
 exports.getFileAsDataURI = getFileAsDataURI;
-exports.makeWebappsObject = makeWebappsObject;
 exports.getDistributionFileContent = getDistributionFileContent;
 exports.resolve = resolve;
 exports.getBuildConfig = getBuildConfig;
@@ -1236,8 +1310,9 @@ exports.getOsType = getOsType;
 exports.generateUUID = generateUUID;
 exports.copyRec = copyRec;
 exports.createZip = createZip;
+exports.closeZip = closeZip;
+exports.hasFileInZip = hasFileInZip;
 exports.scriptParser = Reflect.parse;
-// ===== the following functions support node.js compitable interface.
 exports.deleteFile = deleteFile;
 exports.listFiles = listFiles;
 exports.fileExists = fileExists;
@@ -1247,24 +1322,32 @@ exports.copyFileTo = copyFileTo;
 exports.copyDirTo = copyDirTo;
 exports.copyToStage = copyToStage;
 exports.createXMLHttpRequest = createXMLHttpRequest;
+exports.download = download;
 exports.downloadJSON = downloadJSON;
 exports.readJSONFromPath = readJSONFromPath;
-exports.writeContentToFile = writeContentToFile;
 exports.processEvents = processEvents;
 exports.readZipManifest = readZipManifest;
 exports.log = log;
 exports.killAppByPid = killAppByPid;
 exports.getEnv = getEnv;
+exports.setEnv = setEnv;
 exports.isExternalApp = isExternalApp;
+exports.spawnProcess = spawnProcess;
+exports.processIsRunning = processIsRunning;
+exports.getProcessExitCode = getProcessExitCode;
 exports.getDocument = getDocument;
 exports.getWebapp = getWebapp;
 exports.Services = Services;
-exports.gaia = gaia;
 exports.concatenatedScripts = concatenatedScripts;
 exports.dirname = dirname;
 exports.basename = basename;
-exports.addEntryContentWithTime = addEntryContentWithTime;
+exports.addFileToZip = addFileToZip;
 exports.getCompression = getCompression;
 exports.existsInAppDirs = existsInAppDirs;
 exports.removeFiles = removeFiles;
 exports.scriptLoader = scriptLoader;
+exports.NodeHelper = NodeHelper;
+exports.relativePath = relativePath;
+exports.normalizePath = normalizePath;
+exports.getUUIDMapping = getUUIDMapping;
+exports.getMD5hash = getMD5hash;

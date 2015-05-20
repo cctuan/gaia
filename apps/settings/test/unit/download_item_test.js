@@ -1,10 +1,12 @@
+/* global MockL10n, MocksHelper, MockDownload, DownloadItem,
+          DownloadFormatter */
 
 'use strict';
 
 require('/shared/js/download/download_formatter.js');
 require('/shared/test/unit/mocks/mock_download_formatter.js');
 require('/shared/test/unit/mocks/mock_download.js');
-requireApp('settings/test/unit/mock_l10n.js');
+require('/shared/test/unit/mocks/mock_l10n.js');
 requireApp('settings/js/downloads/download_item.js');
 requireApp('sms/test/unit/mock_utils.js');
 
@@ -75,9 +77,9 @@ suite('Download item', function() {
       var infoElement = downloadElement.querySelector('.info');
       assert.ok(infoElement);
       var fileNameElement = downloadElement.querySelector('.fileName');
-      assert.ok(infoElement);
+      assert.ok(fileNameElement);
       var progress = downloadElement.querySelector('progress');
-      assert.ok(infoElement);
+      assert.ok(progress);
     });
 
     test(' > check progress', function() {

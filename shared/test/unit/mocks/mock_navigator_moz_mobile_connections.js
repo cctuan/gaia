@@ -1,11 +1,18 @@
 'use strict';
 
+/**
+ * Will provide 1 Mobileconnection by default. call mAddMobileConnection and
+ * mRemoveMobileConnection to add/remove extra connections.
+ */
 (function() {
   function MockMobileconnection() {
     var props = ['voice', 'data', 'iccId', 'radioState', 'iccInfo'];
     var eventListeners = null;
     var radioEnabledReq = null;
     var sendMMIReq = null;
+    var getCallBarringOptionReq = null;
+    var setCallBarringOptionReq = null;
+    var changeCallBarringPasscodeReq = null;
 
     function mnmmc_init() {
       props.forEach(function(prop) {
@@ -21,6 +28,9 @@
       };
       radioEnabledReq = {};
       sendMMIReq = {};
+      getCallBarringOptionReq = {};
+      setCallBarringOptionReq = {};
+      changeCallBarringPasscodeReq = {};
     }
 
     function mnmmc_addEventListener(type, callback) {
@@ -63,6 +73,18 @@
     }
     function mnmmc_cancelMMI() {}
 
+    function mnmmc_getCallBarringOption(option) {
+      return getCallBarringOptionReq;
+    }
+
+    function mnmmc_setCallBarringOption(option) {
+      return setCallBarringOptionReq;
+    }
+
+    function mnmmc_changeCallBarringPassword(data) {
+      return changeCallBarringPasscodeReq;
+    }
+
     var _mock = {
       // Constants
       ICC_SERVICE_CLASS_VOICE: (1 << 0),
@@ -81,12 +103,12 @@
       setRadioEnabled: mnmmc_setRadioEnabled,
       sendMMI: mnmmc_sendMMI,
       cancelMMI: mnmmc_cancelMMI,
+      getCallBarringOption: mnmmc_getCallBarringOption,
+      setCallBarringOption: mnmmc_setCallBarringOption,
+      changeCallBarringPassword: mnmmc_changeCallBarringPassword,
       mTeardown: mnmmc_init,
       get mCachedRadioEnabledReq() {
         return radioEnabledReq;
-      },
-      get mCachedSendMMIReq() {
-        return sendMMIReq;
       },
       get mEventListeners() {
         return eventListeners;

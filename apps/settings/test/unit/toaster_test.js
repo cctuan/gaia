@@ -1,12 +1,10 @@
-/* -*- Mode: js; js-indent-level: 2; indent-tabs-mode: nil -*- */
-/* vim: set shiftwidth=2 tabstop=2 autoindent cindent expandtab: */
-
+/* global Toaster, MockL10n */
 // Tests the toaster.js from shared
 
 'use strict';
 
 require('/shared/js/toaster.js');
-requireApp('settings/test/unit/mock_l10n.js');
+require('/shared/test/unit/mocks/mock_l10n.js');
 
 var ToasterTestHelper = {
   thereShouldBeNoToastShowed: function tth_thereShouldBeNoToastShowed(elem) {
@@ -73,7 +71,6 @@ suite('Toaster', function() {
     });
 
     test(' > isInitialized()', function() {
-      var initialized = Toaster.isInitialized();
       ToasterTestHelper.thereShouldBeNoToastShowed(
         document.querySelector('section[role="status"]'));
     });

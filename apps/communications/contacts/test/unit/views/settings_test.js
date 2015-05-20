@@ -1,18 +1,19 @@
 'use strict';
+
 /* global contacts */
 /* global Contacts */
-/* global MockImportStatusData */
-/* global MockCookie */
+/* global MockMozContacts */
 /* global MockContactsIndexHtml */
+/* global MockCookie */
 /* global MockgetDeviceStorage */
 /* global MocksHelper */
 /* global MockIccManager */
-/* global MockMozContacts */
-/* global MockNavigatorMozMobileConnections */
+/* global MockImportStatusData */
 /* global MockMozL10n */
+/* global MockNavigatorMozMobileConnections */
+/* global MockNavigatorSettings */
 /* global MockSdCard */
 /* global utils */
-/* global MockNavigatorSettings */
 
 require('/shared/js/lazy_loader.js');
 require('/shared/js/contacts/import/utilities/misc.js');
@@ -20,6 +21,7 @@ require('/shared/js/contacts/utilities/event_listeners.js');
 require('/shared/test/unit/mocks/mock_navigator_moz_settings.js');
 require('/shared/test/unit/mocks/mock_navigator_moz_mobile_connections.js');
 require('/shared/test/unit/mocks/mock_iccmanager.js');
+requireApp('communications/contacts/test/unit/mock_cache.js');
 requireApp('communications/contacts/test/unit/mock_contacts_index.html.js');
 requireApp('communications/contacts/test/unit/mock_navigation.js');
 requireApp('communications/contacts/test/unit/mock_contacts.js');
@@ -30,7 +32,7 @@ requireApp('communications/contacts/test/unit/mock_cookie.js');
 requireApp('communications/contacts/test/unit/mock_get_device_storage.js');
 requireApp('communications/contacts/test/unit/mock_sdcard.js');
 requireApp('communications/contacts/test/unit/mock_icc_helper.js');
-requireApp('communications/dialer/test/unit/mock_confirm_dialog.js');
+require('/shared/test/unit/mocks/mock_confirm_dialog.js');
 require('/shared/test/unit/mocks/mock_mozContacts.js');
 requireApp('communications/contacts/test/unit/mock_l10n.js');
 requireApp('communications/contacts/js/utilities/icc_handler.js');
@@ -71,8 +73,13 @@ if (!window.realMozIccManager) {
 }
 
 var mocksHelperForContactSettings = new MocksHelper([
-  'Contacts', 'ImportStatusData', 'asyncStorage', 'fb', 'ConfirmDialog',
-  'IccHelper'
+  'asyncStorage',
+  'Cache',
+  'ConfirmDialog',
+  'Contacts',
+  'fb',
+  'IccHelper',
+  'ImportStatusData'
 ]);
 mocksHelperForContactSettings.init();
 
@@ -137,6 +144,7 @@ suite('Contacts settings >', function() {
   });
 
   suite('DSDS DOM support', function() {
+    var spyL10n;
     // This test sets an scenario of two sim cards
     suiteSetup(function() {
       realMozMobileConnections = navigator.mozMobileConnections;
@@ -148,9 +156,12 @@ suite('Contacts settings >', function() {
       // Add to facke iccs
       navigator.mozIccManager.iccIds[0] = 0;
       navigator.mozIccManager.iccIds[1] = 1;
+
+      spyL10n = sinon.spy(navigator.mozL10n, 'setAttributes');
     });
     suiteTeardown(function() {
       navigator.mozMobileConnections = realMozMobileConnections;
+      spyL10n.restore();
     });
 
     setup(function() {
@@ -175,8 +186,14 @@ suite('Contacts settings >', function() {
 
     test('Check number of import buttons appearing', function() {
       // Check that we generated two sim import buttons
-      assert.isNotNull(document.querySelector('#import-sim-option-0'));
-      assert.isNotNull(document.querySelector('#import-sim-option-1'));
+      var importButton0 = document.querySelector('#import-sim-option-0');
+      var importButton1 = document.querySelector('#import-sim-option-1');
+      assert.isNotNull(importButton0);
+      assert.isNotNull(importButton1);
+
+      // We test as well that the l10NIds are correctly set
+      assert.equal(spyL10n.args[0][1], 'simNumberNoMSISDN');
+      assert.equal(spyL10n.args[1][1], 'simNumberNoMSISDN');
     });
 
     test('Check number of export buttons appearing', function() {
@@ -328,7 +345,8 @@ suite('Contacts settings >', function() {
       });
       test('import error message should be correct (usb storage enabled)',
         function() {
-        assert.equal(importError.textContent, umsEnabledError);
+        assert.equal(importError.getAttribute('data-l10n-id'),
+                     umsEnabledError);
       });
 
       test('export button should be disabled', function() {
@@ -339,7 +357,8 @@ suite('Contacts settings >', function() {
       });
       test('export error message should be correct (usb storage enabled)',
         function() {
-        assert.equal(exportError.textContent, umsEnabledError);
+        assert.equal(exportError.getAttribute('data-l10n-id'),
+                     umsEnabledError);
       });
     });
 
@@ -356,7 +375,8 @@ suite('Contacts settings >', function() {
       });
       test('import error message should be correct (insert SD card)',
         function() {
-        assert.equal(importError.textContent, noCardErrorImport);
+        assert.equal(importError.getAttribute('data-l10n-id'),
+                     noCardErrorImport);
       });
 
       test('export button should be disabled', function() {
@@ -367,7 +387,8 @@ suite('Contacts settings >', function() {
       });
       test('export error message should be correct (insert SD card)',
         function() {
-        assert.equal(exportError.textContent, noCardErrorExport);
+        assert.equal(exportError.getAttribute('data-l10n-id'),
+                     noCardErrorExport);
       });
     });
 
@@ -556,15 +577,14 @@ suite('Contacts settings >', function() {
       var fbTotalsMsg = document.querySelector('#fb-totals');
 
       var observer = new MutationObserver(function() {
-        if (fbTotalsMsg.innerHTML !== '') {
-          observer.disconnect();
-          done(function() {
-            assert.isTrue(fbTotalsMsg.innerHTML.indexOf('50') !== -1);
-          });
-        }
+        observer.disconnect();
+        done(function() {
+          assert.isTrue(fbTotalsMsg.getAttribute('data-l10n-args').
+                        indexOf('50') !== -1);
+        });
       });
 
-      observer.observe(fbTotalsMsg, {childList: true});
+      observer.observe(fbTotalsMsg, {attributes: true});
 
       MockImportStatusData.put(CACHE_FRIENDS_KEY, 50).then(function() {
         MockImportStatusData.put(STORAGE_KEY, {access_token: '1'})
@@ -821,11 +841,29 @@ suite('Contacts settings >', function() {
 
   suite('ICE options', function() {
 
+    var iceContacts;
+
+    suiteSetup(function() {
+      iceContacts = document.getElementById('set-ice');
+    });
+
     setup(function() {
       contacts.Settings.init();
       mocksHelper.suiteSetup();
       realMozContacts = navigator.mozContacts;
       navigator.mozContacts = MockMozContacts;
+    });
+
+    test('If no contacts, ICE contacts option is disabled', function() {
+      navigator.mozContacts.number = 0;
+      contacts.Settings.refresh();
+      assert.isTrue(iceContacts.disabled);
+    });
+
+    test('If there are contacts, ICE contacts option is enabled', function() {
+      navigator.mozContacts.number = 100;
+      contacts.Settings.refresh();
+      assert.isFalse(iceContacts.disabled);
     });
 
     test('Pressing the ICE button should init ICE module', function(done) {
@@ -834,7 +872,7 @@ suite('Contacts settings >', function() {
           contacts.Settings.navigation.currentView(),
           'ice-settings'
         );
-        assert.ok(contacts.ICE.loaded);
+        assert.ok(contacts.ICE.initialized);
         done();
       });
     });

@@ -32,7 +32,7 @@ suite('system/HomescreenWindow', function() {
 
       return element;
     });
-    requireApp('system/js/system.js');
+    requireApp('system/js/service.js');
     requireApp('system/js/browser_config_helper.js');
     requireApp('system/js/browser_frame.js');
     requireApp('system/js/app_window.js');
@@ -90,6 +90,18 @@ suite('system/HomescreenWindow', function() {
       var url = homescreenWindow.browser.element.src;
       homescreenWindow.ensure(true);
       assert.notEqual(url, homescreenWindow.browser.element.src);
+    });
+
+    test('ensure should not increase the length of the src', function() {
+      // Initially the url ends in #root. Call ensure() twice to ensure
+      // that we do not continue to increase the length on hash changes.
+      homescreenWindow.ensure(true);
+      var firstEnsure = homescreenWindow.browser.element.src;
+
+      homescreenWindow.ensure(true);
+      var secondEnsure = homescreenWindow.browser.element.src;
+
+      assert.equal(firstEnsure.length, secondEnsure.length);
     });
 
     test('ensure should kill front window but not change the url', function() {

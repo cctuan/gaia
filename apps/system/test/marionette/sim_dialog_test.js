@@ -9,12 +9,7 @@ marionette('Sim Dialog:', function() {
 
   var client = marionette.client({
     prefs: {
-      'focusmanager.testmode': true,
-      'dom.w3c_touch_events.enabled': 1
-    },
-    settings: {
-      'ftu.manifestURL': null,
-      'lockscreen.enabled': false
+      'focusmanager.testmode': true
     }
   });
 
@@ -56,10 +51,7 @@ marionette('Sim Dialog:', function() {
 
       win.SimPinDialog.init();
       win.SimPinDialog.show(slot);
-      win.SimPinDialog.handleError({
-        retryCount: 1,
-        lockType: 'pin'
-      });
+      win.SimPinDialog.handleError('pin', 1);
     });
 
     client.findElement(pinInput).tap();

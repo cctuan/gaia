@@ -1,4 +1,6 @@
 'use strict';
+/* global BrowserFrame */
+/* exported EntrySheet */
 
 /* Define a entry sheet.
  * It creates a element provided by container, title, content.
@@ -40,26 +42,29 @@ var EntrySheet = (function invocation() {
   // property of Browser or prefix them with underscores.
   // Now define instance methods on Set.prototype.
   function view() {
-    return '<div class="' + EntrySheet.className + '">' +
-      '<section role="region" class="skin-organic header">' +
-        '<gaia-header action="close">' +
-          '<h1 class="title">' + '</h1>' +
-        '</gaia-header>' +
-        '<div class="throbber"></div>' +
-      '</section>' +
-      '<div class="content">' +
-      '</div>' +
-    '</div';
+    return `<div class="${EntrySheet.className}">
+      <section role="region" class="skin-organic header">
+        <gaia-header action="close">
+          <h1 class="title">
+            <bdi class="${EntrySheet.className}-title"></bdi>
+          </h1>
+        </gaia-header>
+        <div class="throbber"></div>
+      </section>
+      <div class="content">
+      </div>
+    </div>`;
   }
 
   function render(container, title, content) {
+    /* jshint validthis: true */
     this.container = container;
     this.title = title;
     this.container.insertAdjacentHTML('beforeend', view.apply(this));
     this.header =
       this.container.querySelector('.' + EntrySheet.className + ' gaia-header');
     this.titleElement =
-      this.container.querySelector('.' + EntrySheet.className + ' .title');
+      this.container.querySelector('.' + EntrySheet.className + '-title');
     this.throbberElement =
       this.container.querySelector('.' + EntrySheet.className + ' .throbber');
     this.content =
@@ -87,13 +92,11 @@ var EntrySheet = (function invocation() {
     }
 
     this.setTitle(this.title);
-    var self = this;
     this.header.addEventListener('action', function() {
       self.close();
     });
   }
 
-  var nextId = 0;
   // The public API for this module is the EntrySheet() constructor function.
   // We need to export that function from this private namespace so that
   // it can be used on the outside. In this case, we export the constructor

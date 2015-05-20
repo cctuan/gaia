@@ -112,8 +112,9 @@ class TestAgentServer(tornado.websocket.WebSocketHandler):
 
             # remove from pending and trigger test complete check.
             if (test_event == 'end'):
-                idx = self.pending_envs.index(test_env)
-                del self.pending_envs[idx]
+                if test_env in self.pending_envs:
+                    idx = self.pending_envs.index(test_env)
+                    del self.pending_envs[idx]
 
                 self.passes += self.envs[test_env].passes
                 self.failures += self.envs[test_env].failures
@@ -223,16 +224,17 @@ def cli():
                     sys.exit(1)
 
         # build a list of tests
-        appsdir = os.path.join(os.path.dirname(os.path.abspath(options.profile)), 'apps')
-        for root, dirs, files in os.walk(appsdir):
-            files.sort()
-            for f in files:
-                # only include tests in a 'unit' directory
-                roots = root.split(os.path.sep)
-                if 'unit' in roots:
-                    full_path = os.path.relpath(os.path.join(root, f), appsdir)
-                    if full_path.endswith('_test.js') and full_path not in disabled:
-                        tests.append(full_path)
+        for path in ('apps', 'tv_apps'):
+            appsdir = os.path.join(os.path.dirname(os.path.abspath(options.profile)), path)
+            for root, dirs, files in os.walk(appsdir):
+                files.sort()
+                for f in files:
+                    # only include tests in a 'unit' directory
+                    roots = root.split(os.path.sep)
+                    if 'unit' in roots:
+                        full_path = os.path.relpath(os.path.join(root, f), appsdir)
+                        if full_path.endswith('_test.js') and full_path not in disabled:
+                            tests.append(full_path)
 
     logger_defaults = { 'tbpl': sys.stdout }
     upload_dir = os.environ.get('MOZ_UPLOAD_DIR')

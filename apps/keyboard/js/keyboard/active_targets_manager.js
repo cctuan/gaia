@@ -13,26 +13,37 @@
  * It is not responsible of user feedbacks because they can be depend on
  * the properties of target itself.
  *
+ * The caller of ActiveTargetsManager can set the following properties to alter
+ * its behavior:
+ *   blockNewUserPress: when set to true, any new press is not handled.
+ *   blockTargetMovedOut: when set to true, presses won't be able to move out
+ *   of current target.
  */
 var ActiveTargetsManager = function(app) {
   this.app = app;
   this.activeTargets = null;
+
+  this.blockNewUserPress = false;
+  this.blockTargetMovedOut = false;
 
   this.userPressManager = null;
   this.alternativesCharMenuManager = null;
 
   this.longPressTimer = undefined;
 
-  this.doubleTapTimers = null;
+  this.doubleTapTimer = undefined;
+  this.doubleTapPreviousTarget = null;
 };
 
 ActiveTargetsManager.prototype.ontargetactivated = null;
 ActiveTargetsManager.prototype.ontargetlongpressed = null;
+ActiveTargetsManager.prototype.ontargetmoved = null;
 ActiveTargetsManager.prototype.ontargetmovedout = null;
 ActiveTargetsManager.prototype.ontargetmovedin = null;
 ActiveTargetsManager.prototype.ontargetcommitted = null;
 ActiveTargetsManager.prototype.ontargetcancelled = null;
 ActiveTargetsManager.prototype.ontargetdoubletapped = null;
+ActiveTargetsManager.prototype.onnewtargetwillactivate = null;
 
 // Show accent char menu (if there is one) or do other stuff
 // after LONG_PRESS_TIMEOUT
@@ -45,7 +56,6 @@ ActiveTargetsManager.prototype.DOUBLE_TAP_TIMEOUT = 450;
 ActiveTargetsManager.prototype.start = function() {
   this.app.console.log('ActiveTargetsManager.start()');
   this.activeTargets = new Map();
-  this.doubleTapTimers = new WeakMap();
 
   var userPressManager =
     this.userPressManager = new UserPressManager(this.app);
@@ -70,6 +80,8 @@ ActiveTargetsManager.prototype.stop = function() {
   this.alternativesCharMenuManager = null;
 
   clearTimeout(this.longPressTimer);
+  this.doubleTapTimer = undefined;
+  this.doubleTapPreviousTarget = null;
 };
 
 ActiveTargetsManager.prototype.clearAllTargets = function() {
@@ -94,22 +106,25 @@ ActiveTargetsManager.prototype.clearAllTargets = function() {
 
 ActiveTargetsManager.prototype._handlePressStart = function(press, id) {
   this.app.console.log('ActiveTargetsManager._handlePressStart()');
-  // Ignore new touches if menu is shown
-  if (this.alternativesCharMenuManager.isShown) {
+
+  // Ignore any new user press when blockNewUserPress property is true or
+  // alternatives menu is shown.
+  if (this.blockNewUserPress || this.alternativesCharMenuManager.isShown) {
     return;
   }
 
-  // All targets before the new touch need to be committed,
-  // according to UX requirement.
-  this.activeTargets.forEach(function(target, id) {
-    this._handlePressEnd(press, id);
-  }, this);
+  // Notify current targets about the new touch.
+  if (typeof this.onnewtargetwillactivate === 'function') {
+    this.activeTargets.forEach(function(target, id) {
+      this.onnewtargetwillactivate(target);
+    }, this);
+  }
 
   var target = press.target;
   this.activeTargets.set(id, target);
 
   if (typeof this.ontargetactivated === 'function') {
-    this.ontargetactivated(target);
+    this.ontargetactivated(target, press);
   }
 
   clearTimeout(this.longPressTimer);
@@ -143,7 +158,7 @@ ActiveTargetsManager.prototype._handlePressMove = function(press, id) {
 
   // Special handling for selection: since selections are scrollable,
   // if the press is moved, the press is consider ended and should be ignored.
-  if (press.moved && ('selection' in oldTarget.dataset)) {
+  if (press.moved && ('selection' in oldTarget)) {
     this.activeTargets.delete(id);
     this.ontargetcancelled(oldTarget);
 
@@ -153,8 +168,14 @@ ActiveTargetsManager.prototype._handlePressMove = function(press, id) {
     return;
   }
 
-  // Do nothing if the element is unchanged.
   if (target === oldTarget) {
+    if (typeof this.ontargetmoved === 'function') {
+      this.ontargetmoved(target, press);
+    }
+    return;
+  }
+
+  if (this.blockTargetMovedOut) {
     return;
   }
 
@@ -165,7 +186,7 @@ ActiveTargetsManager.prototype._handlePressMove = function(press, id) {
   }
 
   if (typeof this.ontargetmovedin === 'function') {
-    this.ontargetmovedin(target);
+    this.ontargetmovedin(target, press);
   }
 
   // Hide of alternatives menu if the touch moved out of it
@@ -214,20 +235,20 @@ ActiveTargetsManager.prototype._handlePressEnd = function(press, id) {
   clearTimeout(this.longPressTimer);
 
   // Target should be either committed or doubled tapped here.
-  var timer;
-  if (this.doubleTapTimers.has(target)) {
-    timer = this.doubleTapTimers.get(target);
-    clearTimeout(timer);
-    this.doubleTapTimers.delete(target);
+  if (this.doubleTapTimer && this.doubleTapPreviousTarget === target) {
+    window.clearTimeout(this.doubleTapTimer);
+    this.doubleTapTimer = undefined;
 
     if (typeof this.ontargetdoubletapped === 'function') {
       this.ontargetdoubletapped(target);
     }
   } else {
-    timer = setTimeout(function() {
-      this.doubleTapTimers.delete(target);
+    this.doubleTapTimer = window.setTimeout(function() {
+      this.doubleTapTimer = undefined;
+      this.doubleTapPreviousTarget = null;
     }.bind(this), this.DOUBLE_TAP_TIMEOUT);
-    this.doubleTapTimers.set(target, timer);
+
+    this.doubleTapPreviousTarget = target;
 
     if (typeof this.ontargetcommitted === 'function') {
       this.ontargetcommitted(target);

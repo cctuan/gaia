@@ -1,5 +1,4 @@
-/* global KeyboardManager, softwareButtonManager, System,
-          AppWindowManager */
+/* global inputWindowManager, softwareButtonManager, Service, AttentionWindow */
 'use strict';
 
 (function(exports) {
@@ -22,10 +21,9 @@
    * ![resize layout flow](http://i.imgur.com/bUMm4VM.png)
    *
    * @class LayoutManager
-   * @requires KeyboardManager
    * @requires SoftwareButtonManager
    * @requires StatusBar
-   * @requires System
+   * @requires Service
    */
   var LayoutManager = function LayoutManager() {};
 
@@ -49,12 +47,12 @@
      * @memberOf LayoutManager
      */
     get height() {
-      var activeApp = AppWindowManager.getActiveApp();
+      var activeApp = Service.currentApp;
       var isFullScreenLayout = activeApp && activeApp.isFullScreenLayout();
-      var softwareButtonHeight = System.locked || isFullScreenLayout ?
+      var softwareButtonHeight = Service.locked || isFullScreenLayout ?
         0 : softwareButtonManager.height;
       var keyboardHeight = this.keyboardEnabled ?
-        KeyboardManager.getHeight() : 0;
+        inputWindowManager.getHeight() : 0;
       var height = window.innerHeight - keyboardHeight - softwareButtonHeight;
 
       // Normalizing the height so that it always translates to an integral
@@ -74,9 +72,32 @@
      */
     get width() {
       return window.innerWidth -
-        ((AppWindowManager.getActiveApp() &&
-          AppWindowManager.getActiveApp().isFullScreenLayout()) ?
+        ((Service.currentApp &&
+          Service.currentApp.isFullScreenLayout()) ?
           0 : softwareButtonManager.width);
+    },
+
+    getHeightFor: function(currentWindow, ignoreKeyboard) {
+      if (currentWindow instanceof AttentionWindow) {
+        var keyboardHeight = this.keyboardEnabled && !ignoreKeyboard ?
+          inputWindowManager.getHeight() : 0;
+        var height = window.innerHeight - keyboardHeight -
+          softwareButtonManager.height;
+
+        // Normalizing the height so that it always translates to an integral
+        // number of device pixels
+        var dpx = window.devicePixelRatio;
+        if ((height * dpx) % 1 !== 0) {
+          height = Math.ceil(height * dpx) / dpx;
+        }
+
+        return height;
+      }
+      if (ignoreKeyboard) {
+        return this.height + inputWindowManager.getHeight();
+      } else {
+        return this.height;
+      }
     },
 
     /**
@@ -99,6 +120,13 @@
     keyboardEnabled: false,
 
     /**
+     * The orientation we keep each time we encounter resize event.
+     * @type {String}
+     * @memberOf LayoutManager
+     */
+    _lastOrientation: undefined,
+
+    /**
      * Startup. Adds all event listeners needed.
      * @return {LayoutManager} this object
      * @memberOf LayoutManager
@@ -109,8 +137,11 @@
       window.addEventListener('keyboardhide', this);
       window.addEventListener('mozfullscreenchange', this);
       window.addEventListener('software-button-enabled', this);
-      window.addEventListener('software-button-disabled', this); 
-      window.addEventListener('attention-inactive', this);
+      window.addEventListener('software-button-disabled', this);
+      window.addEventListener('attentionwindowmanager-deactivated', this);
+      window.addEventListener('lockscreen-appclosed', this);
+
+      this._lastOrientation = screen.mozOrientation;
     },
 
     handleEvent: function lm_handleEvent(evt) {
@@ -128,8 +159,22 @@
           this.publish('system-resize');
           break;
         case 'resize':
-          this.publish('system-resize');
+          // bug 1073806: do not publish |system-resize| if keyboard is showing
+          // and we've just changed orientation: |keyboardchange| will trigger
+          // later and we'll resize then.
+          if (!(screen.mozOrientation !== this._lastOrientation &&
+                this.keyboardEnabled)) {
+            this.publish('system-resize');
+          }
           this.publish('orientationchange');
+          this._lastOrientation = screen.mozOrientation;
+          break;
+        case 'lockscreen-appclosed':
+          // If the software button is enabled it will be un-hidden when
+          // the lockscreen is closed and trigger a system level resize.
+          if (softwareButtonManager.enabled) {
+            this.publish('system-resize');
+          }
           break;
         default:
           if (evt.type === 'keyboardhide') {
@@ -151,7 +196,7 @@
     debug: function lm_debug() {
       if (this.DEBUG) {
         console.log('[' + this.CLASS_NAME + ']' +
-          '[' + System.currentTime() + '] ' +
+          '[' + Service.currentTime() + '] ' +
           Array.slice(arguments).concat());
       }
     }

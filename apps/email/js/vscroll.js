@@ -49,6 +49,7 @@ define(function(require, exports, module) {
     this.defaultData = defaultData;
 
     this._inited = false;
+
     // Because the FxOS keyboard works by resizing our window, we/our caller
     // need to be careful about when we sample things involving the screen size.
     // So, we want to only capture this once and do it separably from other
@@ -94,6 +95,11 @@ define(function(require, exports, module) {
      */
     this.visibleOffset = 0;
 
+    /**
+     * The old list size is used for display purposes, to know if new data would
+     * affect the scroll offset or if the total display height needs to be
+     * adjusted.
+     */
     this.oldListSize = 0;
 
     this._lastEventTime = 0;
@@ -108,7 +114,7 @@ define(function(require, exports, module) {
 
   /**
    * Given a node that is handled by VScroll, trim it down for use
-   * in a string cache, like email's cookie cache. Modifies the
+   * in a string cache, like email's html cache. Modifies the
    * node in place.
    * @param  {Node} node the containerNode that is bound to
    * a VScroll instance.
@@ -458,8 +464,14 @@ define(function(require, exports, module) {
     clearDisplay: function() {
       // Clear the HTML content.
       this.container.innerHTML = '';
-
       this.container.style.height = '0px';
+
+      // Also clear the oldListSize, since it used for height/scroll offset
+      // updates, and now that the container does not have any children, this
+      // property should be reset to zero. If this is not done, it is possible
+      // for an update that matches the same size as the previous data will not
+      // end up showing items. This happened for search in bug 1081403.
+      this.oldListSize = 0;
     },
 
     /**
@@ -732,7 +744,7 @@ define(function(require, exports, module) {
       this._setContainerScrollTop((this.itemHeight * index) + remainder);
       this.renderCurrentPosition();
 
-      this.emit('recalculated', index === 0);
+      this.emit('recalculated', index === 0, refIndex);
     },
 
     /**
@@ -799,69 +811,7 @@ define(function(require, exports, module) {
   // uncomment this section to use them. Useful for tracing how the
   // code is called.
   /*
-  var logQueue = [],
-      logTimeoutId = 0,
-      // 16 ms threshold for 60 fps, set to 0 to just log all calls,
-      // without timings. Unless set to 0, log calls are batched
-      // and written to the console later, so they will not appear
-      // in the correct order as compared to console logs done outside
-      // this module. Plus they will appear out of order since the log
-      // call does not complete until after the wrapped function
-      // completes. So if other function calls complete inside that
-      // function, they will be logged before the containing function
-      // is logged.
-      perfLogThreshold = 0;
-
-  function logPerf() {
-    logQueue.forEach(function(msg) {
-      console.log(msg);
-    });
-    logQueue = [];
-    logTimeoutId = 0;
-  }
-
-  function queueLog(prop, time, arg0) {
-    var arg0Type = typeof arg0;
-    logQueue.push(module.id + ': ' + prop +
-      (arg0Type === 'number' ||
-       arg0Type === 'boolean' ||
-       arg0Type === 'string' ?
-       ': (' + arg0 + ')' : '') +
-      (perfLogThreshold === 0 ? '' : ': ' + time));
-    if (perfLogThreshold === 0) {
-      logPerf();
-    } else {
-      if (!logTimeoutId) {
-        logTimeoutId = setTimeout(logPerf, 2000);
-      }
-    }
-  }
-
-  function perfWrap(prop, fn) {
-    return function() {
-      var start = performance.now();
-      if (perfLogThreshold === 0) {
-        queueLog(prop, 0, arguments[0]);
-      }
-      var result = fn.apply(this, arguments);
-      var end = performance.now();
-
-      var time = end - start;
-      if (perfLogThreshold > 0 && time > perfLogThreshold) {
-        queueLog(prop, end - start, arguments[0]);
-      }
-      return result;
-    };
-  }
-
-  if (perfLogThreshold > -1) {
-    Object.keys(VScroll.prototype).forEach(function (prop) {
-      var proto = VScroll.prototype;
-      if (typeof proto[prop] === 'function') {
-        proto[prop] = perfWrap(prop, proto[prop]);
-      }
-    });
-  }
+  require('debug_trace_methods')(VScroll.prototype, module.id);
   */
 
   return VScroll;

@@ -1,7 +1,7 @@
 'use strict';
 
-/* global CallLogDBManager, LazyLoader, MozActivity, Utils, ContactsButtons,
-          Contacts */
+/* global CallLog, CallLogDBManager, Contacts, ContactsButtons, LazyLoader,
+          MozActivity, SimplePhoneMatcher, Utils */
 
 (function(exports) {
   var currentGroup;
@@ -27,6 +27,7 @@
     updateCallDurations(group);
     updateActionButtons(group);
     callInfoView.hidden = false;
+    CallLog.hideEditModeButton();
   }
 
   function isMissedCall(group) {
@@ -109,10 +110,37 @@
   }
 
   function renderPhones(group, contact) {
-    ContactsButtons.renderPhones(contact);
-    var remark = isMissedCall(group) ? 'remark-missed' : 'remark';
-    ContactsButtons.reMark(
-      'tel', group.number || group.contact.matchingTel.number, remark);
+    var contactTels = contact.tel.map(function(tel) {
+      return tel.value;
+    });
+
+    if (!contactTels.some((tel) => tel != null)) {
+      return;
+    }
+
+    LazyLoader.load(['/shared/js/simple_phone_matcher.js'], function() {
+      ContactsButtons.renderPhones(contact);
+
+      // Highlight the contact number that the call info page was opened for,
+      // with a color depending on whether the call was missed or not.
+      var remark = isMissedCall(group) ? 'remark-missed' : 'remark';
+
+      var groupTel = SimplePhoneMatcher.sanitizedNumber(
+        group.number || group.contact.matchingTel.number);
+      var groupTelVariants = SimplePhoneMatcher.generateVariants(groupTel);
+
+      // SimplePhoneMatch expects a series of contacts, so we pass it an array
+      // containing only the relevant contact.
+      contactTels = [contactTels];
+
+      var matchingTels = SimplePhoneMatcher.bestMatch(groupTelVariants,
+                                                      contactTels);
+      var matchingTel = {value: ''};
+      if (matchingTels.totalMatchNum) {
+        matchingTel = contact.tel[matchingTels.allMatches[0][0]];
+      }
+      ContactsButtons.reMark('tel', matchingTel.value, remark);
+    });
   }
 
   function updateActionButtons(group) {
@@ -153,6 +181,7 @@
 
     window.removeEventListener('CallLogDbNewCall', updateViewIfNeeded);
     callInfoView.hidden = true;
+    CallLog.showEditModeButton();
   }
 
   function viewContact() {
@@ -164,9 +193,7 @@
       src += '&tel=' + currentGroup.number;
       // Enable the function of receiving the messages posted from the iframe.
       src += '&back_to_previous_tab=1';
-      // Contacts app needs to know if it's a missed call for different
-      // highlight color of the phone number in contacts details
-      src += '&isMissedCall=' + isMissedCall(currentGroup);
+
       var timestamp = new Date().getTime();
       contactsIframe.src = src + '&timestamp=' + timestamp;
     });

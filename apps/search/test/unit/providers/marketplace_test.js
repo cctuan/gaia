@@ -1,8 +1,9 @@
 'use strict';
 /* global MocksHelper, Search */
-
+/* global MockNavigatorSettings */
+require('/shared/test/unit/mocks/mock_navigator_moz_settings.js');
 require('/shared/test/unit/mocks/mock_moz_activity.js');
-requireApp('search/test/unit/mock_l10n.js');
+require('/shared/test/unit/mocks/mock_l10n.js');
 
 requireApp('search/test/unit/mock_search.js');
 requireApp('search/js/providers/provider.js');
@@ -25,9 +26,16 @@ var mocksForMarketplaceProvider = new MocksHelper([
 suite('search/providers/marketplace', function() {
   mocksForMarketplaceProvider.attachTestHelpers();
 
-  var fakeElement, stubById, subject;
+  var fakeElement, stubById, subject, realMozSettings;
 
   setup(function(done) {
+    realMozSettings = navigator.mozSettings;
+    navigator.mozSettings = MockNavigatorSettings;
+
+    navigator.mozSettings.createLock().set({
+      'search.marketplace.url': 'http://localhost?{q}'
+    });
+
     fakeElement = document.createElement('div');
     fakeElement.style.cssText = 'height: 100px; display: block;';
     stubById = this.sinon.stub(document, 'getElementById')
@@ -65,7 +73,17 @@ suite('search/providers/marketplace', function() {
     });
 
     teardown(function() {
+      subject.request = null;
       xhr.restore();
+    });
+
+    test('escapes search terms', function(done) {
+      subject.search('foo#');
+
+      setTimeout(function() {
+        assert.equal(requests[0].url, 'http://localhost?foo%23');
+        done();
+      });
     });
 
     test('renders all results', function(done) {
@@ -73,9 +91,13 @@ suite('search/providers/marketplace', function() {
         assert.equal(results.length, 2);
         done();
       });
-      var req = requests[0];
-      req.responseText = JSON.stringify(marketplaceContent);
-      req.onload();
+
+      // setTimeout to ensure that the search microtask fires.
+      setTimeout(function() {
+        var req = requests[0];
+        req.responseText = JSON.stringify(marketplaceContent);
+        req.onload();
+      });
     });
   });
 });

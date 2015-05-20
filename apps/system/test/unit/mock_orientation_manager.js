@@ -1,3 +1,6 @@
+'use strict';
+/* exported MockOrientationManager */
+
 var MockOrientationManager = {
   globalOrientation: 'portrait-primary',
 
@@ -17,6 +20,7 @@ var MockOrientationManager = {
   },
 
   fetchCurrentOrientation: function sl_fetchDefaultOrientation() {
+    return this.mCurrentOrientation || this.defaultOrientation;
   },
 
   mTeardown: function mom_mTeardown() {

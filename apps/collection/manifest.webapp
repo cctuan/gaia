@@ -10,7 +10,7 @@
     "url": "https://github.com/mozilla-b2g/gaia"
   },
   "permissions": {
-    "geolocation": {},
+    "themeable":{},
     "mobileconnection":{},
     "open-remote-window":{},
     "settings":{ "access": "readwrite" },

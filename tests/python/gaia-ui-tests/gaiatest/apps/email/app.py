@@ -2,8 +2,8 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-from marionette import Wait
-from marionette.by import By
+from marionette_driver import expected, By, Wait
+
 from gaiatest.apps.base import Base
 from gaiatest.apps.base import PageRegion
 from gaiatest.apps.email.regions.setup import SetupEmail
@@ -19,8 +19,18 @@ class Email(Base):
     _email_locator = (By.CSS_SELECTOR, '#cardContainer .msg-header-item:not([data-index="-1"])')
     _syncing_locator = (By.CSS_SELECTOR, '#cardContainer .msg-messages-syncing > .small')
     _manual_setup_locator = (By.CSS_SELECTOR, '#cardContainer .sup-manual-config-btn')
-    _message_list_locator = (By.CSS_SELECTOR, '.card-message-list')
+    _message_list_locator = (By.CSS_SELECTOR, 'cards-message-list')
+    _setup_account_info = (By.TAG_NAME, 'cards-setup-account-info')
+    _setup_manual_config = (By.TAG_NAME, 'cards-setup-manual-config')
+    _folder_picker_locator = (By.TAG_NAME, 'cards-folder-picker')
+    _settings_main_locator = (By.TAG_NAME, 'cards-settings-main')
+    _settings_account_locator = (By.TAG_NAME, 'cards-settings-account')
+    _confirm_dialog_locator = (By.TAG_NAME, 'cards-confirm-dialog')
     _refresh_button_locator = (By.CLASS_NAME, 'msg-refresh-btn')
+    _search_textbox_locator = (By.CSS_SELECTOR, 'form[role="search"]')
+    _email_subject_locator = (By.XPATH, '//a[@data-index!="-1"]/div/span[text()="%s"]')
+    _back_button_locator = (By.CLASS_NAME, 'sup-back-btn')
+    emails_list_header_locator = (By.CSS_SELECTOR, '.msg-list-header')
 
     def basic_setup_email(self, name, email, password):
 
@@ -51,26 +61,27 @@ class Email(Base):
         setup.tap_continue()
         self.wait_for_message_list()
 
-    def setup_IMAP_email(self, imap):
+    def setup_IMAP_email(self, imap, smtp):
         basic_setup = SetupEmail(self.marionette)
-        basic_setup.type_name(imap['name'])
+        basic_setup.type_name('IMAP account')
         basic_setup.type_email(imap['email'])
 
         setup = self.tap_manual_setup()
 
         setup.select_account_type('IMAP+SMTP')
 
-        setup.type_imap_hostname(imap['imap_hostname'])
-        setup.type_imap_name(imap['imap_name'])
+        setup.type_imap_hostname(imap['hostname'])
+        setup.type_imap_name(imap['username'])
         setup.type_imap_password(imap['password'])
-        setup.type_imap_port(imap['imap_port'])
+        setup.type_imap_port(imap['port'])
 
-        setup.type_smtp_hostname(imap['smtp_hostname'])
-        setup.type_smtp_password(imap['password'])
-        setup.type_smtp_name(imap['smtp_name'])
-        setup.type_smtp_port(imap['smtp_port'])
+        setup.type_smtp_hostname(smtp['hostname'])
+        setup.type_smtp_name(smtp['username'])
+        setup.type_smtp_password(smtp['password'])
+        setup.type_smtp_port(smtp['port'])
 
         setup.tap_next()
+        setup.check_for_emails_interval('20000')
 
         setup.tap_account_prefs_next()
 
@@ -80,16 +91,16 @@ class Email(Base):
 
     def setup_active_sync_email(self, active_sync):
         basic_setup = SetupEmail(self.marionette)
-        basic_setup.type_name(active_sync['name'])
+        basic_setup.type_name('ActiveSync account')
         basic_setup.type_email(active_sync['email'])
 
         setup = self.tap_manual_setup()
 
         setup.select_account_type('ActiveSync')
 
-        setup.type_activesync_hostname(active_sync['active_sync_hostname'])
-        setup.type_activesync_name(active_sync['active_sync_username'])
         setup.type_password(active_sync['password'])
+        setup.type_activesync_hostname(active_sync['hostname'])
+        setup.type_activesync_name(active_sync['username'])
 
         setup.tap_next()
 
@@ -110,13 +121,28 @@ class Email(Base):
         delete_confirmation.tap_delete()
 
     def tap_manual_setup(self):
-        self.wait_for_element_displayed(*self._manual_setup_locator)
-        self.marionette.find_element(*self._manual_setup_locator).tap()
+        manual_setup = Wait(self.marionette).until(
+            expected.element_present(*self._manual_setup_locator))
+        Wait(self.marionette).until(expected.element_displayed(manual_setup))
+        manual_setup.tap()
         return ManualSetupEmail(self.marionette)
+
+    def a11y_click_manual_setup(self):
+        manual_setup = Wait(self.marionette).until(
+            expected.element_present(*self._manual_setup_locator))
+        Wait(self.marionette).until(expected.element_displayed(manual_setup))
+        self.accessibility.click(manual_setup)
+        return ManualSetupEmail(self.marionette)
+
+    def a11y_navigate_to_manual_setup(self, name, email):
+        setup = SetupEmail(self.marionette)
+        setup.type_name(name)
+        setup.type_email(email)
+        setup = self.a11y_click_manual_setup()
 
     @property
     def header(self):
-        return Header(self.marionette)
+        return Header(self.marionette, self.marionette.find_element(*self.emails_list_header_locator))
 
     @property
     def toolbar(self):
@@ -128,15 +154,27 @@ class Email(Base):
 
     def wait_for_emails_to_sync(self):
         element = self.marionette.find_element(*self._refresh_button_locator)
-        self.wait_for_condition(
+        Wait(self.marionette, timeout=60).until(
             lambda m: element.get_attribute(
                 'data-state') == 'synchronized')
 
     def wait_for_message_list(self):
         element = self.marionette.find_element(*self._message_list_locator)
-        self.wait_for_condition(
+        Wait(self.marionette).until(
             lambda m: element.is_displayed() and
             element.location['x'] == 0)
+
+    def wait_for_search_textbox_hidden(self):
+        self.wait_for_element_not_displayed(*self._search_textbox_locator)
+
+    def tap_email_subject(self, subject):
+        subject_locator = (
+            self._email_subject_locator[0],
+            self._email_subject_locator[1] % subject
+        )
+        self.marionette.find_element(*subject_locator).tap()
+        from gaiatest.apps.email.regions.read_email import ReadEmail
+        return ReadEmail(self.marionette)
 
     def wait_for_email(self, subject, timeout=120):
         Wait(self.marionette, timeout, interval=5).until(
@@ -158,26 +196,32 @@ class Email(Base):
                 return False
 
 
-class Header(Base):
+class Header(PageRegion):
 
-    _menu_button_locator = (By.CSS_SELECTOR, '.card.center .msg-folder-list-btn')
-    _compose_button_locator = (By.CSS_SELECTOR, '.card.center .msg-compose-btn')
-    _label_locator = (By.CSS_SELECTOR, '.card.center .msg-list-header-folder-label.header-label')
+    _menu_button_locator = (By.CSS_SELECTOR, '.msg-folder-list-btn')
+    _compose_button_locator = (By.CSS_SELECTOR, '.msg-compose-btn')
+    _label_locator = (By.CSS_SELECTOR, '.msg-list-header-folder-label.header-label')
+
+    def a11y_click_menu(self):
+        self.accessibility.click(self.root_element.find_element(*self._menu_button_locator))
+        toolbar = ToolBar(self.marionette)
+        Wait(self.marionette).until(lambda m: toolbar.is_a11y_visible)
+        return toolbar
 
     def tap_menu(self):
-        self.marionette.find_element(*self._menu_button_locator).tap()
+        self.root_element.find_element(*self._menu_button_locator).tap()
         toolbar = ToolBar(self.marionette)
-        self.wait_for_condition(lambda m: toolbar.is_visible)
+        Wait(self.marionette).until(lambda m: toolbar.is_visible)
         return toolbar
 
     def tap_compose(self):
-        self.marionette.find_element(*self._compose_button_locator).tap()
+        self.root_element.find_element(*self._compose_button_locator).tap()
         from gaiatest.apps.email.regions.new_email import NewEmail
         return NewEmail(self.marionette)
 
     @property
     def label(self):
-        return self.marionette.find_element(*self._label_locator).text
+        return self.root_element.find_element(*self._label_locator).text
 
     @property
     def is_menu_visible(self):
@@ -194,26 +238,47 @@ class ToolBar(Base):
     _search_locator = (By.CSS_SELECTOR, '#cardContainer .card.center .msg-search-btn')
     _edit_locator = (By.CSS_SELECTOR, '#cardContainer .card.center .msg-edit-btn')
     _settings_locator = (By.CSS_SELECTOR, '#cardContainer .card.center .fld-nav-settings-btn')
+    _settings_a11y_locator = (By.CSS_SELECTOR,
+                              '#cardContainer .card.center .fld-nav-toolbar.bottom-toolbar')
 
     def tap_refresh(self):
-        self.wait_for_element_displayed(*self._refresh_locator)
-        self.marionette.find_element(*self._refresh_locator).tap()
+        refresh = Wait(self.marionette).until(
+            expected.element_present(*self._refresh_locator))
+        Wait(self.marionette).until(expected.element_displayed(refresh))
+        refresh.tap()
 
     def tap_search(self):
-        self.wait_for_element_displayed(*self._search_locator)
-        self.marionette.find_element(*self._search_locator).tap()
+        search = Wait(self.marionette).until(
+            expected.element_present(*self._search_locator))
+        Wait(self.marionette).until(expected.element_displayed(search))
+        search.tap()
 
     def tap_edit(self):
-        self.wait_for_element_displayed(*self._edit_locator)
-        self.marionette.find_element(*self._edit_locator).tap()
+        edit = Wait(self.marionette).until(
+            expected.element_present(*self._edit_locator))
+        Wait(self.marionette).until(expected.element_displayed(edit))
+        edit.tap()
+
+    def a11y_click_settings(self):
+        settings = Wait(self.marionette).until(
+            expected.element_present(*self._settings_a11y_locator))
+        Wait(self.marionette).until(lambda m: self.accessibility.is_visible(settings))
+        self.accessibility.click(settings)
+        return Settings(self.marionette)
 
     def tap_settings(self):
-        self.wait_for_element_displayed(*self._settings_locator)
-        self.marionette.find_element(*self._settings_locator).tap()
+        settings = Wait(self.marionette).until(
+            expected.element_present(*self._settings_locator))
+        Wait(self.marionette).until(expected.element_displayed(settings))
+        settings.tap()
 
     @property
     def is_visible(self):
         return self.marionette.find_element(*self._toolbar_locator).location['x'] == 0
+
+    @property
+    def is_a11y_visible(self):
+        return self.accessibility.is_visible(self.marionette.find_element(*self._toolbar_locator))
 
     @property
     def is_refresh_visible(self):
@@ -246,12 +311,3 @@ class Message(PageRegion):
 
     def scroll_to_message(self):
         self.marionette.execute_script("arguments[0].scrollIntoView(false);", [self.root_element])
-
-    def tap_subject(self):
-        el = self.root_element.find_element(*self._subject_locator)
-        # TODO: Remove scrollIntoView when bug #877163 is fixed
-        self.marionette.execute_script("arguments[0].scrollIntoView(false);", [el])
-        self.wait_for_element_displayed(*self._subject_locator)
-        self.root_element.find_element(*self._subject_locator).tap()
-        from gaiatest.apps.email.regions.read_email import ReadEmail
-        return ReadEmail(self.marionette)

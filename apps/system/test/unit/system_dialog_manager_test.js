@@ -1,10 +1,12 @@
+/* global MockAppWindow */
 (function() {
 'use strict';
 
+requireApp('system/test/unit/mock_app_window.js');
 requireApp('system/test/unit/mock_system_dialog.js');
 requireApp('system/test/unit/mock_system_simcard_dialog.js');
 requireApp('system/js/system_dialog_manager.js');
-requireApp('system/js/system.js');
+requireApp('system/js/service.js');
 
 var mocksForSystemDialogManager = new window.MocksHelper([
   'SystemDialog',
@@ -13,36 +15,101 @@ var mocksForSystemDialogManager = new window.MocksHelper([
 
 suite('system/SystemDialogManager', function() {
   mocksForSystemDialogManager.attachTestHelpers();
-  var stubById, dialogFake,
+  var dialogFake,
       optionsFake = {
         onShow: function() {},
         onHide: function() {}
       }, mozChromeEventFake = {
         type: 'mozChromeEvent',
-        stopImmediatePropagation: function() {},
         detail: {
           type: 'inputmethod-contextchange',
           inputType: 'date'
         }
-      }, invalidMozChromeEventFake = {
-        type: 'mozChromeEvent',
-        detail: {
-          type: 'inputmethod-contextchange',
-          inputType: 'text'
-        }
       };
 
   setup(function() {
-    stubById = this.sinon.stub(document, 'getElementById');
-    stubById.returns(document.createElement('div'));
+    this.sinon.stub(document, 'getElementById').returns(
+      document.createElement('div'));
 
     dialogFake = new window.SystemDialog(optionsFake);
     window.systemDialogManager = new window.SystemDialogManager();
-
+    window.systemDialogManager.init();
+    this.sinon.stub(dialogFake, 'resize');
   });
 
   teardown(function() {
-    stubById.restore();
+    window.systemDialogManager.states.activeDialog = null;
+  });
+
+  suite('Should change fullscreen state when appWindow opened', function() {
+    var app;
+
+    setup(function() {
+      app = new MockAppWindow();
+      this.sinon.stub(app, 'getTopMostWindow').returns(app);
+    });
+
+    test('Launch a non-fullscreen app', function() {
+      this.sinon.stub(app, 'isFullScreen').returns(false);
+      var event = new CustomEvent('hierarchytopmostwindowchanged', {
+        detail: app
+      });
+      window.dispatchEvent(event);
+      assert.isFalse(window.systemDialogManager.elements.containerElement
+                    .classList.contains('fullscreen'));
+    });
+
+    test('Launch a fullscreen app', function() {
+      this.sinon.stub(app, 'isFullScreen').returns(true);
+      window.systemDialogManager.states.activeDialog = dialogFake;
+      var event = new CustomEvent('hierarchytopmostwindowchanged', {
+        detail: app
+      });
+      window.dispatchEvent(event);
+      assert.isTrue(window.systemDialogManager.elements.containerElement
+                    .classList.contains('fullscreen'));
+      assert.isTrue(dialogFake.resize.called);
+    });
+  });
+
+  suite('Hierarchy functions', function() {
+    test('setHierarchy', function() {
+      this.sinon.stub(dialogFake, '_setVisibleForScreenReader');
+      this.sinon.stub(dialogFake, 'focus');
+      window.systemDialogManager.activateDialog(dialogFake);
+      assert.isTrue(window.systemDialogManager.setHierarchy(true));
+      assert.isTrue(dialogFake._setVisibleForScreenReader.calledWith(true));
+      assert.isTrue(dialogFake.focus.called);
+
+      window.systemDialogManager.setHierarchy(false);
+      assert.isTrue(dialogFake._setVisibleForScreenReader.calledWith(false));
+    });
+
+    test('Should be inactive', function() {
+      assert.isFalse(window.systemDialogManager.isActive());
+    });
+
+    test('Should be active', function() {
+      window.systemDialogManager.states.activeDialog = dialogFake;
+      assert.isTrue(window.systemDialogManager.isActive());
+    });
+
+    test('Should publish activated when activateDialog is called',
+      function() {
+        this.sinon.stub(window.systemDialogManager, 'publish');
+        window.systemDialogManager.activateDialog(dialogFake);
+        assert.isTrue(
+          window.systemDialogManager.publish.calledWith('-activated'));
+      });
+
+    test('Should publish deactivated when deactivateDialog is called',
+      function() {
+        window.systemDialogManager.activateDialog(dialogFake);
+        this.sinon.stub(window.systemDialogManager, 'publish');
+        window.systemDialogManager.deactivateDialog(dialogFake);
+        assert.isTrue(
+          window.systemDialogManager.publish.calledWith('-deactivated'));
+      });
   });
 
   suite('Handle events', function() {
@@ -51,6 +118,7 @@ suite('system/SystemDialogManager', function() {
         detail: dialogFake});
       assert.isNull(window.systemDialogManager.states.activeDialog,
         'the dialog should not be activated');
+      assert.isFalse(window.systemDialogManager.setHierarchy(true));
       var createdDialog =
       window.systemDialogManager.states.runningDialogs[dialogFake.instanceID];
       window.assert.isObject(createdDialog,
@@ -88,19 +156,18 @@ suite('system/SystemDialogManager', function() {
     });
 
     test('Resize dialog while received "system-resize" event', function() {
-      var stubResize = this.sinon.stub(dialogFake, 'resize');
       window.systemDialogManager.handleEvent({type: 'system-dialog-created',
         detail: dialogFake});
       window.systemDialogManager.handleEvent({type: 'system-dialog-show',
         detail: dialogFake});
-      window.dispatchEvent(new CustomEvent('system-resize'));
-      assert.isTrue(stubResize.called,
+      window.systemDialogManager.respondToHierarchyEvent(
+        new CustomEvent('system-resize'));
+      assert.isTrue(dialogFake.resize.called,
         'the dialog was not "resize" after received "system-resize" event');
       var isContainDialog =
         window.systemDialogManager.elements.screen.classList.contains('dialog');
       assert.isTrue(isContainDialog,
         'the "dialog" was not in screen stylesheet after resize a dialog');
-      stubResize.restore();
     });
 
     test('Deactivate dialog while received ' +
@@ -114,7 +181,7 @@ suite('system/SystemDialogManager', function() {
       var stubOnHide = this.sinon.stub(dialogFake, 'onHide');
       var spyHide =
         this.sinon.spy(window.systemDialogManager.states.activeDialog, 'hide');
-      window.systemDialogManager.handleEvent({type: 'home'});
+      window.systemDialogManager.respondToHierarchyEvent({type: 'home'});
       assert.isTrue(spyDeactivateDialog.called,
         'the "deactivateDialog" should be called after received "home" event');
       assert.isTrue(spyHide.called,
@@ -168,24 +235,13 @@ suite('system/SystemDialogManager', function() {
       stubOnHide.restore();
     });
 
-    test('invalid mozChromeEvent', function() {
-      var stubBroadcast = this.sinon.stub(dialogFake, 'broadcast');
-      window.systemDialogManager.handleEvent({type: 'system-dialog-created',
-        detail: dialogFake});
-      window.systemDialogManager.handleEvent({type: 'system-dialog-show',
-        detail: dialogFake});
-      window.systemDialogManager.handleEvent(invalidMozChromeEventFake);
-      assert.isFalse(stubBroadcast.called, 'broadcast was not called for an ' +
-        'active dialog');
-    });
-
     test('valid mozChromeEvent', function() {
       var stubBroadcast = this.sinon.stub(dialogFake, 'broadcast');
       window.systemDialogManager.handleEvent({type: 'system-dialog-created',
         detail: dialogFake});
       window.systemDialogManager.handleEvent({type: 'system-dialog-show',
         detail: dialogFake});
-      window.systemDialogManager.handleEvent(mozChromeEventFake);
+      window.systemDialogManager.respondToHierarchyEvent(mozChromeEventFake);
       assert.isTrue(stubBroadcast.called, 'broadcast was called for an ' +
         'active dialog');
       assert.isTrue(stubBroadcast.calledWith('inputmethod-contextchange',

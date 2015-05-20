@@ -1,13 +1,11 @@
-/* -*- Mode: js; js-indent-level: 2; indent-tabs-mode: nil -*- */
-/* vim: set shiftwidth=2 tabstop=2 autoindent cindent expandtab: */
-
+/* global AirplaneModeHelper */
 'use strict';
 
 /**
  * Singleton object that helps to enable/disable and to show card state
  * information for telephony-related items from the root in the setting app.
  */
-var TelephonyItemsHandler = (function(window, document, undefined) {
+window.TelephonyItemsHandler = (function() {
   var DATA_TYPE_SETTING = 'operatorResources.data.icon';
 
   var dataTypeMapping = {
@@ -17,14 +15,14 @@ var TelephonyItemsHandler = (function(window, document, undefined) {
     'hsdpa': '3.5G HSDPA',
     'hsupa': '3.5G HSDPA',
     'hspa' : '3.5G HSDPA',
-    'evdo0': '3G CDMA',
-    'evdoa': '3G CDMA',
-    'evdob': '3G CDMA',
-    '1xrtt': '2G CDMA',
+    'evdo0': 'EVDO',
+    'evdoa': 'EVDO',
+    'evdob': 'EVDO',
+    '1xrtt': '1xRTT',
     'umts' : '3G UMTS',
     'edge' : '2G EDGE',
-    'is95a': '2G CDMA',
-    'is95b': '2G CDMA',
+    'is95a': '1xRTT',
+    'is95b': '1xRTT',
     'gprs' : '2G GPRS'
   };
 
@@ -66,11 +64,10 @@ var TelephonyItemsHandler = (function(window, document, undefined) {
     } catch (e) {
       console.error('Error loading ' + DATA_TYPE_SETTING + ' settings. ' + e);
     }
-  };
+  }
 
   var _iccManager;
   var _mobileConnections;
-  var _;
 
   /**
    * Init function.
@@ -98,13 +95,8 @@ var TelephonyItemsHandler = (function(window, document, undefined) {
       'simSecurity-settings'
     ];
 
-    if (AirplaneModeHelper.getStatus() === 'disabled') {
-      tih_disableItems(false, itemIds);
-    } else {
-      // Airplane is enabled. Well, radioState property could be changing
-      // but let's disable the items during the transitions also.
-      tih_disableItems(true, itemIds);
-      tih_showICCCardDetails(CARD_STATE_MAPPING['null']);
+    if (AirplaneModeHelper.getStatus() !== 'disabled') {
+      tih_showICCCardDetails(CARD_STATE_MAPPING.null);
       return;
     }
 
@@ -118,17 +110,12 @@ var TelephonyItemsHandler = (function(window, document, undefined) {
       ];
       if (!_mobileConnections[0].iccId) {
         // There is no ICC card.
-        tih_disableItems(true, itemIds);
-        tih_showICCCardDetails(CARD_STATE_MAPPING['absent']);
+        tih_showICCCardDetails(CARD_STATE_MAPPING.absent);
         return;
-      } else {
-        // There is ICC card.
-        tih_disableItems(false, itemIds);
       }
 
       var iccCard = _iccManager.getIccById(_mobileConnections[0].iccId);
       if (!iccCard) {
-        tih_disableItems(true, itemIds);
         tih_showICCCardDetails('');
         return;
       }
@@ -140,7 +127,6 @@ var TelephonyItemsHandler = (function(window, document, undefined) {
 
       var cardState = iccCard.cardState;
       if (cardState === 'ready') {
-        tih_disableItems(false, itemIds);
         tih_showICCCardDetails('');
 
         // Card state is ready let's show carrier name and connection data type
@@ -168,21 +154,7 @@ var TelephonyItemsHandler = (function(window, document, undefined) {
           dataDesc.textContent += ' - ' + dataType;
         }
       } else {
-        tih_disableItems(true, itemIds);
         tih_showICCCardDetails(CARD_STATE_MAPPING[cardState]);
-      }
-
-      itemIds = [
-        'simSecurity-settings'
-      ];
-      // TODO: Figure out for what locks we should enable the SIM security
-      // item.
-      if ((cardState === 'ready') ||
-          (cardState === 'pinRequired') ||
-          (cardState === 'pukRequired')) {
-        tih_disableItems(false, itemIds);
-      } else {
-        tih_disableItems(true, itemIds);
       }
     } else {
       // Multi ICC card device.
@@ -195,11 +167,9 @@ var TelephonyItemsHandler = (function(window, document, undefined) {
       if (!_mobileConnections[0].iccId &&
           !_mobileConnections[1].iccId) {
         // There is no ICC cards.
-        tih_disableItems(true, itemIds);
-        tih_showICCCardDetails(CARD_STATE_MAPPING['absent']);
+        tih_showICCCardDetails(CARD_STATE_MAPPING.absent);
       } else {
         // There is ICC card.
-        tih_disableItems(false, itemIds);
         tih_showICCCardDetails('');
       }
     }
@@ -233,26 +203,6 @@ var TelephonyItemsHandler = (function(window, document, undefined) {
     }
   }
 
-  /**
-   * Disable or enable a set of menu items.
-   *
-   * @param {Boolean} disable Flag about what to do.
-   * @param {Array} itemIds Menu items id to enable/disable.
-   */
-  function tih_disableItems(disable, itemIds) {
-    for (var id = 0; id < itemIds.length; id++) {
-      var item = document.getElementById(itemIds[id]);
-      if (!item) {
-        continue;
-      }
-      if (disable) {
-        item.setAttribute('aria-disabled', true);
-      } else {
-        item.removeAttribute('aria-disabled');
-      }
-    }
-  }
-
   // Public API.
   return {
     init: tih_init,
@@ -262,4 +212,4 @@ var TelephonyItemsHandler = (function(window, document, undefined) {
       });
     }
   };
-})(this, document);
+})();

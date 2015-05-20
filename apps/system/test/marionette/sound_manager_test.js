@@ -8,16 +8,12 @@ var SoundToast = require('./lib/soundtoast.js');
 
 marionette('Sound manager tests', function() {
   var apps = {};
-  apps[FakeMediaApp.DEFAULT_ORIGIN] = __dirname + '/fakemediaapp';
-  apps[FakeAlarmApp.DEFAULT_ORIGIN] = __dirname + '/fakealarmapp';
-  apps[FakeNotificationApp.DEFAULT_ORIGIN] = __dirname + '/fakenotificationapp';
+  apps[FakeMediaApp.DEFAULT_ORIGIN] = __dirname + '/../apps/fakemediaapp';
+  apps[FakeAlarmApp.DEFAULT_ORIGIN] = __dirname + '/../apps/fakealarmapp';
+  apps[FakeNotificationApp.DEFAULT_ORIGIN] =
+    __dirname + '/../apps/fakenotificationapp';
 
   var client = marionette.client({
-    settings: {
-      'lockscreen.enabled': false,
-      'ftu.manifestURL': null
-    },
-
     apps: apps
   });
 
@@ -259,6 +255,36 @@ marionette('Sound manager tests', function() {
       });
 
       soundToast.waitForNotificationVolumeShown(true, true, true);
+    });
+  });
+
+  suite('React to loud volume in media app', function() {
+    var fakemediaapp;
+
+    setup(function() {
+      fakemediaapp = new FakeMediaApp(client);
+      client.settings.set('audio.volume.content', 10);
+    });
+
+    test('Display loud volume warning', function() {
+      fakemediaapp.launch();
+      fakemediaapp.waitForTitleShown(true);
+
+      // Switch to system then fire volumeup to trigger the warning.
+      client.switchToFrame();
+      client.executeScript(function() {
+        var evt = new CustomEvent('mozChromeEvent', {
+          detail: {
+            type: 'headphones-status-changed',
+            state: 'one'
+          }
+        });
+        window.wrappedJSObject.dispatchEvent(evt);
+
+        window.wrappedJSObject.dispatchEvent(new CustomEvent('volumeup'));
+      });
+
+      soundToast.waitForLoudWarningShown();
     });
   });
 });

@@ -2,6 +2,8 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
+from marionette_driver import Wait
+
 from gaiatest import GaiaTestCase
 from gaiatest.apps.settings.app import Settings
 
@@ -22,11 +24,19 @@ class TestSettingsDoNotTrack(GaiaTestCase):
         settings.launch()
         do_not_track_settings = settings.open_do_not_track_settings()
 
-        do_not_track_settings.tap_tracking(True)
-        self.assertEqual(self.data_layer.get_bool_pref('privacy.donottrackheader.enabled'), True)
-
-        # Return to Settings app after checking pref
+        # turn to "disallow tracking"
+        do_not_track_settings.tap_disallow_tracking()
+        Wait(self.marionette).until(lambda m: self.data_layer.get_int_pref('privacy.donottrackheader.value') == 1)
+        Wait(self.marionette).until(lambda m: self.data_layer.get_bool_pref('privacy.donottrackheader.enabled'))
         self.apps.switch_to_displayed_app()
 
-        do_not_track_settings.tap_tracking(False)
-        self.assertEqual(self.data_layer.get_bool_pref('privacy.donottrackheader.enabled'), False)
+        # turn to "allow tracking"
+        do_not_track_settings.tap_allow_tracking()
+        Wait(self.marionette).until(lambda m: self.data_layer.get_int_pref('privacy.donottrackheader.value') == 0)
+        self.assertEqual(self.data_layer.get_bool_pref('privacy.donottrackheader.enabled'), True)
+        self.apps.switch_to_displayed_app()
+
+        # turn back to "no pref"
+        do_not_track_settings.tap_do_not_have_pref_on_tracking()
+        Wait(self.marionette).until(lambda m: self.data_layer.get_int_pref('privacy.donottrackheader.value') == -1)
+        Wait(self.marionette).until(lambda m: not self.data_layer.get_bool_pref('privacy.donottrackheader.enabled'))

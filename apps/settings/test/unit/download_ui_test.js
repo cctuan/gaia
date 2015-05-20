@@ -1,11 +1,13 @@
+/* global MocksHelper, MockL10n, MockDownload, DownloadUI, DownloadFormatter */
+
 
 'use strict';
 
-requireApp('settings/test/unit/mock_l10n.js');
 requireApp('settings/test/unit/mock_mime_mapper.js');
 require('/shared/test/unit/mocks/mock_lazy_loader.js');
 require('/shared/test/unit/mocks/mock_download.js');
 require('/shared/test/unit/mocks/mock_download_formatter.js');
+require('/shared/test/unit/mocks/mock_l10n.js');
 
 require('/shared/js/download/download_ui.js');
 

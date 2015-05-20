@@ -34,6 +34,9 @@ exports.psParser = function(content) {
   return content;
 };
 
+exports.setEnv = function() {
+};
+
 exports.getEnvPath = function() {
 };
 
@@ -99,5 +102,27 @@ exports.scriptLoader = {
 };
 
 exports.dirname = function(path) {
-  return path.substr(0, path.lastIndexOf('.'));
+  return path.substr(0, path.lastIndexOf('/'));
+};
+
+exports.basename = function(path) {
+  return path.substr(path.lastIndexOf('/')+1);
+};
+
+exports.relativePath = function(from, to) {
+  // that's really dummy, but we need it for webapp-optimize tests.
+  return to;
+};
+
+exports.gaia = {
+  getInstance: function(options) {
+    var rebuildWebapps = options.rebuildAppDirs.map(function(appDir) {
+      return {
+        appDirPath: appDir
+      };
+    });
+    return {
+      rebuildWebapps: rebuildWebapps
+    };
+  }
 };

@@ -1,11 +1,22 @@
-/*global define, console */
 'use strict';
 define(function(require) {
-  var evt = require('evt');
+  var evt = require('evt'),
+      // Expect a module to provide a function that allows setting up model/api
+      // pieces that depend on specific UI or localizations.
+      modelInit = require('model_init');
 
   function dieOnFatalError(msg) {
     console.error('FATAL:', msg);
     throw new Error(msg);
+  }
+
+  function saveHasAccount(acctsSlice) {
+    // Save localStorage value to improve startup choices
+    localStorage.setItem('data_has_account',
+                         (acctsSlice.items.length ? 'yes' : 'no'));
+
+    console.log('WRITING LOCAL STORAGE ITEM: ' + 'data_has_account',
+                (acctsSlice.items.length ? 'yes' : 'no'));
   }
 
 /**
@@ -93,13 +104,15 @@ define(function(require) {
      * @return {Object}    account object.
      */
     getAccount: function(id) {
-      if (!model.acctsSlice || !model.acctsSlice.items)
+      if (!model.acctsSlice || !model.acctsSlice.items) {
         throw new Error('No acctsSlice available');
+      }
 
       var targetAccount;
       model.acctsSlice.items.some(function(account) {
-        if (account.id === id)
+        if (account.id === id) {
           return !!(targetAccount = account);
+        }
       });
 
       return targetAccount;
@@ -126,16 +139,20 @@ define(function(require) {
      * Call this to initialize the model. It can be called more than once
      * per the lifetime of an app. The usual use case for multiple calls
      * is when a new account has been added.
+     *
+     * It is *not* called by default in this module to allow for lazy startup,
+     * and for cases like unit tests that may not want to trigger a full model
+     * creation for a simple UI test.
+     *
      * @param  {boolean} showLatest Choose the latest account in the
      * acctsSlice. Otherwise it choose the account marked as the default
      * account.
      */
     init: function(showLatest, callback) {
-      // Set inited to false to indicate initialization is in progress.
       require(['api'], function(api) {
         if (!this.api) {
           this.api = api;
-          this._callEmit('api', this.api);
+          modelInit(this, api);
         }
 
         // If already initialized before, clear out previous state.
@@ -148,15 +165,20 @@ define(function(require) {
           // the slice has actually loaded (i.e. after
           // acctsSlice.oncomplete fires).
           model.acctsSlice = acctsSlice;
+
+          saveHasAccount(acctsSlice);
+
           if (acctsSlice.items.length) {
             // For now, just use the first one; we do attempt to put unified
             // first so this should generally do the right thing.
             // XXX: Because we don't have unified account now, we should
             //      switch to the latest account which user just added.
             var account = showLatest ? acctsSlice.items.slice(-1)[0] :
-                  acctsSlice.defaultAccount;
+                                       acctsSlice.defaultAccount;
 
             this.changeAccount(account, callback);
+          } else if (callback) {
+            callback();
           }
 
           this.inited = true;
@@ -165,8 +187,12 @@ define(function(require) {
           // Once the API/worker has started up and we have received account
           // data, consider the app fully loaded: we have verified full flow
           // of data from front to back.
-          evt.emit('metrics:apiDone');
+          evt.emitWhenListener('metrics:apiDone');
         }).bind(this);
+
+        acctsSlice.onchange = function() {
+          saveHasAccount(acctsSlice);
+        };
       }.bind(this));
     },
 
@@ -180,8 +206,9 @@ define(function(require) {
     changeAccount: function(account, callback) {
       // Do not bother if account is the same.
       if (this.account && this.account.id === account.id) {
-        if (callback)
+        if (callback) {
           callback();
+        }
         return;
       }
 
@@ -205,8 +232,9 @@ define(function(require) {
      * @return {Function} callback
      */
     changeAccountFromId: function(accountId, callback) {
-      if (!this.acctsSlice || !this.acctsSlice.items.length)
+      if (!this.acctsSlice || !this.acctsSlice.items.length) {
         throw new Error('No accounts available');
+      }
 
       this.acctsSlice.items.some(function(account) {
         if (account.id === accountId) {
@@ -277,8 +305,9 @@ define(function(require) {
      * sync.js accountResults object structure.
      */
     notifyInboxMessages: function(accountUpdate) {
-      if (accountUpdate.id === this.account.id)
+      if (accountUpdate.id === this.account.id) {
         model.emit('newInboxMessages', accountUpdate.count);
+      }
     },
 
     /**
@@ -296,16 +325,18 @@ define(function(require) {
     // Lifecycle
 
     _dieFolders: function() {
-      if (this.foldersSlice)
+      if (this.foldersSlice) {
         this.foldersSlice.die();
+      }
       this.foldersSlice = null;
 
       this.folder = null;
     },
 
     die: function() {
-      if (this.acctsSlice)
+      if (this.acctsSlice) {
         this.acctsSlice.die();
+      }
       this.acctsSlice = null;
       this.account = null;
 

@@ -7,26 +7,33 @@ import time
 from marionette import SkipTest
 
 from gaiatest import GaiaTestCase
+from gaiatest import GaiaTestEnvironment
 from gaiatest.apps.email.app import Email
 
 
 class TestSetupAndSendIMAPEmail(GaiaTestCase):
 
     def setUp(self):
-        try:
-            self.account = self.testvars['email']['IMAP']
-        except KeyError:
-            raise SkipTest('account details not present in test variables')
+        email = GaiaTestEnvironment(self.testvars).email
+        if not email.get('imap'):
+            raise SkipTest('IMAP account details not present in test variables.')
+        elif not email.get('smtp'):
+            raise SkipTest('SMTP account details not present in test variables.')
 
         GaiaTestCase.setUp(self)
-        self.connect_to_network()
+        self.connect_to_local_area_network()
 
         self.email = Email(self.marionette)
         self.email.launch()
 
     def test_setup_and_send_imap_email(self):
+        """
+        https://moztrap.mozilla.org/manage/case/6113/
+        https://moztrap.mozilla.org/manage/case/6114/
+        """
         # setup IMAP account
-        self.email.setup_IMAP_email(self.account)
+        self.email.setup_IMAP_email(self.environment.email['imap'],
+                                    self.environment.email['smtp'])
 
         # check header area
         self.assertTrue(self.email.header.is_compose_visible)
@@ -49,7 +56,7 @@ class TestSetupAndSendIMAPEmail(GaiaTestCase):
         _body = 'b%s' % curr_time
         new_email = self.email.header.tap_compose()
 
-        new_email.type_to(self.testvars['email']['IMAP']['email'])
+        new_email.type_to(self.environment.email['imap']['email'])
         new_email.type_subject(_subject)
         new_email.type_body(_body)
 
@@ -58,10 +65,11 @@ class TestSetupAndSendIMAPEmail(GaiaTestCase):
         # wait for the email to be sent before we tap refresh
         self.email.wait_for_email(_subject)
 
-        # assert that the email app subject is in the email list
-        self.assertIn(_subject, [mail.subject for mail in self.email.mails])
+        # make sure the search textbox is not diplayed
+        self.email.wait_for_search_textbox_hidden()
 
-        read_email = self.email.mails[0].tap_subject()
+        # tap the email that has the expected subject
+        read_email = self.email.tap_email_subject(_subject)
 
         self.assertEqual(_body, read_email.body.splitlines()[0])
         self.assertEqual(_subject, read_email.subject)

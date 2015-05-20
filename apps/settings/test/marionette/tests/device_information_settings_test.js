@@ -23,7 +23,7 @@ marionette('check device information settings', function() {
     deviceInfoPanel.triggerDevelopMenu();
     assert.notEqual(deviceInfoPanel.isDevelopMenuEnabled,
       isDevelopMenuDefaultEnabled);
-    deviceInfoPanel.tapBackBtn();
+    deviceInfoPanel.tapDeviceInfoBackBtn();
     assert.notEqual(deviceInfoPanel.isDeveloperMenuItemVisible,
       isDevelopMenuDefaultEnabled);
   });
@@ -40,7 +40,7 @@ marionette('check device information settings', function() {
   test('check legal information panel', function() {
     deviceInfoPanel.tapOnLegalInfoButton();
     deviceInfoPanel.tapOnOpenSourceNoticesButton();
-    deviceInfoPanel.tapBackBtn();
+    deviceInfoPanel.tapOpenSourceNoticesBackBtn();
     deviceInfoPanel.tapOnObtainingSourceCodeButton();
   });
 

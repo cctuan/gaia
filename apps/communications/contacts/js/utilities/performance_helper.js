@@ -15,19 +15,19 @@
 
   var PerformanceHelper = {
     domLoaded: function() {
-      window.dispatchEvent(new CustomEvent('moz-chrome-dom-loaded'));
+      window.performance.mark('navigationLoaded');
     },
     chromeInteractive: function() {
-      window.dispatchEvent(new CustomEvent('moz-chrome-interactive'));
+      window.performance.mark('navigationInteractive');
     },
     visuallyComplete: function() {
-      window.dispatchEvent(new CustomEvent('moz-app-visually-complete'));
+      window.performance.mark('visuallyLoaded');
     },
     contentInteractive: function() {
-      window.dispatchEvent(new CustomEvent('moz-content-interactive'));
+      window.performance.mark('contentInteractive');
     },
     loadEnd: function() {
-      window.dispatchEvent(new CustomEvent('moz-app-loaded'));
+      window.performance.mark('fullyLoaded');
     }
   };
 

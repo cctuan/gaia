@@ -5,6 +5,7 @@ var Contacts = require('./lib/contacts');
 var Dialer = require('../../../dialer/test/marionette/lib/dialer');
 var Sms = require('./lib/sms');
 var assert = require('assert');
+var fs = require('fs');
 
 marionette('Contacts > Activities', function() {
   var client = marionette.client(Contacts.config);
@@ -25,6 +26,61 @@ marionette('Contacts > Activities', function() {
 
     smsSubject = new Sms(client);
     smsSelectors = Sms.Selectors;
+  });
+
+  suite('open text/vcard activity', function() {
+    function assertFormData() {
+      var formSelectors = [
+        selectors.formGivenName,
+        selectors.formFamilyName,
+        selectors.formOrg,
+        selectors.formTel,
+        selectors.formEmailFirst
+      ];
+
+      var dataArray = [
+        'Forrest',
+        'Gump',
+        'Bubba Gump Shrimp Co.',
+        '+1-111-555-1212',
+        'forrestgump@example.com'
+      ];
+
+      var testObject = {};
+
+      for (var i = 0, len = dataArray.length; i < len; i++) {
+        testObject[formSelectors[i]] = dataArray[i];
+      }
+
+      for (var key in testObject) {
+        var value = client.findElement(key).getAttribute('value');
+        assert.equal(value, testObject[key]);
+      }
+    }
+
+    setup(function() {
+      smsSubject.launch(); // We open some app to start a Marionette session.
+    });
+
+    test('open text/vcard activity opens form filled', function() {
+      client.executeScript(function(vCardFile) {
+        new MozActivity({
+          name: 'open',
+          data: {
+            type: 'text/vcard',
+            filename: 'vcard_4.vcf',
+            blob: new Blob([vCardFile], {type: 'text/vcard'})
+          }
+        });
+      }, [fs.readFileSync(__dirname + '/data/vcard_4.vcf', 'utf8')]);
+
+      client.switchToFrame();
+      client.apps.switchToApp(Contacts.URL, 'contacts');
+      client.helper.waitForElement(selectors.form);
+
+      assertFormData();
+      assert.ok(client.findElement(selectors.formSave).enabled);
+    });
   });
 
   suite('webcontacts/contact activity', function() {
@@ -67,7 +123,7 @@ marionette('Contacts > Activities', function() {
       var duplicateHeader = client.helper.
         waitForElement(selectors.duplicateHeader);
       var expectedResult = subject.l10n(
-        '/locales-obj/en-US.json',
+        '/locales-obj/contacts.matching_contacts.en-US.json',
         'duplicatesFoundTitle');
 
       assert.equal(duplicateHeader.text(), expectedResult);
@@ -95,8 +151,8 @@ marionette('Contacts > Activities', function() {
 
       var confirmMsg = client.findElement(selectors.confirmBody);
       var expectedResult = subject.l10n(
-        '/locales-obj/en-US.json',
-        'noContactsActivity');
+        '/locales-obj/contacts.index.en-US.json',
+        'noContactsActivity2');
       assert.equal(confirmMsg.text(), expectedResult);
     });
 
@@ -132,9 +188,48 @@ marionette('Contacts > Activities', function() {
         .text();
 
       var expectedResult = subject.l10n(
-        '/locales-obj/en-US.json',
+        '/locales-obj/contacts.index.en-US.json',
         'no_contact_phones');
       assert.equal(confirmText, expectedResult);
+    });
+  });
+
+  suite('webcontacts/email activity', function() {
+    test('Creates only one instance of action menu', function() {
+      subject.launch();
+
+      subject.addContactMultipleEmails({
+        givenName: 'From Contacts App',
+        emailFirst: 'first@personal.com',
+        emailSecond: 'second@personal.com'
+      });
+
+      client.apps.close(Contacts.URL, 'contacts');
+
+      smsSubject.launch();
+
+      client.executeScript(function() {
+        new MozActivity({
+          name: 'pick',
+          data: {
+            type: 'webcontacts/email'
+          }
+        });
+      });
+
+      client.switchToFrame();
+      client.apps.switchToApp(Contacts.URL, 'contacts');
+      client.helper.waitForElement(selectors.bodyReady);
+
+      var contact = client.helper.waitForElement(selectors.listContactFirst);
+
+      // Simulate two clicks
+      contact.click();
+      contact.click();
+
+      var emailList = client.helper.waitForElement(selectors.actionMenuList);
+      var emailChildren = emailList.findElements('button');
+      assert.equal(emailChildren.length, 3);
     });
   });
 });

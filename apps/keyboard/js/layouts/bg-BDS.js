@@ -5,7 +5,9 @@ Keyboards['bg-BDS'] = {
   types: ['text', 'url', 'email'],
   imEngine: 'latin',
   autoCorrectLanguage: 'bg',
+  basicLayoutKey: 'AБB',
   width: 11,
+  lang: 'bg',
   alt: {
     'и': 'ѝ'
   },

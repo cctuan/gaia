@@ -2,22 +2,17 @@
 
 marionette('Homescreen navigation >', function() {
   var ReflowHelper =
-      require('../../../../tests/js-marionette/reflow_helper.js');
+      require('../../../../tests/jsmarionette/plugins/reflow_helper.js');
 
   var assert = require('assert');
-  var System = require('./lib/system.js');
 
   var SETTINGS_APP = 'app://settings.gaiamobile.org';
 
   var client = marionette.client({
     prefs: {
-      'dom.w3c_touch_events.enabled': 1,
       'devtools.debugger.forbid-certified-apps': false
     },
     settings: {
-      'ftu.manifestURL': null,
-      'lockscreen.enabled': false,
-      'edgesgesture.enabled': true,
       'devtools.overlay': true,
       'hud.reflows': true
     }
@@ -42,13 +37,10 @@ marionette('Homescreen navigation >', function() {
     });
   }
 
-  suiteSetup(function() {
-    sys = new System(client);
-  });
-
   setup(function() {
     reflowHelper = new ReflowHelper(client);
     client.switchToFrame();
+    sys = client.loader.getAppClass('system');
     sys.waitForStartup();
 
     homescreen = sys.getAppIframe('verticalhome.gaiamobile.org');
@@ -59,21 +51,20 @@ marionette('Homescreen navigation >', function() {
     // Since the clock will cause reflows we're disabling it
     // Also disabling the developer hud because of
     // https://bugzilla.mozilla.org/show_bug.cgi?id=971008
+    sys.stopStatusbar();
     sys.stopDevtools();
     sys.stopClock();
 
     goHome();
     launchSettings();
-    client.helper.wait(1000);
-    reflowHelper.startTracking(System.URL);
+
+    reflowHelper.startTracking(sys.URL);
     client.switchToFrame();
 
     goHome();
     launchSettings();
 
     var count = reflowHelper.getCount();
-    // Changing the will-change property causes a reflow
-    // https://bugzilla.mozilla.org/show_bug.cgi?id=974125
     assert.equal(count, 2, 'we got ' + count + ' reflows instead of 2');
     reflowHelper.stopTracking();
   });

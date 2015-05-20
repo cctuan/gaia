@@ -13,7 +13,6 @@ class TestCostControlReset(GaiaTestCase):
 
     def setUp(self):
         GaiaTestCase.setUp(self)
-        self.apps.set_permission_by_url(Search.manifest_url, 'geolocation', 'deny')
 
     def test_cost_control_reset_wifi(self):
 
@@ -28,10 +27,14 @@ class TestCostControlReset(GaiaTestCase):
         cost_control.toggle_mobile_data_tracking(False)
         cost_control.toggle_wifi_data_tracking(True)
 
+        # If we don't kill the app manually it might get killed by the oom process.
+        # In that case when we re-launch the app it has a hash attached at the end of the src. - Bug 1091676
+        self.apps.kill(cost_control.app)
+
         # open browser to get some data downloaded
         search = Search(self.marionette)
         search.launch()
-        search.go_to_url('http://mozqa.com/data/firefox/layout/mozilla.html')
+        search.go_to_url(self.marionette.absolute_url('mozilla.html'))
 
         self.data_layer.disable_wifi()
         time.sleep(5)

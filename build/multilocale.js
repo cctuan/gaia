@@ -1,11 +1,7 @@
 'use strict';
 
-/* global exports, require, OS */
-
-const { Cu } = require('chrome');
-Cu.import('resource://gre/modules/osfile.jsm');
-
-const utils = require('utils');
+const utils = require('./utils');
+const qps = require('./l10n/qps');
 const RE_PROPERTY_LINE = /(.*)\s*[:=]\s*(.*)/;
 const MODNAME = 'multilocale';
 
@@ -17,58 +13,33 @@ function L10nManager(gaiaDir,
                      localesFilePath,
                      localeBasedir,
                      subject) {
-  function checkArg(arg) {
-    return Boolean(arg);
-  }
-
-  if (arguments.length !== 4 &&
-    !Array.prototype.every.call(arguments, checkArg)) {
+  if (arguments.length < 3 || arguments.length > 4) {
     throw new TypeError('Illegal constructor');
   }
 
+  // subject is for optional arguments and can be omitted
+  subject = subject || {};
+
   var self = this;
   var localesFile = utils.resolve(localesFilePath, gaiaDir);
-  var baseDir = utils.resolve(localeBasedir, gaiaDir);
+  var baseDir = null;
+  if (localeBasedir) {
+    baseDir = utils.resolve(localeBasedir, gaiaDir);
+  }
 
   [utils.getFile(gaiaDir), localesFile, baseDir]
   .forEach(function(file) {
-    if (!file.exists()) {
+    if (file && !file.exists()) {
       throw new Error('file not found: ' + file.path);
     }
   });
 
   this.locales = Object.keys(utils.getJSON(localesFile));
-  this.localeBasedir = baseDir.path;
+  this.localeBasedir = baseDir ? baseDir.path : null;
   this.gaiaDir = gaiaDir;
   this.official = subject.official;
   this.deviceType = subject.deviceType;
-
-  /**
-   * Remove locale files from build stage dir
-   *
-   * @param  {String} stageDir - webapp stage directory
-   */
-  function cleanLocaleFiles(stageDir) {
-    var localesDir = stageDir.clone();
-    localesDir.append('locales');
-    if (localesDir.exists()) {
-      localesDir.remove(true);
-    }
-
-    var sharedLocalesDir = stageDir.clone();
-    sharedLocalesDir.append('shared');
-    sharedLocalesDir.append('locales');
-    if (sharedLocalesDir.exists()) {
-      sharedLocalesDir.remove(true);
-    }
-
-    var files = utils.ls(stageDir, false);
-    files.forEach(function(file) {
-      if (file.isDirectory()) {
-        cleanLocaleFiles(file);
-      }
-    });
-  }
+  this.defaultLocale = subject.defaultLocale;
 
   /**
    * Copy l10n resources required by the .html file to build stage directory
@@ -78,22 +49,14 @@ function L10nManager(gaiaDir,
    *
    * @param {nsIFile[]} file - HTML file
    * @param {Object} webapp  - A webapp object for specific app
+   * @param {nsIDocument} doc - document object
    */
-  function getL10nResources(file, webapp) {
-    var content = utils.getFileContent(file);
-
-    // if there is no localization word in the file, don't even parse it
-    // exit early
-    if (content.indexOf('localization') === -1) {
-      return;
-    }
-
-    var doc = utils.getDocument(content);
+  function getL10nResources(file, webapp, doc) {
     var isOfficialBranding;
 
     // get all <link rel="localization">
-    var links = [...doc.querySelectorAll('link[rel="localization"]')];
-    links.forEach(function(link) {
+    var links = doc.querySelectorAll('link[rel="localization"]');
+    Array.prototype.forEach.call(links, function(link) {
       var resURL = link.getAttribute('href');
       var realURL = resURL;
 
@@ -117,30 +80,34 @@ function L10nManager(gaiaDir,
                                  utils.basename(resURL));
       }
 
-      for (var loc of self.locales) {
+      for (var key in self.locales) {
+        var loc = self.locales[key];
         var relPathInApp =
-          file.parent.path.substr(webapp.buildDirectoryFile.path.length);
+          utils.dirname(file.path).substr(webapp.buildDirectoryFilePath.length);
         var resFile =
           getResourceFile(webapp, relPathInApp,
                           realURL, loc, isOfficialBranding);
-
         var isShared = /\.?\/?shared\//.test(realURL);
 
         var destFile;
         if (isShared) {
-          destFile = utils.getFile(webapp.buildDirectoryFile.path,
+          destFile = utils.getFile(webapp.buildDirectoryFilePath,
                                    realURL.replace('{locale}', loc));
         } else {
-          destFile = utils.getFile(webapp.buildDirectoryFile.path,
+          destFile = utils.getFile(webapp.buildDirectoryFilePath,
                                    relPathInApp,
                                    realURL.replace('{locale}', loc));
         }
         if (!resFile.exists()) {
-          utils.log(MODNAME, 'Resource file not found: ' + resFile.path);
+          if (self.localeBasedir !== null) {
+            utils.log(MODNAME, 'Resource file not found: ' + resFile.path);
+          }
           continue;
         }
-        utils.ensureFolderExists(destFile.parent);
-        resFile.copyTo(destFile.parent, destFile.leafName);
+        var parentOfDestFile = utils.getFile(destFile.path, '..');
+        utils.ensureFolderExists(parentOfDestFile);
+        utils.copyFileTo(resFile, parentOfDestFile.path,
+          destFile.leafName);
       }
     });
   }
@@ -169,7 +136,7 @@ function L10nManager(gaiaDir,
       // foo.properties
       str = str.replace(/locales\//, '');
       str = str.replace('{locale}.', '');
-      return OS.Path.normalize(str);
+      return utils.normalizePath(str);
     }
 
     var isShared = /^\.?\/?shared\//.test(resURL);
@@ -178,6 +145,9 @@ function L10nManager(gaiaDir,
     // this flag defines if for the given locale we will take resources
     // from the source directory or from LOCALE_BASEDIR directory
     var useSourceDir = false;
+    if (self.localeBasedir === null) {
+      useSourceDir = true;
+    }
 
     // for GAIA_SOURCE_LOCALE use source directory
     if (loc === GAIA_SOURCE_LOCALE) {
@@ -194,7 +164,7 @@ function L10nManager(gaiaDir,
       if (isShared) {
         paths.push(self.gaiaDir);
       } else {
-        paths.push(webapp.sourceDirectoryFile.path);
+        paths.push(webapp.sourceDirectoryFilePath);
         paths.push(relPathInApp);
       }
       paths.push(resURL.replace('{locale}', loc));
@@ -202,8 +172,11 @@ function L10nManager(gaiaDir,
       paths.push(self.localeBasedir);
       paths.push(loc);
       if (!isShared) {
-        paths.push(webapp.sourceDirectoryFile.parent.leafName);
-        paths.push(webapp.sourceDirectoryFile.leafName);
+        var sourceDirectoryFile = utils.getFile(webapp.sourceDirectoryFilePath);
+        var parentOfSourceDirFile =
+          utils.getFile(webapp.sourceDirectoryFilePath, '..');
+        paths.push(parentOfSourceDirFile.leafName);
+        paths.push(sourceDirectoryFile.leafName);
         paths.push(relPathInApp);
       }
       paths.push(cleanPath(resURL));
@@ -224,13 +197,96 @@ function L10nManager(gaiaDir,
     // Localize webapp's manifest.webapp file.
     localizeManifest(webapp);
 
-    // Clean all localization files from the build stage directory
-    cleanLocaleFiles(webapp.buildDirectoryFile);
-
-    // Copy resource files into build_stage directory
     htmlFiles.forEach(function(htmlFile) {
-      getL10nResources(htmlFile, webapp);
+      var content = utils.getFileContent(htmlFile);
+
+      // if there is no localization word in the file, don't even parse it
+      // exit early
+      if (content.indexOf('localization') === -1) {
+        return;
+      }
+
+      var doc = utils.getDocument(content);
+
+      buildL10nMeta(htmlFile, doc);
+
+      if (self.localeBasedir) {
+        // Copy resource files into build_stage directory
+        getL10nResources(htmlFile, webapp, doc);
+      }
     });
+  }
+
+  function getTimestamp(date) {
+    var chunks = [
+      date.getFullYear(),
+      date.getMonth(),
+      date.getDate(),
+      date.getHours(),
+      date.getMinutes()
+    ];
+
+    return chunks.map(function(c) {
+      return c < 10 ? ('0' + c) : c.toString();
+    }).join('');
+  }
+
+  function createMeta(doc, name) {
+    var meta = doc.createElement('meta');
+    meta.setAttribute('name', name);
+    var head = doc.querySelector('head');
+    return head.appendChild(meta);
+  }
+
+  function buildL10nMeta(file, doc) {
+    var metas = {
+      availableLanguages: doc.querySelector('meta[name="availableLanguages"]'),
+      defaultLanguage: doc.querySelector('meta[name="defaultLanguage"]'),
+      appVersion: doc.querySelector('meta[name="appVersion"]')
+    };
+
+    if ((!metas.availableLanguages || !metas.defaultLanguage) &&
+        doc.querySelector('link[rel="manifest"]')) {
+      // So, the app is using obsolete l10n meta model with a link to the
+      // manifest.
+      // Let's warn the user.
+      utils.log(MODNAME,
+        'WARNING: \n  In HTML file: ' + file.path + ', ' +
+        'obsolete link to w3c manifest is used for l10n meta. '+
+        'Please, replace with:\n' +
+        ' <meta name="availableLanguages" content="en-US">\n' +
+        ' <meta name="defaultLanguage" content="en-US">\n' +
+        ' Read more at: http://bugzil.la/1115807');
+    }
+
+    // ... and save him... for now.
+    if (!metas.availableLanguages) {
+      metas.availableLanguages = createMeta(doc, 'availableLanguages');
+    }
+    if (!metas.defaultLanguage) {
+      metas.defaultLanguage = createMeta(doc, 'defaultLanguage');
+    }
+
+    if (!metas.appVersion) {
+      metas.appVersion = createMeta(doc, 'appVersion');
+    }
+
+    metas.defaultLanguage.setAttribute('content', self.defaultLocale);
+
+    var timestamp = getTimestamp(new Date());
+    metas.availableLanguages.setAttribute('content',
+      self.locales.map(function(loc) {
+        return loc + ':' + timestamp;
+      }).join(', '));
+
+    var settingsFile = utils.getFile(self.gaiaDir, 'build', 'config',
+        'common-settings.json');
+    var settings = utils.getJSON(settingsFile);
+
+    metas.appVersion.setAttribute('content', settings['moz.b2g.version']);
+
+    var str = utils.serializeDocument(doc);
+    utils.writeContent(file, str);
   }
 
   /**
@@ -241,8 +297,12 @@ function L10nManager(gaiaDir,
    * @param {Object} webapp  - A webapp object for specific app
    */
   function localizeManifest(webapp) {
-    var manifest = utils.getJSON(webapp.buildManifestFile);
+    var buildManifestFile = utils.getFile(webapp.buildManifestFilePath);
+    var manifest = utils.getJSON(buildManifestFile);
 
+    if (manifest.default_locale) {
+      manifest.default_locale = self.defaultLocale;
+    }
     // If manifest.webapp does not have `locales` key, return early
     if (!manifest.locales) {
       return;
@@ -255,9 +315,8 @@ function L10nManager(gaiaDir,
     // Reset `locales` key
     manifest.locales = {};
 
-    var name;
     if (manifest.entry_points) {
-      for (name in manifest.entry_points) {
+      for (var name in manifest.entry_points) {
         manifest.entry_points[name].locales = {};
       }
     }
@@ -267,6 +326,9 @@ function L10nManager(gaiaDir,
 
       if (locale === GAIA_SOURCE_LOCALE) {
         manifestProps = sourceLocaleProps;
+      } else if (locale in qps.PSEUDO) {
+        manifestProps = qps.walkContent(
+          sourceLocaleProps, qps.PSEUDO[locale].translate);
       } else {
         manifestProps = getManifestProperties(webapp, locale);
       }
@@ -289,9 +351,7 @@ function L10nManager(gaiaDir,
         }
       }
     });
-
-    utils.writeContent(webapp.buildManifestFile,
-                       JSON.stringify(manifest));
+    utils.writeContent(buildManifestFile, JSON.stringify(manifest));
   }
 
   /**
@@ -322,7 +382,7 @@ function L10nManager(gaiaDir,
     manifest = utils.cloneJSON(manifest);
     if (!manifest.locales[GAIA_SOURCE_LOCALE]) {
       utils.log(MODNAME,
-        'In manifest file: ' + webapp.buildManifestFile.path + ', ' +
+        'In manifest file: ' + webapp.buildManifestFilePath + ', ' +
         'missing locales key for locale: ' + GAIA_SOURCE_LOCALE);
     }
     var sourceLocaleProps = {
@@ -400,8 +460,8 @@ function L10nManager(gaiaDir,
    * @returns {Object} res    - Manifest l10n resource
    */
   function getManifestProperties(webapp, locale) {
-    var parent = webapp.sourceDirectoryFile.parent.leafName;
-    var propFile = utils.getFile(self.localeBasedir, locale, parent,
+    var parent = utils.getFile(webapp.sourceDirectoryFilePath, '..');
+    var propFile = utils.getFile(self.localeBasedir, locale, parent.leafName,
       webapp.sourceDirectoryName, 'manifest.properties');
     if (!propFile.exists()) {
       return null;
@@ -429,7 +489,7 @@ function L10nManager(gaiaDir,
     };
     content.split('\n').forEach(function(line) {
       var matched = line.match(RE_PROPERTY_LINE);
-      if (!matched || line.trim().startsWith('#')) {
+      if (!matched || line.trim().indexOf('#') === 0) {
         return;
       }
       var value = matched[2].trim();
@@ -438,7 +498,8 @@ function L10nManager(gaiaDir,
       // if we got a key with "." such as dialer.name, create an new
       // entry_point for it.
       if (parts.length === 2) {
-        [entryPoint, key] = parts;
+        entryPoint = parts[0];
+        key = parts[1];
         if (!prop.entry_points[entryPoint]) {
           prop.entry_points[entryPoint] = {};
         }
@@ -459,40 +520,36 @@ function L10nManager(gaiaDir,
 }
 
 function execute(options) {
-  if (!options.LOCALE_BASEDIR) {
-    utils.log('multilocale', 'multilocale command requires LOCALES_BASEDIR ' +
-      'to be set');
-    return;
-  }
-  var gaia = utils.gaia.getInstance(options);
+  var webapp = utils.getWebapp(options.APP_DIR, options);
+  var localeBasedir = null;
 
-  // Bug 952901: remove getLocaleBasedir() if bug 952900 fixed.
-  var localeBasedir = utils.getLocaleBasedir(options.LOCALE_BASEDIR);
+  if (options.LOCALE_BASEDIR) {
+    // Bug 952901: remove getLocaleBasedir() if bug 952900 fixed.
+    localeBasedir = utils.getLocaleBasedir(options.LOCALE_BASEDIR);
+  }
+
   var l10nManager = new L10nManager(
     options.GAIA_DIR,
     options.LOCALES_FILE,
     localeBasedir,
     {
       official: options.OFFICIAL,
+      defaultLocale: options.GAIA_DEFAULT_LOCALE,
       deviceType: options.GAIA_DEVICE_TYPE,
     });
 
-  gaia.webapps.forEach(function(webapp) {
-    if (options.BUILD_APP_NAME !== '*' &&
-      webapp.sourceDirectoryName != options.BUILD_APP_NAME) {
-      return;
-    }
-
-    if (utils.isExternalApp(webapp)) {
-      return;
-    }
-    var files = utils.ls(webapp.buildDirectoryFile, true,
-      /^(shared|tests?)$/);
-
-    l10nManager.localize(files.filter(function(file) {
-      return /\.html$/.test(file.path);
-    }), webapp);
+  if (utils.isExternalApp(webapp)) {
+    return;
+  }
+  var buildDirectoryFile = utils.getFile(webapp.buildDirectoryFilePath);
+  var excluded = new RegExp(webapp.buildDirectoryFilePath + '.*\/tests?');
+  var files = utils.ls(buildDirectoryFile, true).filter(function(file) {
+    return !(excluded.test(file.path));
   });
+
+  l10nManager.localize(files.filter(function(file) {
+    return /\.html$/.test(file.path);
+  }), webapp);
 }
 
 exports.execute = execute;

@@ -15,7 +15,9 @@ class TestCamera(GaiaTestCase):
         self.apps.set_permission('Camera', 'geolocation', 'deny')
 
     def test_capture_a_video(self):
-        """https://moztrap.mozilla.org/manage/case/2477/"""
+        """
+        https://moztrap.mozilla.org/manage/case/2477/
+        """
         self.previous_number_of_videos = len(self.data_layer.video_files)
 
         self.camera = Camera(self.marionette)
@@ -30,4 +32,4 @@ class TestCamera(GaiaTestCase):
         # Check that video saved to SD card
         self.wait_for_condition(lambda m: len(self.data_layer.video_files) == self.previous_number_of_videos + 1, 15)
         self.assertEqual(len(self.data_layer.video_files), self.previous_number_of_videos + 1)
-
+        self.assertTrue(self.data_layer.video_files[0]["size"] > 1000)

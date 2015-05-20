@@ -1,25 +1,28 @@
-/*global Factory */
+define(function(require) {
+'use strict';
 
-requireLib('models/calendar.js');
-requireLib('models/account.js');
+var CalendarTemplate = require('templates/calendar');
+var Factory = require('test/support/factory');
+var Settings = require('views/settings');
+var View = require('view');
+var core = require('core');
+var nextTick = require('common/next_tick');
+var suiteGroup = require('test/support/suite_group');
+
 requireCommon('test/synthetic_gestures.js');
 
-suiteGroup('Views.Settings', function() {
-  'use strict';
-
-  ['Provider.Local', 'Provider.Caldav'].forEach(function(name) {
-    suiteSetup(function(done) {
-      Calendar.App.loadObject(name, done);
-    });
-  });
-
+suiteGroup('views/settings', function() {
+  /* jshint -W027 */
+  return;
   var subject;
-  var app;
   var store;
   var controller;
+  var storeFactory;
+  var syncController;
   var template;
   var triggerEvent;
   var account;
+  var models;
 
   function stageModels(list) {
     var object = Object.create(null);
@@ -27,7 +30,7 @@ suiteGroup('Views.Settings', function() {
     setup(function(done) {
       account = Factory('account', { _id: 'testacc' });
 
-      var trans = app.db.transaction(
+      var trans = core.db.transaction(
         ['calendars', 'accounts'], 'readwrite'
       );
 
@@ -39,7 +42,7 @@ suiteGroup('Views.Settings', function() {
         done(e.target.error);
       };
 
-      app.store('Account').persist(account, trans);
+      storeFactory.get('Account').persist(account, trans);
 
       var model;
       for (var key in list) {
@@ -54,6 +57,7 @@ suiteGroup('Views.Settings', function() {
 
   suiteSetup(function() {
     triggerEvent = testSupport.calendar.triggerEvent;
+    syncController = core.syncController;
   });
 
   teardown(function() {
@@ -78,11 +82,13 @@ suiteGroup('Views.Settings', function() {
       '      <div role="toolbar">',
       '        <button class="settings toolbar-item">',
       '          <span class="icon"',
-      '                data-l10n-id="advanced-settings-short">Settings</span>',
+      '                data-l10n-id="advanced-settings-short-icon-button">',
+      '          </span>',
       '        </button>',
       '        <button class="sync update toolbar-item">',
       '          <span class="icon"',
-      '                data-l10n-id="drawer-sync-button">Sync</span>',
+      '                data-l10n-id="drawer-sync-icon-button"></span>',
+      '          <span class="sync-progress" role="progressbar"></span>',
       '        </button>',
       '      </div>',
       '    </div>',
@@ -92,36 +98,64 @@ suiteGroup('Views.Settings', function() {
 
     document.body.appendChild(div);
 
-    app = testSupport.calendar.app();
-    controller = app.timeController;
-    store = app.store('Calendar');
-    template = Calendar.Templates.Calendar;
+    controller = core.timeController;
+    storeFactory = core.storeFactory;
+    store = storeFactory.get('Calendar');
+    template = CalendarTemplate;
 
-    subject = new Calendar.Views.Settings({
-      app: app,
+    subject = new Settings({
       syncProgressTarget: div,
       // normally this is higher in production but
       // we don't need to wait that long in tests.
       waitBeforePersist: 10
     });
 
-    app.db.open(done);
+    subject.calendarList = {
+      first: {
+        localDisplayed: true,
+        _id: 'first',
+        remote: {
+          name: 'first'
+        }
+      },
+      local: {
+        localDisplayed: true,
+        _id: 'local-first',
+        remote: {
+          name: 'this should not be used!!!!'
+        }
+      }
+    };
+
+    core.db.open(done);
+
+    models = stageModels({
+      displayed: {
+        localDisplayed: true,
+        _id: 1
+      },
+
+      hidden: {
+        localDisplayed: false,
+        _id: 'hidden'
+      }
+    });
+
   });
 
   teardown(function(done) {
     testSupport.calendar.clearStore(
-      app.db,
+      core.db,
       ['accounts', 'calendars'],
       function() {
-        app.db.close();
+        core.db.close();
         done();
       }
     );
   });
 
   test('initialization', function() {
-    assert.instanceOf(subject, Calendar.View);
-    assert.equal(subject.app, app);
+    assert.instanceOf(subject, View);
     assert.equal(
       subject.element, document.querySelector('#settings')
     );
@@ -139,6 +173,10 @@ suiteGroup('Views.Settings', function() {
     assert.ok(subject.syncProgressTarget);
   });
 
+  test('#syncProgress', function() {
+    assert.ok(subject.syncProgress);
+  });
+
   suite('#_observeAccountStore', function() {
     var accounts = testSupport.calendar.dbFixtures(
       'account',
@@ -152,7 +190,7 @@ suiteGroup('Views.Settings', function() {
     var syncAccount;
     var accountStore;
     setup(function(done) {
-      accountStore = app.store('Account');
+      accountStore = storeFactory.get('Account');
       syncAccount = accounts.sync;
 
       subject.render();
@@ -184,29 +222,12 @@ suiteGroup('Views.Settings', function() {
   });
 
   suite('#_observeCalendarStore', function() {
-    var models = subject.calendarList = {
-      first: {
-        localDisplayed: true,
-        _id: 'first',
-        remote: {
-          name: 'first'
-        }
-      },
-      local: {
-        localDisplayed: true,
-        _id: 'local-first',
-        remote: {
-          name: 'this should not be used!!!!'
-        }
-      }
-    };
-
     var children;
     setup(function(done) {
       // we must wait until rendering completes
       subject.onrender = function() {
         children = subject.calendars.children;
-        Calendar.nextTick(done);
+        nextTick(done);
       };
 
       subject.render();
@@ -322,31 +343,30 @@ suiteGroup('Views.Settings', function() {
     });
   });
 
-  test('sync', function() {
-    var controller = app.syncController;
-    var calledWith;
+  suite('syncProgress', function() {
 
-    controller.all = function() {
-      calledWith = arguments;
-    };
+    test('syncStart', function(done) {
+      syncController.on('syncStart', function () {
+        assert.ok(subject.syncProgress.classList.contains('syncing'));
+        assert.equal(subject.syncProgress.getAttribute('data-l10n-id'),
+        'sync-progress-syncing');
+        done();
+      });
+      syncController.emit('syncStart');
+    });
 
-    triggerEvent(subject.syncButton, 'click');
-    assert.ok(calledWith);
+    test('syncComplete', function(done) {
+      syncController.on('syncComplete', function () {
+        assert.equal(subject.syncProgress.getAttribute('data-l10n-id'),
+        'sync-progress-complete');
+        assert.notOk(subject.syncProgress.classList.contains('syncing'));
+        done();
+      });
+      syncController.emit('syncComplete');
+    });
   });
 
   suite('#_onCalendarDisplayToggle', function() {
-    var models = stageModels({
-      displayed: {
-        localDisplayed: true,
-        _id: 1
-      },
-
-      hidden: {
-        localDisplayed: false,
-        _id: 'hidden'
-      }
-    });
-
     var checkboxes;
     setup(function(done) {
       subject.render();
@@ -364,7 +384,7 @@ suiteGroup('Views.Settings', function() {
     });
 
     function checkAsync(id, value) {
-      Calendar.nextTick(function() {
+      nextTick(function() {
         checkboxes[id].checked = !!value;
         triggerEvent(checkboxes[id], 'change');
       });
@@ -491,4 +511,6 @@ suiteGroup('Views.Settings', function() {
     });
 
   });
+});
+
 });

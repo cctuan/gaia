@@ -22,6 +22,7 @@ NonReadyScreen.prototype.updateForState = function(cardState) {
   switch (cardState) {
     case null:
     case 'absent':
+    case 'unknown':
     case 'pinRequired':
     case 'pukRequired':
     case 'airplaneMode':
@@ -35,9 +36,9 @@ NonReadyScreen.prototype.updateForState = function(cardState) {
 };
 
 NonReadyScreen.prototype.setMessageMode = function(cardState) {
-  this.activity.setAttribute('aria-hidden', true);
+  this.activity.hidden = true;
   [this.header, this.message, this.button.parentNode].forEach(function (el) {
-    el.setAttribute('aria-hidden', false);
+    el.hidden = false;
   });
 
   var messageId = this.getMessageIdFor(cardState);
@@ -50,9 +51,9 @@ NonReadyScreen.prototype.setMessageMode = function(cardState) {
 };
 
 NonReadyScreen.prototype.setWaitingMode = function() {
-  this.activity.setAttribute('aria-hidden', false);
+  this.activity.hidden = false;
   [this.header, this.message, this.button.parentNode].forEach(function (el) {
-    el.setAttribute('aria-hidden', true);
+    el.hidden = true;
   });
 };
 
@@ -71,6 +72,8 @@ NonReadyScreen.prototype.getMessageIdFor = function(cardState) {
     message = 'sim-locked';
   } else if (cardState === 'airplaneMode') {
     message = 'airplane-mode';
+  } else if (cardState === 'unknown') {
+    message = 'unknown';
   }
 
   return message;

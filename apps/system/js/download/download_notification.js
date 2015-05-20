@@ -1,3 +1,5 @@
+/* global DownloadFormatter, NotificationScreen, DownloadUI, DownloadHelper,
+          MozActivity, DownloadStore */
 
 'use strict';
 
@@ -13,10 +15,17 @@ function DownloadNotification(download) {
   this.state = 'started';
   this.id = DownloadFormatter.getUUID(download);
 
-  NotificationScreen.addNotification(this._getInfo());
-
   // We have to listen for state changes
-  this.download.onstatechange = this._update.bind(this);
+  this.listener = this._update.bind(this);
+  this.download.addEventListener('statechange', this.listener);
+
+  if (download.state === 'started') {
+    NotificationScreen.addNotification(this._getInfo());
+  } else {
+    // For adopted downloads, it is possible for the download to already be
+    // completed.
+    this._update();
+  }
 }
 
 DownloadNotification.prototype = {
@@ -36,29 +45,13 @@ DownloadNotification.prototype = {
   },
 
   /**
-   * This method is in charge of incrementing/decrementing the system downloads
-   * according to previous and current states
-   */
-  _updateSystemDownloads: function dn_updateSystemDownloads() {
-    var prevState = this.state;
-    var newState = this.download.state;
-    if (prevState !== newState) {
-      if (newState === 'downloading') {
-        StatusBar.incSystemDownloads();
-      } else if (prevState === 'downloading') {
-        StatusBar.decSystemDownloads();
-      }
-    }
-  },
-
-  /**
    * It updates the notification when the download state changes.
    */
   _update: function dn_update() {
-    this._updateSystemDownloads();
     if (this.download.state === 'finalized') {
-      // In theory we should never see this, but, we know that if we were
-      // to see this we want to do nothing.
+      // If the user delete the file, we will see this state and what we have to
+      // do, is to remove the notification
+      this._close();
       return;
     }
     var noNotify = this._wontNotify();
@@ -69,6 +62,11 @@ DownloadNotification.prototype = {
     var info = this._getInfo();
     if (noNotify) {
       info.noNotify = true;
+    }
+    if (this.state === 'downloading') {
+      info.mozbehavior = {
+        noscreen: true
+      };
     }
     NotificationScreen.addNotification(info);
     if (this.state === 'succeeded') {
@@ -93,17 +91,17 @@ DownloadNotification.prototype = {
 
     switch (result) {
       case DownloadUI.ERRORS.NO_MEMORY:
-        DownloadUI.show(DownloadUI.TYPE['NO_MEMORY'],
+        DownloadUI.show(DownloadUI.TYPE.NO_MEMORY,
                         this.download,
                         true);
         break;
       case DownloadUI.ERRORS.NO_SDCARD:
-        DownloadUI.show(DownloadUI.TYPE['NO_SDCARD'],
+        DownloadUI.show(DownloadUI.TYPE.NO_SDCARD,
                         this.download,
                         true);
         break;
       case DownloadUI.ERRORS.UNMOUNTED_SDCARD:
-        DownloadUI.show(DownloadUI.TYPE['UNMOUNTED_SDCARD'],
+        DownloadUI.show(DownloadUI.TYPE.UNMOUNTED_SDCARD,
                         this.download,
                         true);
         break;
@@ -111,7 +109,7 @@ DownloadNotification.prototype = {
       default:
         DownloadHelper.getFreeSpace((function gotFreeMemory(bytes) {
           if (bytes === 0) {
-            DownloadUI.show(DownloadUI.TYPE['NO_MEMORY'], this.download, true);
+            DownloadUI.show(DownloadUI.TYPE.NO_MEMORY, this.download, true);
           }
         }).bind(this));
     }
@@ -132,16 +130,9 @@ DownloadNotification.prototype = {
 
     req.onsuccess = (function _storeDownloadOnSuccess(request) {
       // We don't care about any more state changes to the download.
-      download.onstatechange = null;
+      this.download.removeEventListener('statechange', this.listener);
       // Update the download object to the datastore representation.
       this.download = req.result;
-
-      var mozDownloadManager = navigator.mozDownloadManager;
-      if (mozDownloadManager) {
-        // Once we've added the download to our data store we own it so clear
-        // all references to it from the Downloads API.
-        mozDownloadManager.clearAllDone();
-      }
     }).bind(this);
 
     req.onerror = function _storeDownloadOnError(e) {
@@ -221,16 +212,20 @@ DownloadNotification.prototype = {
       done();
     }).bind(this);
 
+    var req;
+
     switch (this.download.state) {
       case 'downloading':
         // Launching settings > download list
-        var activity = new MozActivity({
+        /* jshint nonew: false */
+        new MozActivity({
           name: 'configure',
           data: {
             target: 'device',
             section: 'downloads'
           }
         });
+        /* jshint nonew: true */
 
         // The notification won't be removed when users open the download list
         // activity.onsuccess = activity.onerror = cb;
@@ -239,7 +234,7 @@ DownloadNotification.prototype = {
 
       case 'stopped':
         // Prompts the user if he wishes to retry the download
-        var req = DownloadUI.show(null, this.download, true);
+        req = DownloadUI.show(null, this.download, true);
 
         // The notification won't be removed when users decline to resume
         // req.oncancel = cb;
@@ -251,7 +246,7 @@ DownloadNotification.prototype = {
       case 'succeeded':
         // Attempts to open the file
         var download = this.download;
-        var req = DownloadHelper.open(download);
+        req = DownloadHelper.open(download);
 
         req.onerror = function req_onerror() {
           DownloadHelper.handlerError(req.error, download);

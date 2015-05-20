@@ -1,13 +1,11 @@
-/* -*- Mode: js; js-indent-level: 2; indent-tabs-mode: nil -*- */
-/* vim: set shiftwidth=2 tabstop=2 autoindent cindent expandtab: */
-
+/* global DsdsSettings */
 'use strict';
 
 /**
  * Singleton object that helps to populate and manage the 'Select a SIM card'
  * panel in the cell and data settings panel.
  */
-var IccHandlerForCarrierSettings = (function(window, document, undefined) {
+window.IccHandlerForCarrierSettings = (function() {
   /** Card state mapping const. */
   var CARDSTATE_MAPPING = {
    'pinRequired' : 'simCardLockedMsg',
@@ -35,14 +33,14 @@ var IccHandlerForCarrierSettings = (function(window, document, undefined) {
     'hsdpa': '3.5G HSDPA',
     'hsupa': '3.5G HSDPA',
     'hspa' : '3.5G HSDPA',
-    'evdo0': '3G CDMA',
-    'evdoa': '3G CDMA',
-    'evdob': '3G CDMA',
-    '1xrtt': '2G CDMA',
+    'evdo0': 'EVDO',
+    'evdoa': 'EVDO',
+    'evdob': 'EVDO',
+    '1xrtt': '1xRTT',
     'umts' : '3G UMTS',
     'edge' : '2G EDGE',
-    'is95a': '2G CDMA',
-    'is95b': '2G CDMA',
+    'is95a': '1xRTT',
+    'is95b': '1xRTT',
     'gprs' : '2G GPRS'
   };
 
@@ -260,18 +258,4 @@ var IccHandlerForCarrierSettings = (function(window, document, undefined) {
   return {
     init: ihfcs_init
   };
-})(this, document);
-
-/**
- * Startup.
- */
-navigator.mozL10n.once(function loadWhenIdle() {
-  var idleObserver = {
-    time: 3,
-    onidle: function() {
-      IccHandlerForCarrierSettings.init();
-      navigator.removeIdleObserver(idleObserver);
-    }
-  };
-  navigator.addIdleObserver(idleObserver);
-});
+})();

@@ -1,3 +1,7 @@
+* {
+  -moz-user-select: none;
+}
+
 html {
   font-size: 10px;
   font-weight: 500;
@@ -14,6 +18,12 @@ body {
   margin: 0;
   overflow: hidden;
   color: #fff;
+}
+
+input,
+textarea,
+[contenteditable="true"] {
+  -moz-user-select: text;
 }
 
 #screen {
@@ -48,7 +58,7 @@ body {
 }
 
 #screen > div#poweroff-splash.step1 {
-  animation: poweroff-splash-fade-in 0.5s;
+  animation: poweroff-splash-fade-in var(--transition-duration);
 }
 
 @keyframes poweroff-splash-fade-in {
@@ -221,7 +231,6 @@ body {
   top: 0;
   left: 0;
   visibility: hidden;
-
   pointer-events: none;
 }
 
@@ -250,10 +259,6 @@ body {
   content: '';
 }
 
-#screen.fullscreen-app #windows::before {
-  background: black;
-}
-
 #secure-windows {
   position: absolute;
   left: 0;
@@ -268,32 +273,22 @@ body {
 #dialog-overlay {
   position: absolute;
   top: var(--statusbar-height);
+  right: 0;
+  bottom: 0;
   left: 0;
-  width: 100%;
-  height: calc(100% - var(--statusbar-height));
   visibility: hidden;
   pointer-events: none;
 }
 
-#screen.software-button-enabled #windows + #dialog-overlay {
-  bottom: var(--software-home-button-height);
-  height: calc(100% - var(--statusbar-height) - var(--software-home-button-height));
-}
-
-#screen.active-statusbar #dialog-overlay,
-#screen.active-statusbar.fullscreen-app #dialog-overlay {
-  top: 4rem;
-  height: calc(100% - 4rem);
-}
-
 #screen:-moz-full-screen-ancestor #dialog-overlay,
-#screen.fullscreen-app #dialog-overlay {
+#dialog-overlay.fullscreen {
   top: 0;
-  height: 100%;
+  bottom: 0;
 }
 
-#screen:not(.crash-dialog) #crash-dialog {
-  visibility: hidden;
+#screen:not(.crash-dialog) #crash-dialog,
+#screen:not(.trustedui) #trustedui-container {
+  display: none;
 }
 
 /* `.dialog` is set by system_dialog.js when a dialog is shown */

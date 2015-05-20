@@ -1,32 +1,24 @@
+define(function(require) {
+'use strict';
+
+var Calc = require('common/calc');
+var Month = require('views/month');
+var core = require('core');
+
 requireCommon('test/synthetic_gestures.js');
-require('/shared/js/gesture_detector.js');
-requireLib('timespan.js');
 
-/*
-requireLib('utils/ordered_map.js');
-requireLib('templates/month.js');
-requireLib('views/time_parent.js');
-requireLib('views/month_child.js');
-requireLib('views/month.js');
-*/
-
-suiteGroup('Views.Month', function() {
-  'use strict';
-
+suite('Views.Month', function() {
   var subject,
-      app,
       controller,
-      busytimes,
       triggerEvent;
 
-
-  suiteSetup(function() {
+  suiteSetup(function(done) {
     triggerEvent = testSupport.calendar.triggerEvent;
+    core.db.open(done);
   });
 
-  teardown(function() {
-    var el = document.getElementById('test');
-    el.parentNode.removeChild(el);
+  suiteTeardown(function() {
+    core.db.close();
   });
 
   setup(function() {
@@ -41,37 +33,33 @@ suiteGroup('Views.Month', function() {
 
     document.body.appendChild(div);
 
-    app = testSupport.calendar.app();
-    controller = app.timeController;
+    controller = core.timeController;
     controller.move(new Date());
 
-    busytimes = app.store('Busytime');
+    subject = new Month();
+  });
 
-    subject = new Calendar.Views.Month({
-      app: app
-    });
-
+  teardown(function() {
+    subject.destroy();
+    var el = document.getElementById('test');
+    el.parentNode.removeChild(el);
   });
 
   test('initialization', function() {
-    assert.instanceOf(subject, Calendar.Views.TimeParent);
-    assert.equal(subject.controller, controller);
     assert.equal(subject.element, document.querySelector('#month-view'));
   });
 
   suite('events', function() {
 
+    setup(function() {
+      subject._initEvents();
+    });
+
     test('dom: click', function() {
-      subject.render();
+      subject.onfirstseen();
 
-      // find something with [data-date];
-      var el = subject.element.querySelector(
-        '[data-date]'
-      );
-
-      var date = Calendar.Calc.dateFromId(
-        el.dataset.date
-      );
+      var el = subject.element.querySelector('.month-day');
+      var date = Calc.dateFromId(el.dataset.date);
 
       triggerEvent(el, 'click');
       assert.deepEqual(
@@ -86,7 +74,7 @@ suiteGroup('Views.Month', function() {
 // Bug 840489.
     test('dom: dbltap', function() {
       var calledWith;
-      app.router.show = function(url) {
+      core.router.show = function(url) {
         calledWith = url;
       };
 
@@ -109,12 +97,7 @@ suiteGroup('Views.Month', function() {
 */
 
     test('controller: monthChange', function() {
-      var calledClear = null;
       var calledActivateTime = null;
-
-      subject._clearSelectedDay = function() {
-        calledClear = true;
-      };
 
       subject.changeDate = function(month) {
         calledActivateTime = month;
@@ -123,118 +106,104 @@ suiteGroup('Views.Month', function() {
       var date = new Date(2012, 1, 1);
       controller.move(date);
 
-      assert.ok(calledClear);
       assert.deepEqual(calledActivateTime, date);
     });
 
-    test('controller: selectedDayChange', function() {
-      var calledWith;
-      var date = new Date();
-
-      subject._selectDay = function() {
-        calledWith = arguments;
-      };
-
-      controller.selectedDay = date;
-      assert.deepEqual(calledWith[0], date);
-    });
   });
 
   test('#_onswipe', function() {
-    var date = new Date(2012, 4, 10);
-    var expected = new Date(2012, 5, 1);
+    var date = new Date(2012, 4, 1);
+    var expected = new Date(2012, 3, 1);
     subject.date = date;
 
     subject._onswipe({
       dy: 0,
       dx: window.innerWidth / 5,
-      direction: 'left'
+      direction: 'right'
     });
 
     assert.deepEqual(
-      subject.controller.selectedDay,
+      core.timeController.selectedDay,
+      expected,
+      'selects first day of previous month'
+    );
+  });
+
+  test('#_onwheel', function() {
+    var date = new Date(2012, 4, 10);
+    var expected = new Date(2012, 5, 1);
+    subject.date = date;
+
+    subject._onwheel({
+      deltaMode: window.WheelEvent.DOM_DELTA_PAGE,
+      DOM_DELTA_PAGE: window.WheelEvent.DOM_DELTA_PAGE,
+      deltaX: 1,
+      deltaY: 0
+    });
+
+    assert.deepEqual(
+      core.timeController.selectedDay,
       expected,
       'selects first day of month'
     );
   });
 
-  test('#_createChild', function() {
-    var time = new Date(2012, 1, 1);
-    var child = subject._createChild(time);
-
-    assert.instanceOf(child, Calendar.Views.MonthChild);
-    assert.deepEqual(child.date, time);
-  });
-
   test('#_nextTime', function() {
-    var date = new Date(2012, 4, 1);
-    var expected = new Date(2012, 5, 1);
-
+    subject.date = new Date(2012, 4, 1);
     assert.deepEqual(
-      subject._nextTime(date),
-      expected
+      subject._nextTime(),
+      new Date(2012, 5, 1)
     );
   });
 
   test('#_previousTime', function() {
-    var date = new Date(2012, 5, 1);
-    var expected = new Date(2012, 4, 1);
-
+    subject.date = new Date(2012, 5, 1);
     assert.deepEqual(
-      subject._previousTime(date),
-      expected
+      subject._previousTime(),
+      new Date(2012, 4, 1)
     );
   });
 
-  test('#onfirstseen', function() {
-    assert.equal(subject.onfirstseen, subject.render);
-  });
+  test('#changeDate', function() {
+    var base;
 
-  suite('selected days', function() {
-    function selected() {
-      return subject.element.querySelectorAll(
-        subject.selectors.selectedDay
-      );
+    function dayIds() {
+      var months = subject.element.querySelectorAll('section.month');
+      return Array.map(months, el => el.dataset.date).join(', ');
     }
 
-    test('#_selectDay', function() {
-      var now = new Date(2012, 0, 1);
-      controller.move(now);
-      subject.render();
+    base = new Date(2014, 10, 11);
+    subject.changeDate(base);
+    assert.ok(subject.currentFrame.active, 'currentFrame.active');
+    assert.deepEqual(
+      subject.currentFrame.date,
+      new Date(2014, 10, 1),
+      'base date should always be first day of the month'
+    );
+    assert.equal(
+      dayIds(),
+      'd-2014-10-1',
+      '1: single element at first call'
+    );
 
-      var select = new Date(2012, 0, 5);
-      subject._selectDay(select);
+    base = new Date(2015, 0, 1);
+    subject.changeDate(base);
+    assert.deepEqual(subject.currentFrame.date, base, '2: currentFrame.date');
+    assert.equal(
+      dayIds(),
+      'd-2014-10-1, d-2015-0-1',
+      '2: month elements should be sorted'
+    );
 
-      var dayEl = selected();
-      assert.length(dayEl, 1, 'should highlight selected');
-
-      dayEl = dayEl[0];
-
-      assert.ok(dayEl.id, 'should have id');
-      assert.include(dayEl.id, Calendar.Calc.getDayId(
-        select
-      ));
-    });
-
-    test('#_clearSelectedDay', function() {
-      subject.render();
-      assert.length(selected(), 0);
-
-      var el = subject.element.querySelector('li');
-      el.classList.add('selected');
-
-      assert.length(selected(), 1);
-      subject._clearSelectedDay();
-
-      assert.length(selected(), 0);
-    });
-
+    base = new Date(2014, 3, 1);
+    subject.changeDate(base);
+    assert.deepEqual(subject.currentFrame.date, base, '3: currentFrame.date');
+    assert.equal(
+      dayIds(),
+      'd-2014-3-1, d-2014-10-1, d-2015-0-1',
+      '3: month elements should be sorted'
+    );
   });
-
-  test('#render', function() {
-    var time = new Date(2012, 1, 1);
-    controller.move(time);
-    subject.render();
-  });
+});
 
 });

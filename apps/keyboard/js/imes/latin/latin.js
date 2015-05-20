@@ -1,5 +1,6 @@
 /* -*- Mode: js; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- /
 /* vim: set shiftwidth=2 tabstop=2 autoindent cindent expandtab: */
+/* global PAGE_INDEX_DEFAULT, InputMethods, KeyEvent, PromiseStorage */
 
 'use strict';
 
@@ -51,10 +52,11 @@
     click: click,
     select: select,
     dismissSuggestions: dismissSuggestions,
+    setLayoutPage: setLayoutPage,
     setLayoutParams: setLayoutParams,
     setLanguage: setLanguage,
     selectionChange: selectionChange,
-    generateNearbyKeyMap: nearbyKeys
+    generateNearbyKeyMap: findNearbyKeys
   };
 
   // This is the object that is passed to init().
@@ -63,6 +65,9 @@
 
   // If defined, this is a worker thread that produces word suggestions for us
   var worker;
+
+  // PromiseStorage for access to indexedDB for user dictionary
+  var dbStore;
 
   // These variables are the input method's state. Most of them are
   // passed to the activate() method or are derived in that method.
@@ -84,8 +89,10 @@
   var autoCorrection;     // Correction to make if next input is space
   var revertTo;           // Revert to this on backspace after autocorrect
   var revertFrom;         // Revert away from this on backspace
-  var justAutoCorrected;  // Was last change an auto correction?
+  var disableOnRevert;    // Do we disable auto correction when reverting?
   var correctionDisabled; // Temporarily diabled after reverting?
+  var currentPage;        // The current layout page
+  var gotNormalKey;       // Indicate if we got a normal key in an alt page
 
   // Terminate the worker when the keyboard is inactive for this long.
   var WORKER_TIMEOUT = 30000;  // 30 seconds of idle time
@@ -105,7 +112,9 @@
   var COMMA = 44;
   var COLON = 58;
   var SEMICOLON = 59;
-
+  var ATPERSAND = 64;
+  var DOUBLEQUOTE = 34;
+  var CLOSEPAREN = 41;
   // all whitespace characters
   // U+FFFC place holder is added to white space
   // this enables suggestions
@@ -128,18 +137,26 @@
   // an autocorrect action
   var MIN_LENGTH_MISMATCH_THRESHOLD = 5;
 
-  /*
-   * Since inputContext.sendKey is an async fuction that will return a promise,
-   * and we need to update the current state (capitalization, input value)
-   * after the promise is resolved, we need to have an queue for each click,
-   * or the key would be sent with a wrong state.
-   */
-  var inputSequencePromise = Promise.resolve();
+  var USER_DICT_DB_NAME = 'UserDictLatin';
+
+  // Predictions from user dictionary need to have weight larger than this in
+  // order to take precedence over built-in dictionary predictions
+  var USER_DICT_PREDICTION_BUMP_THRESHOLD = 1;
+
+  // If this promise exists, that means we are
+  // currently loading the new dictionary.
+  var getDictionaryDataPromise = null;
+
+  // The promise for getting user dictionary from PromiseStorage
+  var getUserDictionaryBlobPromise = null;
 
   // keyboard.js calls this to pass us the interface object we need
   // to communicate with it
   function init(interfaceObject) {
     keyboard = interfaceObject;
+
+    dbStore = new PromiseStorage(USER_DICT_DB_NAME);
+    dbStore.start();
   }
 
   // Given the type property and inputmode attribute of a form element,
@@ -172,7 +189,7 @@
           default:
             return (type === 'textarea') ? 'latin-prose' : 'latin';
         }
-
+        break;
       default:
         return 'verbatim';
     }
@@ -187,10 +204,11 @@
     inputMode = getInputMode(state.type, state.inputmode);
     inputText = state.value;
     cursor = state.selectionStart;
-    if (state.selectionEnd > state.selectionStart)
+    if (state.selectionEnd > state.selectionStart) {
       selection = state.selectionEnd;
-    else
+    } else {
       selection = 0;
+    }
 
     // Figure out what kind of input assistance we're providing for this
     // activation.
@@ -208,8 +226,10 @@
     lastSpaceTimestamp = 0;
     autoCorrection = null;
     revertTo = revertFrom = '';
-    justAutoCorrected = false;
+    disableOnRevert = false;
     correctionDisabled = false;
+    currentPage = PAGE_INDEX_DEFAULT;
+    gotNormalKey = false;
 
     // The keyboard isn't idle anymore, so clear the timer
     if (idleTimer) {
@@ -220,20 +240,44 @@
     // Start off with the correct capitalization
     updateCapitalization();
 
+    // Get user dictionary blob.
+    getUserDictionaryBlobPromise =
+      dbStore.getItem('dictblob').then(function(blob) {
+      // If worker is there, tell it we have a (new) user dictionary blob,
+      // since setLanguage() may be bypassed due to language not changing.
+      // (User dictionary is langauge-neutral.)
+      // Do pass the argument if blob is undefined (no user dictionary words),
+      // Since the worker needs to know if user has deleted all words.
+      // Worker will bypass UserDictionary prediction as needed.
+      // |undefined| can't be Transferred so we'll need to check for it.
+      if (worker) {
+        worker.postMessage({
+          cmd: 'setUserDictionary',
+          args: [blob]
+        }, typeof blob === 'undefined' ? undefined : [blob]);
+      }
+
+      return blob;
+    })['catch'](function(e) {
+      e && console.error('latin.js', e);
+    });
+
     // If we are going to offer suggestions, ensure that there is a worker
     // thread created and that it knows what language we're using, and then
     // start things off by requesting a first batch of suggestions.
     if (suggesting || correcting) {
-      if (!worker || lang !== language)
+      if (!worker || lang !== language) {
         setLanguage(lang);  // This calls updateSuggestions
-      else
+      } else {
         updateSuggestions();
+      }
     }
   }
 
   function deactivate() {
-    if (!worker || idleTimer)
+    if (!worker || idleTimer) {
       return;
+    }
     idleTimer = setTimeout(terminateWorker, WORKER_TIMEOUT);
   }
 
@@ -253,8 +297,11 @@
   function setLanguage(newlang) {
     // If there is no worker and no language, or if there is a worker and
     // the language has not changed, then there is nothing to do here.
-    if ((!worker && !newlang) || (worker && newlang === language))
+    if ((!worker && !newlang) || (worker && newlang === language)) {
       return;
+    }
+
+    language = newlang;
 
     // If there is a worker, and no new language, then kill the worker
     if (worker && !newlang) {
@@ -262,13 +309,51 @@
       return;
     }
 
+    // Built-in dictionary is a hard requirement, i.e. if it is undefined, we
+    // reset ourselves.
+    // User dictionary is not a hard requirement. We swallow any abnormal
+    // situation there at activate(), to make sure Promise.all() doesn't fail
+    // on its rejection.
+    getDictionaryDataPromise = Promise.all([
+      keyboard.getData('dictionaries/' + newlang + '.dict'),
+      getUserDictionaryBlobPromise
+    ]);
+
+    getDictionaryDataPromise
+      .then(function(values) {
+        getDictionaryDataPromise = null;
+
+        var builtInDict = values[0];
+        var userDict = values[1];
+
+        if (!builtInDict) {
+          console.error(
+            'latin.js: dictionary is specified but can\'t be loaded.');
+          language = undefined;
+
+          terminateWorker();
+          return;
+        }
+
+        setLanguageSync(newlang, builtInDict, userDict);
+      })['catch'](function(e) { // workaround gjslint error
+        e && console.error('latin.js', e);
+
+        getDictionaryDataPromise = null;
+        language = undefined;
+        terminateWorker();
+      })['catch'](function(e) { e && console.error(e); });
+  }
+
+  function setLanguageSync(newlang, dictData, userDict) {
     // If we get here, then we have to create a worker and set its language
     // or change the language of an existing worker.
     if (!worker) {
       // If we haven't created the worker before, do it now
       worker = new Worker('js/imes/latin/worker.js');
-      if (layoutParams && nearbyKeyMap)
+      if (layoutParams && nearbyKeyMap) {
         worker.postMessage({ cmd: 'setNearbyKeys', args: [nearbyKeyMap]});
+      }
 
       worker.onmessage = function(e) {
         switch (e.data.cmd) {
@@ -292,17 +377,22 @@
       };
     }
 
-    // Tell the worker what language we're using. They may cause it to
-    // load or reload its dictionary.
-    language = newlang;  // Remember the new language
-    worker.postMessage({ cmd: 'setLanguage', args: [language]});
+    // Tell the worker what language we're using and also pass the dictionary
+    // data.
+    // |undefined| can't be Transferred so we'll need to check for it.
+    worker.postMessage({
+      cmd: 'setLanguage',
+      args: [language, dictData, userDict]
+    }, typeof userDict === 'undefined' ? [dictData] : [dictData, userDict]);
 
     // And now that we've changed the language, ask for new suggestions
     updateSuggestions();
   }
 
   function displaysCandidates() {
-    return !!(suggesting && worker);
+    // If we are suggesting for the language,
+    // we should always display the condidate panel.
+    return !!(suggesting && language);
   }
 
   /*
@@ -356,55 +446,47 @@
    *
    * Update the capitalization state, if we're capitalizing
    */
-  function click(keyCode, upperKeyCode, repeat) {
-    // Wait for the previous keys have been resolved and then handle the next
-    // key.
+  function click(keyCode, repeat) {
+    // If the key is anything other than a backspace, forget about any
+    // previous changes that we would otherwise revert.
+    if (keyCode !== BACKSPACE) {
+      revertTo = revertFrom = '';
+      disableOnRevert = false;
+    }
 
-    var nextKeyPromise = inputSequencePromise.then(function() {
-      keyCode = keyboard.isCapitalized() && upperKeyCode ? upperKeyCode :
-                                                           keyCode;
+    var handler;
 
-      // If the key is anything other than a backspace, forget about any
-      // previous changes that we would otherwise revert.
-      if (keyCode !== BACKSPACE) {
-        revertTo = revertFrom = '';
-        justAutoCorrected = false;
-      }
-
-      var handler;
-
-      if (selection) {
-        // If there is selected text, don't do anything fancy here.
-        handler = handleKey(keyCode);
-      }
-      else {
-        switch (keyCode) {
-          case SPACE:     // This list of characters matches the WORDSEP regexp
-            case RETURN:
-            case PERIOD:
-            case QUESTION:
-            case EXCLAMATION:
-            case COMMA:
-            case COLON:
-            case SEMICOLON:
-            // These keys may trigger word or punctuation corrections
-            handler = handleCorrections(keyCode);
+    if (selection) {
+      // If there is selected text, don't do anything fancy here.
+      handler = handleKey(keyCode);
+    } else {
+      switch (keyCode) {
+        case SPACE:     // This list of characters matches the WORDSEP regexp
+        case RETURN:
+        case PERIOD:
+        case QUESTION:
+        case EXCLAMATION:
+        case COMMA:
+        case COLON:
+        case SEMICOLON:
+        case DOUBLEQUOTE:
+        case CLOSEPAREN:
+          // These keys may trigger word or punctuation corrections
+          handler = handleCorrections(keyCode);
           correctionDisabled = false;
           break;
 
-          case BACKSPACE:
-            handler = handleBackspace(repeat);
+        case BACKSPACE:
+          handler = handleBackspace(repeat);
           break;
 
-          default:
-            handler = handleKey(keyCode);
-        }
+        default:
+          handler = handleKey(keyCode);
       }
-      return handler;
-    });
+    }
 
     // After the next key is resolved, we could update the state here.
-    inputSequencePromise = nextKeyPromise.then(function() {
+    return handler.then(function() {
       // handleCorrections() above or it is now out of date, so clear it
       // so it doesn't get used later
       autoCorrection = null;
@@ -416,8 +498,18 @@
       updateSuggestions(repeat);
 
       // Exit symbol layout mode after space or return key is pressed.
-      if (keyCode === SPACE || keyCode === RETURN) {
+      var isNonDefaultPage = currentPage !== PAGE_INDEX_DEFAULT;
+      var isSpace = keyCode === SPACE;
+      var isReturn = keyCode === RETURN;
+      var isAtpersand = keyCode === ATPERSAND;
+      var keyResetLayout = (isSpace && gotNormalKey) || isReturn || isAtpersand;
+      if (isNonDefaultPage && keyResetLayout) {
         keyboard.setLayoutPage(PAGE_INDEX_DEFAULT);
+      }
+
+      // Next space key will change the layout
+      if (keyCode !== SPACE) {
+        gotNormalKey = true;
       }
 
       lastSpaceTimestamp = (keyCode === SPACE) ? Date.now() : 0;
@@ -428,10 +520,6 @@
       // Print the error and make sure inputSequencePromise always resolves.
       console.error(e);
     });
-
-    // Need to return the promise, so that the caller could know
-    // what to process next.
-    return inputSequencePromise;
   }
 
   // Handle any key (including backspace) and do the right thing even if
@@ -456,8 +544,9 @@
           // If we have temporarily disabled auto correction for the current
           // word and we've just backspaced over the entire word, then we can
           // re-enabled it again
-          if (correctionDisabled && !wordBeforeCursor())
+          if (correctionDisabled && !wordBeforeCursor()) {
             correctionDisabled = false;
+          }
         }
       } else {
         if (selection) {
@@ -511,12 +600,12 @@
       return replaceBeforeCursor(revertFrom, revertTo).then(function() {
         // If the change we just reverted was an auto-correction then
         // temporarily disable auto correction until the next space
-        if (justAutoCorrected) {
+        if (disableOnRevert) {
           correctionDisabled = true;
         }
 
         revertFrom = revertTo = '';
-        justAutoCorrected = false;
+        disableOnRevert = false;
       });
     }
     else {
@@ -559,11 +648,10 @@
       // user types backspace
       revertTo = currentWord;
       revertFrom = newWord;
-      justAutoCorrected = true;
+      disableOnRevert = true;
     }).then(function() {
-      // Send the keycode as seperate key event because it may get canceled
+      // Send the keycode as separate key event because it may get canceled
       return handleKey(keycode).then(function() {
-        revertTo += String.fromCharCode(keycode);
         revertFrom += String.fromCharCode(keycode);
       });
     });
@@ -576,10 +664,11 @@
   function autoPunctuate(keycode) {
     switch (keycode) {
     case SPACE:
-      if (Date.now() - lastSpaceTimestamp < DOUBLE_SPACE_TIME)
+      if (Date.now() - lastSpaceTimestamp < DOUBLE_SPACE_TIME) {
         return fixPunctuation(PERIOD, SPACE);
-      else
+      } else {
         return handleKey(keycode);
+      }
       break;
 
     case PERIOD:
@@ -616,7 +705,7 @@
           // Remember this change so we can revert it on backspace
           revertTo = ' ' + String.fromCharCode(revertToKeycode || keycode);
           revertFrom = newtext;
-          justAutoCorrected = false;
+          disableOnRevert = false;
         });
     }
   }
@@ -642,6 +731,12 @@
       }
     }
 
+    // We show no more than 3 suggestions; but we'd like to keep at least one
+    // suggestion from user dictionary, if its weight is less than 1. However,
+    // that suggestion can still be dropped if it matches the user input.
+    // User dictionary suggestion is identified by suggestion[2] === true.
+
+    var inputDefinedInUserDict = false;
     // See if the user's input is a valid word on the list of suggestions
     var inputIsSuggestion = false;
     var inputWeight = 0;
@@ -649,6 +744,7 @@
     for (inputIndex = 0; inputIndex < suggestions.length; inputIndex++) {
       if (suggestions[inputIndex][0] === input) {
         inputIsSuggestion = true;
+        inputDefinedInUserDict = !!suggestions[inputIndex][2];
         inputWeight = suggestions[inputIndex][1];
         break;
       }
@@ -667,8 +763,46 @@
     }
 
     // Make sure we have no more than three words
-    if (suggestions.length > 3)
-      suggestions.length = 3;
+    if (suggestions.length > 3) {
+      // We want to keep at least a user dictionary word here (if the heighest
+      // user dictionary word has weight >= 1).
+      // If for the first two suggestions we see one from user dictionary, or
+      // if we dropped a user dict suggestion above (matching user input),
+      // we can just append the third suggestion.
+      // Otherwise, we'll need to search through the remaining suggestions and
+      // append the first user-dict suggestion we find (that has weight >= 1);
+      // if we can't find any suitable user-dict suggestions, we just append
+      // the third suggestion (i.e. whatever that has the largest frequency
+      // in the remaining suggestions).
+
+      var trimmedSuggestions = suggestions.slice(0, 2);
+
+      var userDictionaryWordEncountered =
+        inputDefinedInUserDict ||
+        (!!suggestions[0][2]) ||
+        (!!suggestions[1][2]);
+
+      if (userDictionaryWordEncountered) {
+        trimmedSuggestions.push(suggestions[2]);
+      } else {
+        userDictionaryWordEncountered =
+          suggestions.slice(2).some(function(suggestion) {
+            if (suggestion[2] && suggestion[1] >=
+                USER_DICT_PREDICTION_BUMP_THRESHOLD) {
+              trimmedSuggestions.push(suggestion);
+              return true;
+            } else {
+              return false;
+            }
+          });
+
+        if (!userDictionaryWordEncountered) {
+          trimmedSuggestions.push(suggestions[2]);
+        }
+      }
+
+      suggestions = trimmedSuggestions;
+    }
 
     // Now get an array of just the suggested words
     var words = suggestions.map(function(x) { return x[0]; });
@@ -709,37 +843,49 @@
       // Mark the auto-correction so the renderer can highlight it
       words[0] = '*' + words[0];
     }
+    else {
+      autoCorrection = null;
+    }
 
     keyboard.sendCandidates(words);
   }
 
+  //
   // If the user selects one of the suggestions offered by this input method
   // the keyboard calls this method to tell us it has been selected.
-  // We have to backspace over the current word, insert this new word, and
+  // We have to delete the current word, insert this new word, and
   // update our internal state to match.
   //   word: the text displayed as the suggestion, might contain ellipsis
   //   data: the actual data we need to output
+  // In the past we would automatically insert a space after the selected
+  // word, but that, combined with the revert-on-backspace behavior made
+  // it impossible to add a suffix to the selected word.
+  //
   function select(word, data) {
     var oldWord = wordBeforeCursor();
+    var newWord = data;
 
-    // Replace the current word with the selected suggestion plus space
-    var newWord = data += ' ';
+    // The user has selected a suggestion, so we don't need to display
+    // them anymore. Note that calling this function resets all the
+    // autocorrect state. We'll reset much of that state below after
+    // the word has been replace with the new one.
+    dismissSuggestions();
 
     return replaceBeforeCursor(oldWord, newWord).then(function() {
       // Remember the change we just made so we can revert it if the
-      // next key is a backspace. Note that it is not an autocorrection
-      // so we don't need to disable corrections.
+      // next key is a backspace. If the word is reverted we disable
+      // autocorrection for this word.
       revertFrom = newWord;
       revertTo = oldWord;
-      justAutoCorrected = false;
 
-      // We inserted a space after the selected word, so we're beginning
-      // a new word here, which means that if auto-correction was disabled
-      // we can re-enable it now.
-      correctionDisabled = false;
-
-      // Clear the suggestions
-      keyboard.sendCandidates([]);
+      // Given that the user has selected this word, we don't ever
+      // want to autocorrect the word because if they keep typing to
+      // add a suffix to the word, we don't want to modify the
+      // original. This also means that if they revert the selection
+      // autocorrect will still be disabled which is what we want.
+      // Note, however, that most often the user will type a space
+      // after this selection and autocorrect will be enabled again.
+      correctionDisabled = true;
 
       // And update the keyboard capitalization state, if necessary
       updateCapitalization();
@@ -755,16 +901,27 @@
     lastSpaceTimestamp = 0;
     autoCorrection = null;
     revertTo = revertFrom = '';
-    justAutoCorrected = false;
+    disableOnRevert = false;
     correctionDisabled = false;
+  }
+
+  function setLayoutPage(page) {
+    if (currentPage === PAGE_INDEX_DEFAULT) {
+      // we don't want to reset gotNormalKey if we're already in an alternative
+      // layout.
+      gotNormalKey = false;
+    }
+
+    currentPage = page;
   }
 
   function setLayoutParams(params) {
     layoutParams = params;
 
     // We don't need to update the nearbyKeys when using number/digit layout.
-    if (inputMode === 'verbatim')
+    if (inputMode === 'verbatim') {
       return;
+    }
 
     // XXX We call nearbyKeys() every time the keyboard pops up.
     // Maybe it would be better to compute it once in keyboard.js and
@@ -772,10 +929,11 @@
 
     // We get called every time the keyboard case changes. Don't bother
     // passing this data to the prediction engine if nothing has changed.
-    var newmap = nearbyKeys(params);
+    var newmap = findNearbyKeys(params);
     var serialized = JSON.stringify(newmap);
-    if (serialized === serializedNearbyKeyMap)
+    if (serialized === serializedNearbyKeyMap) {
       return;
+    }
 
     nearbyKeyMap = newmap;
     serializedNearbyKeyMap = serialized;
@@ -787,33 +945,35 @@
     }
   }
 
-  function nearbyKeys(layout) {
+  function findNearbyKeys(layout) {
     var nearbyKeys = {};
     var keys = layout.keyArray;
-    var keysize = Math.min(layout.keyWidth, layout.keyHeight) * 1.2;
-    var threshold = keysize * keysize;
 
     // Make sure that all the keycodes are lowercase, not uppercase
-    for (var n = 0; n < keys.length; ++n) {
-      keys[n].code =
-        String.fromCharCode(keys[n].code).toLowerCase().charCodeAt(0);
+    for (var p = 0; p < keys.length; ++p) {
+      keys[p].code =
+        String.fromCharCode(keys[p].code).toLowerCase().charCodeAt(0);
     }
 
     // For each key, calculate the keys nearby.
     for (var n = 0; n < keys.length; ++n) {
       var key1 = keys[n];
-      if (SpecialKey(key1))
+      if (SpecialKey(key1)) {
         continue;
+      }
       var nearby = {};
       for (var m = 0; m < keys.length; ++m) {
-        if (m === n)
+        if (m === n) {
           continue; // don't compare a key to itself
+        }
         var key2 = keys[m];
-        if (SpecialKey(key2))
+        if (SpecialKey(key2)) {
           continue;
+        }
         var d = distance(key1, key2);
-        if (d !== 0)
+        if (d !== 0) {
           nearby[key2.code] = d;
+        }
       }
       nearbyKeys[key1.code] = nearby;
     }
@@ -846,10 +1006,11 @@
         return 0;
       }
 
-      if (distanceSquared > 2.5 * 2.5)
+      if (distanceSquared > 2.5 * 2.5) {
         return 0;
-      else
+      } else {
         return 1 / distanceSquared;
+      }
     }
 
     // Determine whether the key is a special character or a regular letter.
@@ -872,13 +1033,27 @@
   function updateSuggestions(repeat) {
     // If the user hasn't enabled suggestions, or if they're not appropriate
     // for this input type, or are turned off by the input mode, do nothing
-    if (!suggesting && !correcting)
+    if (!suggesting && !correcting) {
       return;
+    }
 
-    // If we don't have a worker (probably because no dictionary) then
-    // do nothing
-    if (!worker)
+    // If there is no dictionary language, do nothing
+    if (!language) {
       return;
+    }
+
+    // If we are still loading the dictionary, do nothing
+    if (getDictionaryDataPromise) {
+      return;
+    }
+
+    // This shouldn't happen -- we previously allow layout to be selected
+    // without the dictionary, but the build script has since prevent that.
+    if (!worker) {
+      console.error('latin.js: called updateSuggestions() w/o an worker.');
+
+      return;
+    }
 
     // If we deferred suggestions because of a key repeat, clear that timer
     if (suggestionsTimer) {
@@ -895,8 +1070,9 @@
     // If we're not at the end of a word, we want to clear any suggestions
     // that might already be there
     if (!atWordEnd()) {
-      if (suggesting)
+      if (suggesting) {
         keyboard.sendCandidates([]);
+      }
       return;
     }
 
@@ -958,9 +1134,11 @@
   // different than the character
   function isUpperCase(s) {
     var lc = s.toLowerCase();
-    for (var i = 0, n = s.length; i < n; i++)
-      if (s[i] === lc[i])
+    for (var i = 0, n = s.length; i < n; i++) {
+      if (s[i] === lc[i]) {
         return false;
+      }
+    }
     return true;
   }
 
@@ -974,18 +1152,21 @@
   // must be whitespace.  If there is a selection we never return true.
   function atWordEnd() {
     // If there is a selection we never want suggestions
-    if (selection)
+    if (selection) {
       return false;
+    }
 
     // If we're not at the end of the line and the character after the
     // cursor is not whitespace, don't offer a suggestion
     // Note that we purposely use WS here, not WORDSEP.
-    if (cursor < inputText.length && !WS.test(inputText[cursor]))
+    if (cursor < inputText.length && !WS.test(inputText[cursor])) {
       return false;
+    }
 
     // If the cursor is at position 0 then we're not at the end of a word
-    if (cursor <= 0)
+    if (cursor <= 0) {
       return false;
+    }
 
     // We're at the end of a word if the character before the cursor is
     // not a word separator character
@@ -1010,18 +1191,22 @@
   function atSentenceStart() {
     var i = cursor - 1;
 
-    if (i === -1)    // This is the empty string case
+    if (i === -1) {   // This is the empty string case
       return true;
+    }
 
     // Verify that the position before the cursor is whitespace
-    if (!isWhiteSpace(inputText[i--]))
+    if (!isWhiteSpace(inputText[i--])) {
       return false;
+    }
     // Now skip any additional whitespace before that
-    while (i >= 0 && isWhiteSpace(inputText[i]))
+    while (i >= 0 && isWhiteSpace(inputText[i])) {
       i--;
+    }
 
-    if (i < 0)     // whitespace all the way back to the end of the string
+    if (i < 0) {    // whitespace all the way back to the end of the string
       return true;
+    }
 
     var c = inputText[i];
     return c === '.' || c === '?' || c === '!';
@@ -1044,9 +1229,11 @@
       selection = 0;
     }
 
+    dismissSuggestions();
     updateSuggestions();
   }
 
-  if (!('PAGE_INDEX_DEFAULT' in window))
+  if (!('PAGE_INDEX_DEFAULT' in window)) {
     window.PAGE_INDEX_DEFAULT = null;
+  }
 }());

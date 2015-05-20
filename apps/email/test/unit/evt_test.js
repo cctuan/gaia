@@ -1,6 +1,7 @@
 /*jshint browser: true */
 /*global requireApp, suite, setup, testConfig, test, assert,
-  teardown, suiteSetup, suiteTeardown */
+  suiteSetup, suiteTeardown */
+'use strict';
 
 requireApp('email/js/alameda.js');
 requireApp('email/test/config.js');

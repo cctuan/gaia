@@ -5,10 +5,6 @@
   will-change: scroll-position;
 }
 
-[data-mode="search"] .msg-list-scrollouter {
-  height: calc(100% - 13.5rem);
-}
-
 .msg-list-scrollinner {
   /* Give it a z-index of 0 so that all its contents are forced into a single stacking
      context. This simplifies display list construction because our many positioned
@@ -45,7 +41,7 @@ section[role="region"] > header:first-child h1.msg-list-header-folder-label {
 /* Display unread messages number */
 .msg-list-header-folder-unread {
   display: inline-block;
-  margin-left: 0.5rem;
+  -moz-margin-start: 0.5rem;
   padding: 0 1rem;
   border-radius: 1.3rem;
   background-color: #E06F14;
@@ -55,7 +51,16 @@ section[role="region"] > header:first-child h1.msg-list-header-folder-label {
   font-style: italic;
 }
 
-[data-mode="search"] .msg-search-tease-bar {
+/* The search header sets a z-index on its children so that the topbar goes
+   under it when not in use. Not needed for non-search since shared header
+   styles handle it. Specific selectors because some set explicit z-index and
+   setting z-index on just the msg-search-header is not enough. */
+cards-message-list-search .msg-search-header form,
+cards-message-list-search .msg-search-header .bb-tablist {
+  z-index: 10;
+}
+
+cards-message-list-search .msg-search-tease-bar {
   display: none;
 }
 
@@ -74,8 +79,8 @@ bug 1033628 for more details. */
    be sure any inputs do not accept clicks/taps that would
    mess up the transition back to the message list. Also
    disable scrolling of the list */
-.card-message-list.after input,
-.card-message-list.after .msg-list-scrollouter {
+cards-message-list.after input,
+cards-message-list.after .msg-list-scrollouter {
   pointer-events: none;
 }
 
@@ -94,6 +99,9 @@ bug 1033628 for more details. */
 }
 .msg-header-item:active {
   background-color: #b1f1ff;
+}
+.msg-header-item:focus {
+  outline: 0;
 }
 
 /*
@@ -123,10 +131,17 @@ reflows. Foreground/background colors should be safe.
   width: .9rem;
   margin-top: -.45rem;
   border-radius: 50%;
+  visibility: hidden;
+}
+
+html:-moz-dir(rtl) .msg-header-unread-section {
+  right: 1rem;
+  left: auto;
 }
 
 .msg-header-item.unread .msg-header-unread-section {
   background-color: #2fc9ec;
+  visibility: visible;
 }
 
 .msg-header-syncing-section {
@@ -172,7 +187,17 @@ reflows. Foreground/background colors should be safe.
   line-height: 2rem;
   padding: 1rem 0 0 1.5rem;
   border-bottom: 0.1rem solid #f2f2f1;
+  display: inline-flex;
+  flex-flow: row wrap;
+  justify-content: space-between;
 }
+
+html:-moz-dir(rtl) .msg-header-details-section {
+  right: 1.5rem;
+  left: auto;
+  padding: 1rem 1.5rem 0 0;
+}
+
 .msg-header-icons-section {
   display: block;
   position: absolute;
@@ -182,6 +207,12 @@ reflows. Foreground/background colors should be safe.
   height: 100%;
   padding-top: 2.5rem;
 }
+
+html:-moz-dir(rtl) .msg-header-icons-section {
+  left: 2.8rem; /* The width of the avatar-section. */
+  right: auto;
+}
+
 .msg-header-avatar-section {
   display: block;
   position: absolute;
@@ -191,21 +222,27 @@ reflows. Foreground/background colors should be safe.
   height: 100%;
 }
 
-.msg-header-author-and-date {
-  display: table;
-  table-layout: fixed;
-  width: -moz-available;
+html:-moz-dir(rtl) .msg-header-avatar-section {
+  left: 0;
+  right: auto;
 }
 
 .msg-header-author {
   font-size: 1.9rem;
   font-weight: normal;
   color: #131313;
-  display: table-cell;
-  width: -moz-available;
+  flex-grow: 1;
+  flex-shrink: 1;
+  width: 0;
+  order: 1;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  text-align: left;
+}
+
+html:-moz-dir(rtl) .msg-header-author {
+  text-align: right;
 }
 
 .msg-header-item.unread .msg-header-author {
@@ -213,46 +250,74 @@ reflows. Foreground/background colors should be safe.
 }
 
 .msg-header-date {
+  padding-left: 0.5rem;
   color: #8f8f8f;
   font-size: 1.5rem;
   font-weight: 400;
-  display: table-cell;
-  width: -moz-min-content;
+  flex-shrink: 0;
+  order: 2;
   white-space: nowrap;
 }
+
+html:-moz-dir(rtl) .msg-header-date {
+  padding-left: unset;
+  padding-right: 0.5rem;
+}
+
 .msg-header-item.unread .msg-header-date {
   color: #008eab;
 }
 
 .msg-header-subject {
-  display: block;
+  order: 3;
+  flex: 0 0 -moz-available;
   color: #131313;
   font-size: 1.5rem;
   font-weight: normal;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  text-align: left;
 }
+
+html:-moz-dir(rtl) .msg-header-subject {
+  text-align: right;
+}
+
 .msg-header-snippet {
-  display: block;
+  order: 4;
+  flex: 0 0 -moz-available;
   color: #858585;
   font-size: 1.5rem;
   font-weight: 400;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  text-align: left;
 }
+
+html:-moz-dir(rtl) .msg-header-snippet {
+  text-align: right;
+}
+
 /* Give space for icons on right if they need to be displayed. */
 .msg-header-subject.icon-short,
 .msg-header-snippet.icon-short {
   margin-right: 1.6rem;
 }
+html:-moz-dir(rtl) .msg-header-subject.icon-short,
+html:-moz-dir(rtl) .msg-header-snippet.icon-short {
+  margin-left: 1.6rem;
+  margin-right: 0;
+}
 
 .msg-header-star {
   display: block;
+  visibility: hidden;
   color: #888844;
   font-size: 150%;
 }
+
 .msg-header-star-starred {
   background: url("images/icons/message-list-star.png") no-repeat center / 2rem;
   position: absolute;
@@ -260,10 +325,19 @@ reflows. Foreground/background colors should be safe.
   width: 2rem;
   height: 2rem;
   top: 3rem;
+  visibility: visible;
 }
+
+html:-moz-dir(rtl) .msg-header-star-starred {
+  left: -2rem;
+  right: auto;
+}
+
 .msg-header-attachments {
   display: block;
+  visibility: hidden;
 }
+
 .msg-header-attachments-yes {
   background: url("images/icons/message-list-attachment.png") no-repeat center / 2rem;
   position: absolute;
@@ -271,6 +345,12 @@ reflows. Foreground/background colors should be safe.
   width: 2rem;
   height: 2rem;
   top: 5rem;
+  visibility: visible;
+}
+
+html:-moz-dir(rtl) .msg-header-attachments-yes {
+  left: -2rem;
+  right: auto;
 }
 
 .msg-envelope-bar {
@@ -296,6 +376,8 @@ reflows. Foreground/background colors should be safe.
 .msg-envelope-date {
   font-size: 1.4rem;
   color: #657073;
+  display: inline-block;
+  width: 100%;
 }
 
 .msg-envelope-key {
@@ -324,12 +406,33 @@ reflows. Foreground/background colors should be safe.
   word-wrap: break-word;
 }
 
+html:-moz-dir(rtl) .msg-envelope-subject {
+  text-align: right;
+}
+
+html:-moz-dir(ltr) .msg-envelope-subject {
+  text-align: left;
+}
+
+/* Copy/paste select all could reach across the whole DOM so only scope the
+  selection to the center "active" card. Bug 1152172. */
+.center .msg-envelope-subject {
+  -moz-user-select: text;
+}
+
 .msg-body-container {
   white-space: pre-wrap;
   font-size: 1.6rem;
   line-height: 2rem;
   margin: 1rem 1.5rem;
   word-wrap: break-word;
+}
+
+/* Plain text emails with their structured DOM created for the reader should
+   all have selectable text. Copy/paste select all could reach across the whole
+   DOM so only scope the selection to the center "active" card. Bug 1152172. */
+.center .msg-body-container * {
+  -moz-user-select: text;
 }
 
 .msg-peep-bubble {
@@ -352,12 +455,12 @@ reflows. Foreground/background colors should be safe.
   pointer-events: none;
 }
 
-.card-message-reader .msg-body-container > progress {
+cards-message-reader .msg-body-container > progress {
   display: block;
   margin: 0 auto;
 }
 
-.card-message-reader .scrollregion-below-header {
+cards-message-reader .scrollregion-below-header {
   height: calc(100% - 9.5rem);
 }
 
@@ -369,6 +472,8 @@ reflows. Foreground/background colors should be safe.
 
 /* More specific selector to override shared styles */
 .msg-attachments-container .msg-attachment-item {
+  display: flex;
+  align-items: center;
   list-style-type: none;
   height: 4rem;
   min-height: 4rem;
@@ -377,11 +482,15 @@ reflows. Foreground/background colors should be safe.
 
 .msg-attachment-icon {
   display: block;
-  float: left;
   background: url("images/icons/icon_default.png") no-repeat center left / 3rem auto;
   width: 3.6rem;
   height: 4rem;
 }
+
+html:-moz-dir(rtl) .msg-attachment-icon {
+  background-position: center right;
+}
+
 .mime-image .msg-attachment-icon {
   background-image: url("images/icons/icon_image.png");
 }
@@ -392,21 +501,26 @@ reflows. Foreground/background colors should be safe.
   background-image: url("images/icons/icon_video.png");
 }
 
+.msg-attachment-fileinfo {
+  max-width: calc(100% - 7rem);
+  flex-grow: 2;
+}
+
 .msg-attachment-filename,
 .msg-attachment-filesize {
   display: block;
-  clear: right;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: calc(100% - 9rem);
   white-space: nowrap;
   font-size: 1.4rem;
   font-weight: normal;
   color: #393d3e;
+  text-align: left;
 }
 
-.msg-attachment-filename {
-  padding-top: 0.4rem;
+html:-moz-dir(rtl) .msg-attachment-filename,
+html:-moz-dir(rtl) .msg-attachment-filesize {
+  text-align: right;
 }
 
 .msg-attachment-filesize {
@@ -427,28 +541,20 @@ reflows. Foreground/background colors should be safe.
 .msg-attachment-download {
   display: none;
   width: 3.5rem;
-  margin-bottom: 0;
-  position: absolute;
-  top: 0;
-  right: -0.3rem;
+  margin: 0;
   border: 0;
   background: transparent;
   overflow: hidden;
 }
 .msg-attachment-downloading {
   display: none;
-  margin-bottom: 0;
-  position: absolute;
-  top: 0.6rem;
-  right: 0;
+  width: 3.5rem;
+  text-align: center;
 }
 .msg-attachment-view {
   display: none;
   width: 3.5rem;
-  margin-bottom: 0;
-  position: absolute;
-  top: 0;
-  right: -0.3rem;
+  margin: 0;
   border: 0;
   background: transparent;
   overflow: hidden;
@@ -456,7 +562,7 @@ reflows. Foreground/background colors should be safe.
 
 .msg-attachment-too-large { display: none; }
 .msg-attachment-item[state="toolarge"] { height: auto; }
-.msg-attachment-item[state="toolarge"] > .msg-attachment-too-large {
+.msg-attachment-item[state="toolarge"] .msg-attachment-too-large {
   display: block;
   line-height: 1;
   color: rgba(0, 0, 0, 0.5);
@@ -555,30 +661,17 @@ reflows. Foreground/background colors should be safe.
   background: url("images/icons/icon_show_external_image.png") no-repeat center / 3rem auto;
 }
 
-
-/* For WVGA (800 x 480) */
 .msg-list-action-toolbar .msg-refresh-btn:after {
   content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 4.4rem;
+  width: 3rem;
+  height: 3rem;
+  margin: 0 auto;
   display: block;
-  padding-bottom: 0.1rem;
   background: url("images/icons/refresh.png") no-repeat center center / 3rem auto;
 }
 
 .msg-list-action-toolbar .msg-refresh-btn:after {
   opacity: 1;
-}
-
-@media all and (min-device-width: 320px) and (max-device-width: 359px) {
-  .msg-refresh-btn:after {
-    height: 100%;
-    padding-bottom: 0;
-    background-size: 3rem;
-  }
 }
 
 .msg-refresh-btn[data-state="synchronizing"]:after {
@@ -673,11 +766,22 @@ reflows. Foreground/background colors should be safe.
 .msg-messages-container.show-edit .msg-header-unread-section {
   left: 3.9rem;
 }
+html:-moz-dir(rtl) .msg-messages-container.show-edit .msg-header-unread-section {
+  right: 3.9rem;
+  left: auto;
+}
+
 .msg-messages-container.show-edit .msg-header-syncing-section {
   left: 3.5rem;
 }
+
+html:-moz-dir(rtl) .msg-messages-container.show-edit .msg-header-syncing-section {
+  right: 3.5rem;
+  left: auto;
+}
+
 .msg-messages-container.show-edit .msg-header-details-section {
-  padding-left: 4.5rem;
+  -moz-padding-start: 4.5rem;
 }
 
 /*
@@ -701,6 +805,11 @@ reflows. Foreground/background colors should be safe.
   font-weight: 300;
   font-size: 2.4rem;
   border-top: 0.1rem solid #bebebe;
+}
+
+cards-message-list-search .msg-list-empty-message-text {
+  top: 0;
+  border-top: 0;
 }
 
 .msg-messages-sync-container > p,
@@ -735,8 +844,12 @@ reflows. Foreground/background colors should be safe.
 
 .msg-messages-sync-more > span {
   margin: 0 auto;
-  padding-left: 3rem;
+  -moz-padding-start: 3rem;
   background: url("images/icons/download_trimmed.png") no-repeat center left / 2rem;
+}
+
+html:-moz-dir(rtl) .msg-messages-sync-more > span {
+  background-position: center right;
 }
 
 .message-list-topbar {
@@ -770,6 +883,12 @@ reflows. Foreground/background colors should be safe.
   font-size: 0;
 }
 
+html:-moz-dir(rtl) .message-list-topbar[data-state="top"] {
+  left: 0;
+  right: auto;
+  margin: 1.5rem 0 0 1.5rem;
+}
+
 .message-list-topbar.horiz-message,
 .message-list-topbar.closing[data-state="message"] {
   transform: translate(-50%, -6.5rem);
@@ -799,6 +918,11 @@ reflows. Foreground/background colors should be safe.
   background-repeat: no-repeat;
   background-position: center center;
   background-size: 3rem auto;
+}
+
+html:-moz-dir(rtl) .msg-reply-menu button:before {
+  float: right;
+  margin: 0.5rem 0 0 1rem;
 }
 
 .msg-reply-menu-reply:before {

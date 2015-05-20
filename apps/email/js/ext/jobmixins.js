@@ -12,6 +12,7 @@ define(
     './syncbase',
     './mailslice',
     './headerCounter',
+    'logic',
     'exports',
     'require'
   ],
@@ -24,6 +25,7 @@ define(
     $sync,
     $mailslice,
     $count,
+    logic,
     exports,
     require
   ) {
@@ -34,6 +36,7 @@ exports.local_do_modtags = function(op, doneCallback, undo) {
   var self = this;
   var addTags = undo ? op.removeTags : op.addTags,
       removeTags = undo ? op.addTags : op.removeTags;
+  var mutationsPerformed = 0;
   this._partitionAndAccessFoldersSequentially(
     op.messages,
     false,
@@ -49,15 +52,16 @@ exports.local_do_modtags = function(op, doneCallback, undo) {
         if (addTags) {
           for (iTag = 0; iTag < addTags.length; iTag++) {
             tag = addTags[iTag];
-            if (tag === '\\Seen') {
-              storage.folderMeta.unreadCount--;
-            }
             // The list should be small enough that native stuff is better
             // than JS bsearch.
             existing = header.flags.indexOf(tag);
             if (existing !== -1)
               continue;
             header.flags.push(tag);
+            mutationsPerformed++;
+            if (tag === '\\Seen') {
+              storage.folderMeta.unreadCount--;
+            }
             header.flags.sort(); // (maintain sorted invariant)
             modified = true;
           }
@@ -65,13 +69,14 @@ exports.local_do_modtags = function(op, doneCallback, undo) {
         if (removeTags) {
           for (iTag = 0; iTag < removeTags.length; iTag++) {
             tag = removeTags[iTag];
-            if (tag === '\\Seen') {
-              storage.folderMeta.unreadCount++;
-            }
             existing = header.flags.indexOf(tag);
             if (existing === -1)
               continue;
             header.flags.splice(existing, 1);
+            mutationsPerformed++;
+            if (tag === '\\Seen') {
+              storage.folderMeta.unreadCount++;
+            }
             modified = true;
           }
         }
@@ -80,6 +85,18 @@ exports.local_do_modtags = function(op, doneCallback, undo) {
       }
     },
     function() {
+      // If we didn't actually do anything, then we don't actually need to do
+      // anything on the server either and we can skip it.
+      //
+      // Note that this does get us into some edge cases around the semantics of
+      // undo.  Before this change, "undo" always just meant "do the opposite
+      // modification of what I said" which is notably different from "undo the
+      // things you actually just did" which gave rise to the (currently
+      // unfixed) https://bugzil.la/997496.  And so with this change, we'll do
+      // the "right" thing, but in other cases we'll still do the "wrong" thing.
+      if (mutationsPerformed === 0) {
+        op.serverStatus = 'skip';
+      }
       doneCallback(null, null, true);
     },
     null, // connection loss does not happen for local-only ops
@@ -252,7 +269,8 @@ exports.do_download = function(op, callback) {
   // Now that we have the body, we can know the part numbers and eliminate /
   // filter out any redundant download requests.  Issue all the fetches at
   // once.
-  var partsToDownload = [], storePartsTo = [], header, bodyInfo, uid;
+  var partsToDownload = [], storePartsTo = [], registerDownload = [],
+      header, bodyInfo, uid;
   var gotHeader = function gotHeader(_headerInfo) {
     header = _headerInfo;
     uid = header.srvid;
@@ -267,6 +285,7 @@ exports.do_download = function(op, callback) {
         continue;
       partsToDownload.push(partInfo);
       storePartsTo.push('idb');
+      registerDownload.push(false);
     }
     for (i = 0; i < op.attachmentIndices.length; i++) {
       partInfo = bodyInfo.attachments[op.attachmentIndices[i]];
@@ -275,6 +294,7 @@ exports.do_download = function(op, callback) {
       partsToDownload.push(partInfo);
       // right now all attachments go in sdcard
       storePartsTo.push('sdcard');
+      registerDownload.push(op.registerAttachments[i]);
     }
 
     folderConn.downloadMessageAttachments(uid, partsToDownload, gotParts);
@@ -309,7 +329,8 @@ exports.do_download = function(op, callback) {
         } else {
           pendingCbs++;
           saveToDeviceStorage(
-              self._LOG, blob, storeTo, partInfo.name, partInfo, next);
+              self, blob, storeTo, registerDownload[i],
+              partInfo.name, partInfo, next);
         }
       }
     }
@@ -339,17 +360,24 @@ exports.do_download = function(op, callback) {
  * encounter a collision.
  */
 var saveToDeviceStorage = exports.saveToDeviceStorage =
-function(_LOG, blob, storeTo, filename, partInfo, cb, isRetry) {
+function(scope, blob, storeTo, registerDownload, filename, partInfo, cb,
+         isRetry) {
   var self = this;
-  var callback = function(success, error, savedFilename) {
+  var callback = function(success, error, savedFilename, registered) {
     if (success) {
-      _LOG.savedAttachment(storeTo, blob.type, blob.size);
+      logic(scope, 'savedAttachment', { storeTo: storeTo,
+                                        type: blob.type,
+                                        size: blob.size });
       console.log('saved attachment to', storeTo, savedFilename,
-                  'type:', blob.type);
+                  'type:', blob.type, 'registered:', registered);
       partInfo.file = [storeTo, savedFilename];
       cb();
     } else {
-      _LOG.saveFailure(storeTo, blob.type, error, filename);
+      logic(scope, 'saveFailure', { storeTo: storeTo,
+                                    type: blob.type,
+                                    size: blob.size,
+                                    error: error,
+                                    filename: filename });
       console.warn('failed to save attachment to', storeTo, filename,
                    'type:', blob.type);
       // if we failed to unique the file after appending junk, just give up
@@ -362,12 +390,14 @@ function(_LOG, blob, storeTo, filename, partInfo, cb, isRetry) {
       var idxLastPeriod = filename.lastIndexOf('.');
       if (idxLastPeriod === -1)
         idxLastPeriod = filename.length;
-      filename = filename.substring(0, idxLastPeriod) + '-' + Date.now() +
+      filename = filename.substring(0, idxLastPeriod) + '-' + $date.NOW() +
         filename.substring(idxLastPeriod);
-      saveToDeviceStorage(_LOG, blob, storeTo, filename, partInfo, cb, true);
+
+      saveToDeviceStorage(scope, blob, storeTo, registerDownload,
+                          filename, partInfo, cb, true);
     }
   };
-  sendMessage('save', [storeTo, blob, filename], callback);
+  sendMessage('save', [storeTo, blob, filename, registerDownload], callback);
 }
 
 exports.local_do_download = function(op, callback) {
@@ -393,7 +423,7 @@ exports.local_do_downloadBodies = function(op, callback) {
 };
 
 exports.do_downloadBodies = function(op, callback) {
-  var aggrErr, totalDownloaded = 0;
+  var aggrErr = null, totalDownloaded = 0;
   this._partitionAndAccessFoldersSequentially(
     op.messages,
     true,
@@ -466,7 +496,7 @@ exports.do_downloadBodyReps = function(op, callback) {
     // many times body change notifications will be fired.
     folderStorage.getMessageBody(header.suid, header.date,
                                          function(body) {
-      if (!body.bodyReps.every(function(rep) { return rep.isDownloaded; })) {
+      if (!folderStorage.messageBodyRepsDownloaded(body)) {
         folderConn.downloadBodyReps(header, onDownloadReps);
       } else {
         // passing flushed = true because we don't need to save anything
@@ -789,7 +819,7 @@ exports._partitionAndAccessFoldersSequentially = function(
         callOnConnLoss();
       }
       catch (ex) {
-        self._LOG.callbackErr(ex);
+        self.log.error('callbackErr', { ex: ex });
       }
     }
     terminated = true;

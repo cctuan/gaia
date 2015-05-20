@@ -18,11 +18,14 @@ class TestLockScreen(GaiaTestCase):
         self.device.lock()
 
     def test_unlock_to_camera(self):
-        """https://moztrap.mozilla.org/manage/case/2460/"""
+        """
+        https://moztrap.mozilla.org/manage/case/2460/
+        """
 
         lock_screen = LockScreen(self.marionette)
+        lock_screen.switch_to_frame()
         camera = lock_screen.unlock_to_camera()
-        lock_screen.wait_for_lockscreen_not_visible()
+        self.wait_for_condition(lambda m: self.apps.displayed_app.name == camera.name)
 
         self.assertFalse(self.device.is_locked)
 

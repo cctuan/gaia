@@ -1,6 +1,8 @@
 /* -*- Mode: js; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- /
 /* vim: set shiftwidth=2 tabstop=2 autoindent cindent expandtab: */
 'use strict';
+/* global Service, LockScreenWindow, LockScreenInputWindow */
+/* global secureWindowManager */
 
 (function(exports) {
   /**
@@ -16,46 +18,66 @@
    * @constructor LockScreenWindowManager
    */
   var LockScreenWindowManager = function() {};
-  LockScreenWindowManager.prototype = {
+
+  LockScreenWindowManager.prototype.setup =
+  function lswm_setup() {
     /**
      * @memberof LockScreenWindowManager#
      * @prop {DOMElement} windows - the `#windows` element, which is the same
      *                              element that the would AppWindowManager use.
      * @prop {DOMElement} screen - the `#screen` element.
      */
-    elements: {
+    this.elements = {
       windows: null,
       screen: null
-    },
+    };
 
     /**
      * @memberof LockScreenWindowManager#
      */
-    states: {
+    this.states = {
+      ready: false,
       FTUOccurs: false,
       enabled: true,
       instance: null,
-      active: false,
       windowCreating: false
-    },
+    };
 
     /**
      * @memberof LockScreenWindowManager#
      */
-    configs: {
+    this.configs = {
+      inputWindow: {
+        // Before we put things inside an iframe, do not resize LW.
+        resizeMode: false,
+        get height() {
+          return 300;
+        }
+      },
       listens: ['lockscreen-request-unlock',
-                'lockscreen-request-lock',
                 'lockscreen-appcreated',
                 'lockscreen-appterminated',
                 'lockscreen-appclose',
                 'screenchange',
+                'system-resize',
                 'ftuopen',
                 'ftudone',
                 'overlaystart',
                 'showlockscreenwindow',
-                'home'
+                'secure-appclosed',
+                'lockscreen-request-inputpad-open',
+                'lockscreen-request-inputpad-close'
                ]
-    }
+    };
+  };
+
+  LockScreenWindowManager.prototype.name = 'LockScreenWindowManager';
+  LockScreenWindowManager.prototype.EVENT_PREFIX = 'lockscreenwindowmanager';
+  /**
+   * This function will be invoked by hierarchyManager.
+   */
+  LockScreenWindowManager.prototype.getActiveWindow = function() {
+    return this.isActive() ? this.states.instance : null;
   };
 
   /**
@@ -63,14 +85,44 @@
    */
   LockScreenWindowManager.prototype.start =
   function lwm_start() {
+    this.setup();
     this.startEventListeners();
     this.startObserveSettings();
     this.initElements();
     this.initWindow();
+    Service.register('unlock', this);
+    Service.register('lock', this);
+    Service.request('registerHierarchy', this);
+  };
+
+  LockScreenWindowManager.prototype._handle_home = function() {
+    if (this.isActive()) {
+      // XXX: I don't want to change the order of event registration
+      // at this early-refactoring stage, so do this to minimize the
+      // risk and complete the work.
+      window.dispatchEvent(
+        new CustomEvent('lockscreen-notify-homepressed'));
+      return false;
+    }
+    return true;
+  };
+
+  LockScreenWindowManager.prototype._handle_holdhome = function() {
+    if (this.isActive()) {
+      return false;
+    }
+    return true;
+  };
+
+  LockScreenWindowManager.prototype.respondToHierarchyEvent = function(evt) {
+    if (this['_handle_' + evt.type]) {
+      return this['_handle_' + evt.type](evt);
+    } else {
+      return true;
+    }
   };
 
   /**
-   * @listens will-unlock - means to close remain apps.
    * @listens lockscreen-appcreated - when a lockscreen app got created, it
    *                                  would fire this event.
    * @listens lockscreen-appterminated - when a lockscreen app got really
@@ -87,20 +139,17 @@
       var app = null;
       switch (evt.type) {
         case 'overlaystart':
-          if (this.states.instance && this.states.instance.isActive()) {
+          if (this.isActive()) {
             this.states.instance.setVisible(false);
           }
           break;
         case 'showlockscreenwindow':
-          if (this.states.instance && this.states.instance.isActive()) {
+          if (this.isActive()) {
             this.states.instance.setVisible(true);
           }
           break;
         case 'ftuopen':
           this.states.FTUOccurs = true;
-          if (!this.states.instance) {
-            return;
-          }
           // Need immediatly unlocking (hide window).
           this.closeApp(true);
           break;
@@ -110,9 +159,6 @@
         case 'lockscreen-request-unlock':
           this.responseUnlock(evt.detail);
           break;
-        case 'lockscreen-request-lock':
-          this.responseLock(evt.detail);
-          break;
         case 'lockscreen-appcreated':
           app = evt.detail;
           this.registerApp(app);
@@ -121,7 +167,13 @@
           app = evt.detail;
           this.unregisterApp(app);
           break;
-        case 'lockscreen-appclose':
+        case 'secure-appclosed':
+          this.states.instance.lockOrientation();
+          break;
+        case 'system-resize':
+          if (this.states.instance && this.states.instance.isActive()) {
+            this.states.instance.resize();
+          }
           break;
         case 'screenchange':
           // The screenchange may be invoked by proximity sensor,
@@ -129,22 +181,26 @@
           // we should not open the LockScreen, because the user may stay
           // in another app, not the LockScreen.
           if ('proximity' !== evt.detail.screenOffBy &&
-              !this.states.FTUOccurs) {
+              !this.states.FTUOccurs &&
+              this.states.ready) {
             // The app would be inactive while screen off.
             this.openApp();
+            if (evt.detail.screenEnabled && this.states.instance &&
+                this.isActive() && !secureWindowManager.isActive()) {
+              // In theory listen to 'visibilitychange' event can solve this
+              // issue, since it would be fired at the correct moment that
+              // we can lock the orientation successfully, but this event
+              // would not be received when user press the button twice
+              // quickly, so we need to keep this workaround.
+              this.states.instance.lockOrientation();
+            }
           }
           break;
-        case 'home':
-          // We assume that this component is started before AppWindowManager
-          // to make this blocking code works.
-          if (this.states.active) {
-            // XXX: I don't want to change the order of event registration
-            // at this early-refactoring stage, so do this to minimize the
-            // risk and complete the work.
-            window.dispatchEvent(
-              new CustomEvent('lockscreen-notify-homepressed'));
-            evt.stopImmediatePropagation();
-          }
+        case 'lockscreen-request-inputpad-open':
+          this.onInputpadOpen();
+          break;
+        case 'lockscreen-request-inputpad-close':
+          this.onInputpadClose();
           break;
       }
     };
@@ -173,12 +229,18 @@
   LockScreenWindowManager.prototype.startObserveSettings =
     function lwm_startObserveSettings() {
       var enabledListener = (val) => {
+        this.states.ready = true;
         if ('false' === val ||
             false   === val) {
           this.states.enabled = false;
         } else if('true' === val ||
                   true   === val) {
           this.states.enabled = true;
+          // For performance reason, we need to create window at the moment
+          // the settings get enabled.
+          if (!this.states.instance) {
+            this.createWindow();
+          }
         }
       };
 
@@ -191,7 +253,7 @@
       };
 
       window.SettingsListener.observe('lockscreen.enabled',
-          true, enabledListener);
+        true, enabledListener);
 
       // We are only interested in changes to the setting, rather
       // than its value, so just observe it instead of using SettingsListener
@@ -238,12 +300,13 @@
    */
   LockScreenWindowManager.prototype.closeApp =
     function lwm_closeApp(instant) {
-      if (!this.states.enabled && !this.states.active) {
+      if (!this.states.enabled || !this.isActive()) {
         return;
       }
-      this.states.active = false;
       this.states.instance.close(instant ? 'immediate': undefined);
       this.elements.screen.classList.remove('locked');
+      this.toggleLockedSetting(false);
+      this.publish(this.EVENT_PREFIX + '-deactivated', this);
     };
 
   /**
@@ -261,13 +324,14 @@
         return;
       }
       if (!this.states.instance) {
-        this.createWindow();
+        var app = this.createWindow();
+        app.open();
       } else {
         this.states.instance.open();
-        this.states.instance.resize();
       }
       this.elements.screen.classList.add('locked');
-      this.states.active = true;
+      this.toggleLockedSetting(true);
+      this.publish(this.EVENT_PREFIX + '-activated', this);
     };
 
   /**
@@ -278,14 +342,9 @@
    * @memberof LockScreenWindowManager
    */
   LockScreenWindowManager.prototype.publish =
-    function lwm_publish(ne, source) {
-      if ('string' === typeof ne) {
-        ne = new CustomEvent(ne);
-      }
-      if (!source) {
-        source = window;
-      }
-      source.dispatchEvent(ne);
+    function lwm_publish(ne, detail) {
+      var event = new CustomEvent(ne, { detail: detail });
+      window.dispatchEvent(event);
     };
 
   /**
@@ -313,6 +372,7 @@
    * if it is needed.
    *
    * @private
+   * @return {LockScreenWindow}
    * @this {LockScreenWindowManager}
    * @memberof LockScreenWindowManager
    */
@@ -322,9 +382,12 @@
         return false;
       }
       this.states.windowCreating = true;
-      var app = new window.LockScreenWindow();
-      app.open();
+      var app = new LockScreenWindow();
+      // XXX: Before we can use real InputWindow and InputWindowManager,
+      // we need this to 
+      app.inputWindow = new LockScreenInputWindow();
       this.states.windowCreating = false;
+      return app;
     };
 
   /**
@@ -340,6 +403,7 @@
       var req = window.SettingsListener.getSettingsLock()
         .get('lockscreen.enabled');
       req.onsuccess = () => {
+        this.states.ready = true;
         if (true === req.result['lockscreen.enabled'] ||
            'true' === req.result['lockscreen.enabled']) {
           this.states.enabled = true;
@@ -351,22 +415,74 @@
       };
     };
 
+  LockScreenWindowManager.prototype.unlock =
+    function lwm_unlock(detail) {
+      // XXX: 
+      // There is a self-routing here:
+      // Service.request('unlock') ->
+      // LockscreenWindowManager#unlock ->
+      // ['lockscreen-request-unlock'] ->
+      // LockscreenWindowManager#responseUnlock |
+      // VisibilityManager#firing showwindow
+      //
+      // We should just call responseUnlock here,
+      // but VisibilityManager needs this event to notify
+      // AppWindowManager to showwindow correctly;
+      // The reason not using lockscreen-appclosing/lockscreen-appclosed
+      // is the race of mozActivity launch coming from lockscreen
+      // and homescreen will race to be opened and cause performance issue.
+      // 
+      // We should adjust LockScreenWindow to use lockscreen-appclosing/closed
+      // to have the activitiy/notification info hence we could change
+      // VisibilityManager later to avoid this workaround.
+      this.publish('lockscreen-request-unlock', detail);
+    };
+
   LockScreenWindowManager.prototype.responseUnlock =
     function lwm_responseUnlock(detail) {
-      // Only when the background app is ready,
-      // we close the window.
-      var activeApp = window.AppWindowManager ?
-            window.AppWindowManager.getActiveApp() : null;
-      if (!activeApp) {
-        this.closeApp();
+      var forcibly = (detail && detail.forcibly) ? true : false;
+      this.closeApp(forcibly);
+    };
+
+  LockScreenWindowManager.prototype.lock =
+    function lwm_lock(detail) {
+      this.openApp();
+    };
+
+  LockScreenWindowManager.prototype.getInstance =
+    function lwm_getInstance() {
+      return this.states.instance;
+    };
+
+  LockScreenWindowManager.prototype.isActive =
+    function lwm_isActive() {
+      if (null === this.states.instance) {
+        return false;
       } else {
-        activeApp.ready(this.closeApp.bind(this));
+        return this.states.instance.isActive();
       }
     };
 
-  LockScreenWindowManager.prototype.responseLock =
-    function lwm_responseLock(detail) {
-      this.openApp();
+  LockScreenWindowManager.prototype.onInputpadOpen =
+    function lwm_onInputpadOpen() {
+      this.states.instance.inputWindow.open();
+      this.states.instance.resize();
+    };
+
+  LockScreenWindowManager.prototype.onInputpadClose =
+    function lwm_onInputpadClose() {
+      this.states.instance.inputWindow.close();
+      this.states.instance.resize();
+    };
+
+  LockScreenWindowManager.prototype.toggleLockedSetting =
+    function lswm_toggleLockedSetting(value) {
+      if (!window.navigator.mozSettings) {
+        return;
+      }
+      window.SettingsListener.getSettingsLock().set({
+        'lockscreen.locked': value
+      });
     };
 
   /** @exports LockScreenWindowManager */

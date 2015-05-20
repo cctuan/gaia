@@ -4,6 +4,8 @@ Keyboards.mk = {
   menuLabel: 'Македонски',
   imEngine: 'latin',
   types: ['text', 'url', 'email', 'password'],
+  basicLayoutKey: 'АБВ',
+  lang: 'mk',
   alt: {
     'е': 'ѐ',
     'и': 'ѝ'

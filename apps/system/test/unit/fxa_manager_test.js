@@ -1,3 +1,5 @@
+/* global FxAccountsClient, FxAccountsManager, FxAccountsUI,
+          MocksHelper, MockIACPort */
 'use strict';
 
 requireApp('system/js/fxa_manager.js');
@@ -43,8 +45,8 @@ suite('system/FxAccountManager >', function() {
     test('Test event listeners', function() {
       assert.ok(MockEventListener['iac-fxa-mgmt']);
       assert.ok(MockEventListener['iac-fxa-mgmt'] instanceof Function);
-      assert.ok(MockEventListener['mozFxAccountsUnsolChromeEvent']);
-      assert.ok(MockEventListener['mozFxAccountsUnsolChromeEvent'] instanceof
+      assert.ok(MockEventListener.mozFxAccountsUnsolChromeEvent);
+      assert.ok(MockEventListener.mozFxAccountsUnsolChromeEvent instanceof
                 Object);
     });
   });
@@ -376,7 +378,8 @@ suite('system/FxAccountManager >', function() {
       FxAccountsClient._successMsg = 'success';
       FxAccountsManager.onPortMessage({
         'detail': {
-          'name': 'resendVerificationEmail'
+          'name': 'resendVerificationEmail',
+          'email': 'dummy@domain.org'
         }
       });
     });
@@ -387,6 +390,7 @@ suite('system/FxAccountManager >', function() {
 
     test('FxAccountsClient.resendVerificationEmail called', function() {
       assert.equal(FxAccountsClient._call, 'resendVerificationEmail');
+      assert.equal(FxAccountsClient._email, 'dummy@domain.org');
     });
 
     test('Got fxa-mgmt port', function() {
@@ -408,7 +412,8 @@ suite('system/FxAccountManager >', function() {
       FxAccountsClient._errorMsg = 'error';
       FxAccountsManager.onPortMessage({
         'detail': {
-          'name': 'resendVerificationEmail'
+          'name': 'resendVerificationEmail',
+          'email': 'dummy@domain.org'
         }
       });
     });
@@ -419,6 +424,7 @@ suite('system/FxAccountManager >', function() {
 
     test('FxAccountsClient.resendVerificationEmail called', function() {
       assert.equal(FxAccountsClient._call, 'resendVerificationEmail');
+      assert.equal(FxAccountsClient._email, 'dummy@domain.org');
     });
 
     test('Got fxa-mgmt port', function() {

@@ -23,7 +23,6 @@
 /* FB info (non-editable) */
 .view-edit-contact .facebook fieldset legend,
 .view-edit-contact .facebook fieldset input[type="date"] {
-  width: 100%;
   border-color: #acbee4;
   color: #8d9abb;
   background-image: url(fb/dialog.svg);
@@ -48,16 +47,16 @@
 }
 
 .with-photo.facebook {
-  padding-right: 0
+  -moz-padding-end: 0;
 }
 
 .with-photo.facebook .edit-photo  {
-  right: 0
+  right: 0;
 }
 
 
 #settingsFb li p {
-  margin-left: 0;
+  -moz-margin-start: 0;
 }
 
 #settings-article[data-state="fb-disabled"] #settingsFb,
@@ -82,4 +81,9 @@
 #no-connection {
   white-space: normal;
   margin-top: 1rem;
+}
+
+/* RTL View */
+html[dir="rtl"] .with-photo.facebook .edit-photo  {
+  right: -1.5rem;
 }

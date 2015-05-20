@@ -1,6 +1,6 @@
 'use strict';
 
-/* global MockSettingsListener, TouchForwarder, MocksHelper */
+/* global TouchForwarder, MocksHelper */
 
 requireApp('system/shared/test/unit/mocks/mock_settings_listener.js');
 
@@ -36,9 +36,11 @@ suite('system/TouchForwarder >', function() {
     requireApp('system/js/touch_forwarder.js', done);
   });
 
+  var ariaHidden;
   setup(function() {
+    ariaHidden = 'false';
     iframe = {
-      getAttribute: function() { return true; }, // APZC on by default
+      getAttribute: function() { return ariaHidden; },
       sendTouchEvent: function() {},
       sendMouseEvent: function() {}
     };
@@ -57,6 +59,13 @@ suite('system/TouchForwarder >', function() {
       assert.deepEqual(call.args[2], [3]);
       assert.deepEqual(call.args[3], [20]);
     });
+
+    test('it should not forward to an aria-hidden frame', function() {
+      ariaHidden = 'true';
+      this.sinon.spy(iframe, 'sendTouchEvent');
+      subject.forward(forgeTouch('touchstart', 3, 20));
+      sinon.assert.notCalled(iframe.sendTouchEvent);
+    });
   });
 
   suite('touchmove >', function() {
@@ -64,46 +73,16 @@ suite('system/TouchForwarder >', function() {
       subject.forward(forgeTouch('touchstart', 3, 20));
     });
 
-    suite('if the destination has APZC enabled', function() {
-      test('it should only forward the first touchmove event', function() {
-        var sendTouchSpy = this.sinon.spy(iframe, 'sendTouchEvent');
-        subject.forward(forgeTouch('touchmove', 3, 27));
-        subject.forward(forgeTouch('touchmove', 3, 37));
-        subject.forward(forgeTouch('touchmove', 3, 57));
+    test('it should forward touchmove events', function() {
+      var sendTouchSpy = this.sinon.spy(iframe, 'sendTouchEvent');
+      subject.forward(forgeTouch('touchmove', 3, 27));
 
-        assert.isTrue(sendTouchSpy.calledOnce);
+      assert.isTrue(sendTouchSpy.calledOnce);
 
-        var call = sendTouchSpy.firstCall;
-        assert.equal(call.args[0], 'touchmove');
-        assert.deepEqual(call.args[2], [3]);
-        assert.deepEqual(call.args[3], [27]);
-      });
-    });
-
-    suite('if the destination has APZC disabled', function() {
-      setup(function() {
-        MockSettingsListener.mCallbacks['apz.force-enable'](false);
-        this.sinon.stub(iframe, 'getAttribute').returns(false);
-      });
-
-      test('it should only forward all touchmove events', function() {
-        var sendTouchSpy = this.sinon.spy(iframe, 'sendTouchEvent');
-        subject.forward(forgeTouch('touchmove', 3, 27));
-        subject.forward(forgeTouch('touchmove', 3, 37));
-        subject.forward(forgeTouch('touchmove', 3, 57));
-
-        assert.isTrue(sendTouchSpy.calledThrice);
-
-        var call = sendTouchSpy.firstCall;
-        assert.equal(call.args[0], 'touchmove');
-        assert.deepEqual(call.args[2], [3]);
-        assert.deepEqual(call.args[3], [27]);
-
-        call = sendTouchSpy.lastCall;
-        assert.equal(call.args[0], 'touchmove');
-        assert.deepEqual(call.args[2], [3]);
-        assert.deepEqual(call.args[3], [57]);
-      });
+      var call = sendTouchSpy.firstCall;
+      assert.equal(call.args[0], 'touchmove');
+      assert.deepEqual(call.args[2], [3]);
+      assert.deepEqual(call.args[3], [27]);
     });
   });
 
@@ -127,19 +106,6 @@ suite('system/TouchForwarder >', function() {
   });
 
   suite('tap >', function() {
-    function simpleTap() {
-      subject.forward(forgeTouch('touchstart', 3, 20));
-      subject.forward(forgeTouch('touchmove', 5, 20));
-      subject.forward(forgeTouch('touchend', 5, 20));
-    }
-
-    function backAndForth() {
-      subject.forward(forgeTouch('touchstart', 3, 20));
-      subject.forward(forgeTouch('touchmove', 5, 20));
-      subject.forward(forgeTouch('touchmove', 55, 20));
-      subject.forward(forgeTouch('touchend', 5, 20));
-    }
-
     function assertMouseEventsSequence(spy, x, y) {
       var call = spy.getCall(0);
       assertMouseEvent(call, 'mousemove', x, y, 0);
@@ -158,32 +124,23 @@ suite('system/TouchForwarder >', function() {
       assert.deepEqual(call.args[4], clickCount);
     }
 
-    suite('if the destination has APZC enabled', function() {
-      test('it should not send mouse events', function() {
-        var sendMouseSpy = this.sinon.spy(iframe, 'sendMouseEvent');
-        simpleTap();
-        assert.isTrue(sendMouseSpy.notCalled);
-      });
+    function simpleTap() {
+      subject.forward(forgeTouch('touchstart', 3, 20));
+      subject.forward(forgeTouch('touchmove', 5, 20));
+      subject.forward(forgeTouch('touchend', 5, 20));
+    }
+
+    test('it should also send mouse events', function() {
+      var sendMouseSpy = this.sinon.spy(iframe, 'sendMouseEvent');
+      simpleTap();
+      assertMouseEventsSequence(sendMouseSpy, 5, 20);
     });
 
-    suite('if the destination has APZC disabled', function() {
-      setup(function() {
-        MockSettingsListener.mCallbacks['apz.force-enable'](false);
-        this.sinon.stub(iframe, 'getAttribute').returns(false);
-      });
-
-      test('it should also send mouse events', function() {
-        var sendMouseSpy = this.sinon.spy(iframe, 'sendMouseEvent');
-        simpleTap();
-        assertMouseEventsSequence(sendMouseSpy, 5, 20);
-      });
-
-      test('a back and forth gesture should not be considered a tap',
-      function() {
-        var sendMouseSpy = this.sinon.spy(iframe, 'sendMouseEvent');
-        backAndForth();
-        assert.isTrue(sendMouseSpy.notCalled);
-      });
+    test('it should not forward taps to an aria-hidden frame', function() {
+      ariaHidden = 'true';
+      this.sinon.spy(iframe, 'sendMouseEvent');
+      simpleTap();
+      sinon.assert.notCalled(iframe.sendMouseEvent);
     });
   });
 });

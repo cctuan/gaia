@@ -77,8 +77,9 @@
 
 define(
   [
-    'rdcommon/log',
+    'logic',
     './util',
+    './allback',
     './syncbase',
     './date',
     './htmlchew',
@@ -86,8 +87,9 @@ define(
     'exports'
   ],
   function(
-    $log,
+    logic,
     $util,
+    allback,
     $syncbase,
     $date,
     htmlchew,
@@ -504,7 +506,7 @@ var CONTEXT_CHARS_AFTER = 40;
 /**
  *
  */
-function SearchSlice(bridgeHandle, storage, phrase, whatToSearch, _parentLog) {
+function SearchSlice(bridgeHandle, storage, phrase, whatToSearch) {
 console.log('sf: creating SearchSlice:', phrase);
   this._bridgeHandle = bridgeHandle;
   bridgeHandle.__listener = this;
@@ -512,7 +514,11 @@ console.log('sf: creating SearchSlice:', phrase);
   bridgeHandle.userCanGrowDownwards = false;
 
   this._storage = storage;
-  this._LOG = LOGFAB.SearchSlice(this, _parentLog, bridgeHandle._handle);
+  logic.defineScope(this, 'SearchSlice');
+
+  // XXX: This helps test_search_slice do its job, in a world where
+  // we no longer have loggers associated with specific instances.
+  SearchSlice._TEST_latestInstance = this;
 
   // These correspond to the range of headers that we have searched to generate
   // the current set of matched headers.  Our matches will always be fully
@@ -531,29 +537,57 @@ console.log('sf: creating SearchSlice:', phrase);
   this.endTS = null;
   this.endUID = null;
 
-  if (!(phrase instanceof RegExp)) {
-    phrase = new RegExp(phrase.replace(/[\-\[\]\/\{\}\(\)\*\+\?\.\\\^\$\|]/g,
-                                       '\\$&'),
-                        'i');
-  }
-
   var filters = [];
-  if (whatToSearch.author)
-    filters.push(new AuthorFilter(phrase));
-  if (whatToSearch.recipients)
-    filters.push(new RecipientFilter(phrase, 1, true, true, true));
-  if (whatToSearch.subject)
-    filters.push(new SubjectFilter(
-                   phrase, 1, CONTEXT_CHARS_BEFORE, CONTEXT_CHARS_AFTER));
-  if (whatToSearch.body)
-    filters.push(new BodyFilter(
-                   phrase, whatToSearch.body === 'yes-quotes',
-                   1, CONTEXT_CHARS_BEFORE, CONTEXT_CHARS_AFTER));
+
+  if (phrase) {
+    if (!(phrase instanceof RegExp)) {
+      phrase = new RegExp(phrase.replace(/[\-\[\]\/\{\}\(\)\*\+\?\.\\\^\$\|]/g,
+                                         '\\$&'),
+                          'i');
+    }
+
+    if (whatToSearch.author)
+      filters.push(new AuthorFilter(phrase));
+    if (whatToSearch.recipients)
+      filters.push(new RecipientFilter(phrase, 1, true, true, true));
+    if (whatToSearch.subject)
+      filters.push(new SubjectFilter(
+                     phrase, 1, CONTEXT_CHARS_BEFORE, CONTEXT_CHARS_AFTER));
+    if (whatToSearch.body) {
+      filters.push(new BodyFilter(
+                     phrase, whatToSearch.body === 'yes-quotes',
+                     1, CONTEXT_CHARS_BEFORE, CONTEXT_CHARS_AFTER));
+      // A latch for use to make sure that _gotMessages' checkHandle calls are
+      // sequential even when _gotMessages is invoked with no headers and
+      // !moreMessagesComing.
+      //
+      // (getBody calls are inherently ordered, but if we have no headers, then
+      // the function call that decides whether we fetch more messages needs
+      // some way to wait for the body loads to occur.  Previously we used
+      // storage.runAfterDeferredCalls, but that's now removed because it was a
+      // footgun and its semantics were slightly broken to boot.)
+      //
+      // TODO: In the future, refactor this logic into a more reusable
+      // iterator/stream mechanism so that this class doesn't have to deal with
+      // it.
+      //
+      // The usage pattern is this:
+      // - Whenever we have any bodies to fetch, we create a latch and assign it
+      //   here.
+      // - Whenever we don't have any bodies to fetch, we use a .then() on the
+      //   current value of the latch, if there is one.
+      // - We clear this in _gotMessages' checkHandle in the case we are calling
+      //   reqGrow.  This avoids the latch hanging around with potential GC
+      //   implications and provides a nice invariant.
+      this._pendingBodyLoadLatch = null;
+    }
+  }
 
   this.filterer = new MessageFilterer(filters);
 
   this._bound_gotOlderMessages = this._gotMessages.bind(this, 1);
   this._bound_gotNewerMessages = this._gotMessages.bind(this, -1);
+
 
   this.desiredHeaders = $syncbase.INITIAL_FILL_SIZE;
   this.reset();
@@ -652,7 +686,17 @@ SearchSlice.prototype = {
       }
     }
 
-    var checkHandle = function checkHandle(headers, bodies) {
+    /**
+     * Called once we have all the data needed to actually check for matches.
+     * Specifically, we may have had to fetch the bodies.
+     *
+     * @param {MailHeader[]} headers
+     * @param {Object} [resolvedGetBodyCalls]
+     *   The results of an allback.latch() resolved by getBody calls.  The
+     *   keys are the headers' suid's and the values are the gotBody argument
+     *   callback list, which will look like [MailBody, header/message suid].
+     */
+    var checkHandle = function checkHandle(headers, resolvedGetBodyCalls) {
       if (!this._bridgeHandle) {
         return;
       }
@@ -661,7 +705,8 @@ SearchSlice.prototype = {
       var matchPairs = [];
       for (i = 0; i < headers.length; i++) {
         var header = headers[i],
-            body = bodies ? bodies[i] : null;
+            body = resolvedGetBodyCalls ? resolvedGetBodyCalls[header.id][0] :
+                                          null;
         this._headersChecked++;
         var matchObj = this.filterer.testMessage(header, body);
         if (matchObj)
@@ -681,7 +726,8 @@ SearchSlice.prototype = {
         console.log(logPrefix, 'willHave', willHave, 'of', this.desiredHeaders,
                     'want more?', wantMore);
         var insertAt = dir === -1 ? 0 : this.headers.length;
-        this._LOG.headersAppended(insertAt, matchPairs);
+        logic(this, 'headersAppended', { insertAt: insertAt,
+                                         matchPairs: matchPairs });
 
         this.headers.splice.apply(this.headers,
                                   [insertAt, 0].concat(matchPairs));
@@ -718,6 +764,7 @@ SearchSlice.prototype = {
         if (wantMore) {
           console.log(logPrefix,
                       'requesting more because no matches but want more');
+          this._pendingBodyLoadLatch = null;
           this.reqGrow(dir, false, true);
         }
         else {
@@ -736,30 +783,25 @@ SearchSlice.prototype = {
     if (this.filterer.bodiesNeeded) {
       // To batch our updates to the UI, just get all the bodies then advance
       // to the next stage of processing.
-      var bodies = [];
-      var gotBody = function(body) {
-        if (!body) {
-          console.log(logPrefix, 'failed to get a body for: ',
-                      headers[bodies.length].suid,
-                      headers[bodies.length].subject);
+
+      // See the docs in the constructor on _pendingBodyLoadLatch.
+      if (headers.length) {
+        var latch = this._pendingBodyLoadLatch = allback.latch();
+        for (var i = 0; i < headers.length; i++) {
+          var header = headers[i];
+          this._storage.getMessageBody(
+            header.suid, header.date, latch.defer(header.id));
         }
-        bodies.push(body);
-        if (bodies.length === headers.length) {
-          checkHandle(headers, bodies);
+        latch.then(checkHandle.bind(null, headers));
+      } else {
+        // note that we are explicitly binding things so the existing result
+        // from _pendingBodyLoadLatch will be positionally extra and unused.
+        var deferredCheck = checkHandle.bind(null, headers, null);
+        if (this._pendingBodyLoadLatch) {
+          this._pendingBodyLoadLatch.then(deferredCheck);
+        } else {
+          deferredCheck();
         }
-      };
-      for (var i = 0; i < headers.length; i++) {
-        var header = headers[i];
-        this._storage.getMessageBody(header.suid, header.date, gotBody);
-      }
-      if (!headers.length) {
-        // To maintain consistent ordering for correctness we need to make sure
-        // we won't call checkHeaders (to trigger additional fetches if
-        // required) before any outstanding getMessageBody calls return.
-        // runAfterDeferredCalls guarantees us consistency with how
-        // getMessageBody operates in this scenario.
-        this._storage.runAfterDeferredCalls(
-          checkHandle.bind(null, headers, null));
       }
     }
     else {
@@ -838,7 +880,7 @@ SearchSlice.prototype = {
     // though.
     this.desiredHeaders = this.headers.length;
 
-    this._LOG.headerAdded(idx, wrappedHeader);
+    logic(this, 'headerAdded', { index: idx, header: wrappedHeader });
     this.headers.splice(idx, 0, wrappedHeader);
     this.headerCount = this.headers.length +
       (this.atBottom ? 0 : this.IMAGINARY_MESSAGE_COUNT_WHEN_NOT_AT_BOTTOM);
@@ -874,7 +916,8 @@ SearchSlice.prototype = {
       // Update the header in the match and send it out.
       var existingMatch = this.headers[idx];
       existingMatch.header = header;
-      this._LOG.headerModified(idx, existingMatch);
+      logic(this, 'headerModified', { index: idx,
+                                      existingMatch: existingMatch });
       this._bridgeHandle.sendUpdate([idx, existingMatch]);
       return;
     }
@@ -935,7 +978,7 @@ SearchSlice.prototype = {
     var idx = bsearchMaybeExists(this.headers, wrappedHeader,
                                  cmpMatchHeadersYoungToOld);
     if (idx !== null) {
-      this._LOG.headerRemoved(idx, wrappedHeader);
+      logic(this, 'headerRemoved', { index: idx, header: wrappedHeader });
       this.headers.splice(idx, 1);
       this.headerCount = this.headers.length +
         (this.atBottom ? 0 : this.IMAGINARY_MESSAGE_COUNT_WHEN_NOT_AT_BOTTOM);
@@ -1058,27 +1101,7 @@ SearchSlice.prototype = {
   die: function() {
     this._storage.dyingSlice(this);
     this._bridgeHandle = null;
-    this._LOG.__die();
   },
 };
-
-var LOGFAB = exports.LOGFAB = $log.register($module, {
-  SearchSlice: {
-    type: $log.QUERY,
-    events: {
-      headersAppended: { index: false },
-      headerAdded: { index: false },
-      headerModified: { index: false },
-      headerRemoved: { index: false },
-    },
-    TEST_ONLY_events: {
-      headersAppended: { headers: false },
-      headerAdded: { header: false },
-      headerModified: { header: false },
-      headerRemoved: { header: false },
-    },
-  },
-}); // end LOGFAB
-
 
 }); // end define

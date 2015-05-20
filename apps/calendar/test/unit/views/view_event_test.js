@@ -1,16 +1,18 @@
-requireLib('provider/abstract.js');
-requireLib('provider/local.js');
-requireLib('template.js');
-requireLib('templates/date_span.js');
-requireLib('templates/alarm.js');
-requireElements('calendar/elements/show_event.html');
+/* global suiteTemplate */
+define(function(require) {
+'use strict';
 
-suiteGroup('Views.ViewEvent', function() {
-  'use strict';
+var EventBase = require('views/event_base');
+var View = require('view');
+var ViewEvent = require('views/view_event');
+var core = require('core');
+var router = require('router');
 
+require('dom!show_event');
+
+suite('Views.ViewEvent', function() {
   var subject;
   var controller;
-  var app;
 
   var event;
   var account;
@@ -34,6 +36,7 @@ suiteGroup('Views.ViewEvent', function() {
 
   var triggerEvent;
   suiteSetup(function() {
+    testSupport.calendar.core();
     triggerEvent = testSupport.calendar.triggerEvent;
   });
 
@@ -41,8 +44,7 @@ suiteGroup('Views.ViewEvent', function() {
   var realGo;
 
   teardown(function() {
-    Calendar.App.go = realGo;
-    delete app._providers.Test;
+    router.go = realGo;
   });
 
   suiteTemplate('show-event', {
@@ -50,29 +52,27 @@ suiteGroup('Views.ViewEvent', function() {
   });
 
   setup(function(done) {
-    realGo = Calendar.App.go;
-    app = testSupport.calendar.app();
+    realGo = router.go;
 
-    eventStore = app.store('Event');
-    accountStore = app.store('Account');
-    calendarStore = app.store('Calendar');
-    provider = app.provider('Mock');
+    var storeFactory = core.storeFactory;
+    eventStore = storeFactory.get('Event');
+    accountStore = storeFactory.get('Account');
+    calendarStore = storeFactory.get('Calendar');
+    provider = core.providerFactory.get('Mock');
 
-    controller = app.timeController;
+    controller = core.timeController;
 
-    subject = new Calendar.Views.ViewEvent({
-      app: app
-    });
+    subject = new ViewEvent();
 
-    app.db.open(done);
+    core.db.open(done);
   });
 
   teardown(function(done) {
     testSupport.calendar.clearStore(
-      app.db,
+      core.db,
       ['accounts', 'calendars', 'events', 'busytimes', 'alarms'],
       function() {
-        app.db.close();
+        core.db.close();
         done();
       }
     );
@@ -101,8 +101,8 @@ suiteGroup('Views.ViewEvent', function() {
   });
 
   test('initialization', function() {
-    assert.instanceOf(subject, Calendar.View);
-    assert.instanceOf(subject, Calendar.Views.EventBase);
+    assert.instanceOf(subject, View);
+    assert.instanceOf(subject, EventBase);
     assert.equal(subject._changeToken, 0);
 
     assert.ok(subject._els, 'has elements');
@@ -154,7 +154,8 @@ suiteGroup('Views.ViewEvent', function() {
       list = subject.element.classList;
     });
 
-    function updatesValues(overrides, isAllDay, done) {
+    function updatesValues(overrides, isAllDay, capabilities) {
+      capabilities = capabilities || { canUpdate: true };
 
       var expected = {
         title: remote.title,
@@ -175,7 +176,7 @@ suiteGroup('Views.ViewEvent', function() {
       }
 
       function verify() {
-        if (subject.provider.canCreateEvent) {
+        if (capabilities.canCreateEvent) {
           expected.calendarId = event.calendarId;
         }
 
@@ -195,7 +196,6 @@ suiteGroup('Views.ViewEvent', function() {
           }
 
           if (expected.hasOwnProperty(key)) {
-
             assert.equal(
               contentValue(fieldKey),
               expected[key],
@@ -204,37 +204,37 @@ suiteGroup('Views.ViewEvent', function() {
           }
         }
       }
-
       subject.onfirstseen();
-      subject.useModel(busytime, event, function() {
-        done(verify);
+      subject._useModel({
+        busytime: busytime,
+        event: event,
+        calendar: calendar,
+        capabilities: capabilities
       });
+      verify();
     }
 
-    test('event view fields', function(done) {
-      updatesValues(null, null, done);
+    test('event view fields', function() {
+      updatesValues(null, null);
     });
 
-    test('readonly', function(done) {
-      provider.stageCalendarCapabilities(calendar._id, {
+    test('readonly', function() {
+      updatesValues(null, null, {
         canUpdateEvent: false,
         canCreateEvent: false
       });
-
-      updatesValues(null, null, done);
     });
 
-    test('event description with html', function(done) {
+    test('event description with html', function() {
       event.remote.description = '<strong>hamburger</strong>';
 
       updatesValues(
         { description: '<strong>hamburger</strong>' },
-        null,
-        done
+        null
       );
     });
 
-    test('alarms are displayed', function(done) {
+    test('alarms are displayed', function() {
 
       event.remote.alarms = [
         {trigger: 0},
@@ -242,33 +242,35 @@ suiteGroup('Views.ViewEvent', function() {
       ];
 
       subject.onfirstseen();
-      subject.useModel(busytime, event, function() {
-
-        var alarmChildren = getEl('alarms').querySelector('.content').children;
-
-        assert.equal(
-          alarmChildren.length,
-          2
-        );
-
-        assert.equal(
-          alarmChildren[0].textContent,
-          navigator.mozL10n.get('alarm-at-event-standard')
-        );
-        assert.equal(
-          alarmChildren[1].textContent,
-          navigator.mozL10n.get('minutes-before', {value: 1})
-        );
-
-        done();
+      subject._useModel({
+        busytime: busytime,
+        event: event,
+        capabilities: { canUpdate: true }
       });
+
+      var alarmChildren = getEl('alarms').querySelector('.content').children;
+
+      assert.equal(
+        alarmChildren.length,
+        2
+      );
+
+      assert.equal(
+        alarmChildren[0].textContent.trim(),
+        navigator.mozL10n.get('alarm-at-event-standard')
+      );
+      assert.equal(
+        alarmChildren[1].textContent.trim(),
+        navigator.mozL10n.get('minutes-before', {value: 1})
+      );
+
     });
   });
 
   suite('navigation', function() {
     test('cancel button step back', function(done) {
 
-      app.go = function(place) {
+      router.go = function(place) {
         assert.equal(place, '/foo', 'redirects to proper location');
         done();
       };
@@ -280,7 +282,7 @@ suiteGroup('Views.ViewEvent', function() {
 
     test('cancel button return top', function(done) {
 
-      app.go = function(place) {
+      router.go = function(place) {
         assert.equal(place, '/bar', 'redirects to proper location');
         done();
       };
@@ -292,7 +294,7 @@ suiteGroup('Views.ViewEvent', function() {
 
     test('edit button click', function(done) {
 
-      app.go = function(place) {
+      router.go = function(place) {
         assert.equal(place, '/event/edit/funtime/', 'redirects to event page');
         done();
       };
@@ -304,4 +306,6 @@ suiteGroup('Views.ViewEvent', function() {
       triggerEvent(subject.primaryButton, 'click');
     });
   });
+});
+
 });

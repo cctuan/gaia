@@ -1,27 +1,29 @@
-/* global MocksHelper, MockNavigatorMozIccManager, icc,
+/* global MocksHelper, MockNavigatorMozIccManager, icc, InputWindowManager,
           MockNavigatorMozMobileConnections, MockNavigatormozSetMessageHandler,
-          MockL10n, MockFtuLauncher, MockNavigatorSettings, KeyboardEvent */
+          MockL10n, MockFtuLauncher, MockNavigatorSettings, KeyboardEvent,
+          StatusBar */
 'use strict';
 
 require('/shared/test/unit/mocks/mock_l10n.js');
 requireApp('system/test/unit/mock_system_icc_worker.js');
 requireApp('system/test/unit/mock_ftu_launcher.js');
 requireApp('system/test/unit/mock_statusbar.js');
-requireApp('system/test/unit/mock_keyboard_manager.js');
 require('/shared/test/unit/mocks/mock_navigator_moz_icc_manager.js');
 require('/shared/test/unit/mocks/mock_navigator_moz_settings.js');
 require('/shared/test/unit/mocks/mock_navigator_moz_set_message_handler.js');
 require('/shared/test/unit/mocks/mock_navigator_moz_mobile_connections.js');
 require('/shared/test/unit/mocks/mock_dump.js');
 require('/shared/test/unit/load_body_html_helper.js');
-
+require('/shared/js/lazy_loader.js');
+require('/js/input_window_manager.js');
+require('/shared/test/unit/mocks/mock_stk_helper.js');
 
 var mocksForIcc = new MocksHelper([
   'Dump',
   'FtuLauncher',
   'SystemICCWorker',
   'StatusBar',
-  'KeyboardManager'
+  'STKHelper'
 ]).init();
 
 suite('STK (icc) >', function() {
@@ -30,6 +32,7 @@ suite('STK (icc) >', function() {
       realNavigatormozSetMessageHandler, realNavigatormozMobileConnections;
   var stkTestCommands = {};
   var xhrFake, xhrRequests = [];
+  var resizeStub;
 
   suiteSetup(function() {
     loadBodyHTML('/index.html');
@@ -49,6 +52,8 @@ suite('STK (icc) >', function() {
 
     realNavigatormozMobileConnections = navigator.mozMobileConnections;
     navigator.mozMobileConnections = MockNavigatorMozMobileConnections;
+
+    window.softwareButtonManager = {};
   });
 
   suiteTeardown(function() {
@@ -64,6 +69,8 @@ suite('STK (icc) >', function() {
 
     MockNavigatorMozMobileConnections.mTeardown();
     navigator.mozMobileConnections = realNavigatormozMobileConnections;
+
+    window.softwareButtonManager = null;
   });
 
   setup(function(done) {
@@ -121,6 +128,19 @@ suite('STK (icc) >', function() {
         }
       },
 
+      STK_CMD_SET_UP_CALL: {
+        iccId: '1010011010',
+        command: {
+          commandNumber: 1,
+          typeOfCommand: navigator.mozIccManager.STK_CMD_SET_UP_CALL,
+          commandQualifier: 0,
+          options: {
+            confirmMessage: 'STK_CMD_SET_UP_IDLE_MODE_TEXT Unit Test',
+            address: '990022'
+          }
+        }
+      },
+
       STK_CMD_REFRESH: {
         iccId: '1010011010',
         command: {
@@ -128,6 +148,23 @@ suite('STK (icc) >', function() {
           typeOfCommand: navigator.mozIccManager.STK_CMD_REFRESH,
           commandQualifier: 0,
           options: {}
+        }
+      },
+
+      STK_CMD_SEND_DTMF: {
+        iccId: '1010011010',
+        command: {
+          commandNumber: 1,
+          typeOfCommand: navigator.mozIccManager.STK_CMD_SEND_DTMF,
+          commandQualifier: 0,
+          options: {
+            text: 'stk display test text',
+            userClear: true,
+            duration: {
+              timeUnit: navigator.mozIccManager.STK_TIME_UNIT_TENTH_SECOND,
+              timeInterval: 5
+            }
+          }
         }
       }
     };
@@ -137,7 +174,13 @@ suite('STK (icc) >', function() {
       xhrRequests.push(xhr);
     };
 
-    requireApp('system/js/icc.js', done);
+    window.inputWindowManager =
+      this.sinon.stub(Object.create(InputWindowManager.prototype));
+
+    requireApp('system/js/icc.js', function() {
+      resizeStub = this.sinon.stub(icc, 'resize');
+      done();
+    }.bind(this));
   });
 
   teardown(function() {
@@ -168,6 +211,22 @@ suite('STK (icc) >', function() {
         done();
       };
     });
+  });
+
+  test('hide views when home button pressed and visible', function() {
+    this.sinon.stub(icc, 'hideViews');
+    icc.icc_view.classList.add('visible');
+    var event = new CustomEvent('home');
+    icc.handleEvent(event);
+    assert.isTrue(icc.hideViews.called);
+    icc.icc_view.classList.remove('visible');
+  });
+
+  test('does not hide when home and not visible', function() {
+    this.sinon.stub(icc, 'hideViews');
+    var event = new CustomEvent('home');
+    icc.handleEvent(event);
+    assert.isFalse(icc.hideViews.called);
   });
 
   test('responseSTKCommand', function(done) {
@@ -249,7 +308,7 @@ suite('STK (icc) >', function() {
   test('UI: Display Text (timeout 1sec)', function(done) {
     var fakeClock = this.sinon.useFakeTimers(),
         testCmd = stkTestCommands.STK_CMD_DISPLAY_TEXT;
-    window.icc.confirm(testCmd, testCmd.command.options.text, 1000,
+    window.icc.confirm(testCmd, testCmd.command.options.text, null, 1000,
       function(res, value) {
         fakeClock.restore();
         done();
@@ -259,19 +318,19 @@ suite('STK (icc) >', function() {
 
   test('UI: Display Text (contents)', function() {
     var testCmd = stkTestCommands.STK_CMD_DISPLAY_TEXT;
-    window.icc.confirm(testCmd, testCmd.command.options.text, 0, function() {});
- 
+    window.icc.confirm(testCmd, testCmd.command.options.text, null, 0,
+      function() {});
     assert.equal(document.getElementById('icc-confirm-msg').textContent,
       testCmd.command.options.text);
     assert.equal(document.getElementById('icc-confirm-btn').disabled, false);
-    assert.equal(document.getElementById('icc-confirm-btn_close').textContent,
-      'Close');
+    assert.equal(document.getElementById('icc-confirm-btn_close').
+      dataset.l10nId, 'close');
   });
 
   test('UI: Input (timeout 1sec)', function(done) {
     var fakeClock = this.sinon.useFakeTimers(),
         testCmd = stkTestCommands.STK_CMD_GET_INPUT;
-    window.icc.input(testCmd, testCmd.command.options.text, 1000,
+    window.icc.input(testCmd, testCmd.command.options.text, null, 1000,
       stkTestCommands.STK_CMD_GET_INPUT.command.options, function(res, value) {
         fakeClock.restore();
         done();
@@ -281,23 +340,27 @@ suite('STK (icc) >', function() {
 
   test('UI: Input (contents)', function() {
     var testCmd = stkTestCommands.STK_CMD_GET_INPUT;
-    window.icc.input(testCmd, testCmd.command.options.text, 0,
+    window.icc.input(testCmd, testCmd.command.options.text, null, 0,
       stkTestCommands.STK_CMD_GET_INPUT.command.options, function() {});
 
     assert.equal(document.getElementById('icc-input-msg').textContent,
       testCmd.command.options.text);
-    assert.equal(document.getElementById('icc-input-btn').textContent, 'ok (' +
-      (testCmd.command.options.maxLength -
-      testCmd.command.options.defaultText.length) + ')');
+
+    var l10nAttrs = navigator.mozL10n.getAttributes(
+      document.getElementById('icc-input-btn'));
+
+    assert.equal(l10nAttrs.id, 'okCharsLeft');
+    assert.deepEqual(l10nAttrs.args, { n: (testCmd.command.options.maxLength -
+      testCmd.command.options.defaultText.length) });
     assert.equal(document.getElementById('icc-input-btn').disabled, false);
-    assert.equal(document.getElementById('icc-input-btn_help').textContent,
-      'Help');
+    assert.equal(document.getElementById('icc-input-btn_help').dataset.l10nId,
+      'help');
   });
 
   test('UI: Input (checkInputLengthValid)', function() {
     var fakeClock = this.sinon.useFakeTimers();
     var testCmd = stkTestCommands.STK_CMD_GET_INPUT;
-    window.icc.input(testCmd, testCmd.command.options.text, 0,
+    window.icc.input(testCmd, testCmd.command.options.text, null, 0,
       stkTestCommands.STK_CMD_GET_INPUT.command.options, function() {});
 
     var button = document.getElementById('icc-input-btn');
@@ -317,38 +380,63 @@ suite('STK (icc) >', function() {
     inputbox.value = '';
     inputbox.dispatchEvent(event);
     assert.equal(button.disabled, true);
-    assert.equal(document.getElementById('icc-input-btn').textContent, 'ok (' +
-      (testCmd.command.options.maxLength - inputbox.value.length) + ')');
+
+    var l10nAttrs = navigator.mozL10n.getAttributes(
+      document.getElementById('icc-input-btn'));
+
+    assert.equal(l10nAttrs.id, 'okCharsLeft');
+    assert.deepEqual(l10nAttrs.args, { n: (testCmd.command.options.maxLength -
+      inputbox.value.length) });
 
     inputbox.value = '1';
     inputbox.dispatchEvent(event);
     assert.equal(button.disabled, true);
-    assert.equal(document.getElementById('icc-input-btn').textContent, 'ok (' +
-      (testCmd.command.options.maxLength - inputbox.value.length) + ')');
+
+    l10nAttrs = navigator.mozL10n.getAttributes(
+      document.getElementById('icc-input-btn'));
+
+    assert.deepEqual(l10nAttrs.args, { n: (testCmd.command.options.maxLength -
+      inputbox.value.length) });
 
     inputbox.value = '12';
     inputbox.dispatchEvent(event);
     assert.equal(button.disabled, false);
-    assert.equal(document.getElementById('icc-input-btn').textContent, 'ok (' +
-      (testCmd.command.options.maxLength - inputbox.value.length) + ')');
+
+    l10nAttrs = navigator.mozL10n.getAttributes(
+      document.getElementById('icc-input-btn'));
+
+    assert.deepEqual(l10nAttrs.args, { n: (testCmd.command.options.maxLength -
+      inputbox.value.length) });
 
     inputbox.value = '123';
     inputbox.dispatchEvent(event);
     assert.equal(button.disabled, false);
-    assert.equal(document.getElementById('icc-input-btn').textContent, 'ok (' +
-      (testCmd.command.options.maxLength - inputbox.value.length) + ')');
+
+    l10nAttrs = navigator.mozL10n.getAttributes(
+      document.getElementById('icc-input-btn'));
+
+    assert.deepEqual(l10nAttrs.args, { n: (testCmd.command.options.maxLength -
+      inputbox.value.length) });
 
     inputbox.value = '1234567890';
     inputbox.dispatchEvent(event);
     assert.equal(button.disabled, false);
-    assert.equal(document.getElementById('icc-input-btn').textContent, 'ok (' +
-      (testCmd.command.options.maxLength - inputbox.value.length) + ')');
+
+    l10nAttrs = navigator.mozL10n.getAttributes(
+      document.getElementById('icc-input-btn'));
+
+    assert.deepEqual(l10nAttrs.args, { n: (testCmd.command.options.maxLength -
+      inputbox.value.length) });
 
     inputbox.value = '12345678901';
     inputbox.dispatchEvent(event);
     assert.equal(button.disabled, true);
-    assert.equal(document.getElementById('icc-input-btn').textContent, 'ok (' +
-      (testCmd.command.options.maxLength - inputbox.value.length) + ')');
+
+    l10nAttrs = navigator.mozL10n.getAttributes(
+      document.getElementById('icc-input-btn'));
+
+    assert.deepEqual(l10nAttrs.args, { n: (testCmd.command.options.maxLength -
+      inputbox.value.length) });
   });
 
   test('launchStkCommand: STK_CMD_DISPLAY_TEXT', function(done) {
@@ -381,5 +469,175 @@ suite('STK (icc) >', function() {
       done();
     };
     launchStkCommand(stkTestCommands.STK_CMD_REFRESH);
+  });
+
+  test('settings visibilitychange - STK_CMD_GET_INPUT', function(done) {
+    var testCmd = stkTestCommands.STK_CMD_GET_INPUT;
+    window.icc.input(testCmd, testCmd.command.options.text, null, 40000,
+      stkTestCommands.STK_CMD_GET_INPUT.command.options,
+      function(resultObject) {
+        assert.equal(resultObject, null);
+        done();
+    });
+    window.dispatchEvent(new CustomEvent('stkMenuHidden'));
+  });
+
+  test('settings visibilitychange - STK_CMD_SET_UP_CALL', function(done) {
+    var testCmd = stkTestCommands.STK_CMD_SET_UP_CALL;
+    window.icc.asyncConfirm(testCmd, testCmd.command.options.confirmMessage,
+      null, function(resultBoolean) {
+        assert.equal(resultBoolean, false);
+        done();
+    });
+    window.dispatchEvent(new CustomEvent('stkMenuHidden'));
+  });
+
+  test('handleSTKCommand - should call resize', function() {
+    launchStkCommand(stkTestCommands.STK_CMD_DISPLAY_TEXT);
+
+    assert.isTrue(resizeStub.calledOnce);
+  });
+
+  suite('Resize', function() {
+    setup(function() {
+      icc.resize.restore();
+      window.layoutManager = {
+        height: 100
+      };
+    });
+
+    teardown(function() {
+      window.layoutManager = null;
+    });
+
+    test('it sets the top depending on the Statusbar', function() {
+      StatusBar.height = 13;
+      window.icc.resize();
+      assert.equal(icc.icc_view.style.top, StatusBar.height + 'px');
+    });
+  });
+
+  suite('Replace STK messages >', function() {
+    var stubResponseSTKCommand;
+    var unableToProcess;
+
+    setup(function() {
+      icc.hideViews();
+      stubResponseSTKCommand = this.sinon.stub(icc, 'responseSTKCommand',
+        function(message, response) {
+          message.response = true;
+        });
+
+      unableToProcess = {
+        resultCode:
+          navigator.mozIccManager.STK_RESULT_TERMINAL_CRNTLY_UNABLE_TO_PROCESS
+        };
+    });
+
+    test('Should respond STK_RESULT_TERMINAL_CRNTLY_UNABLE_TO_PROCESS',
+      function() {
+        icc._currentMessage = stkTestCommands.STK_CMD_GET_INPUT;
+        icc.discardCurrentMessageIfNeeded(stkTestCommands.STK_CMD_DISPLAY_TEXT);
+        assert.isTrue(stubResponseSTKCommand.calledWith(
+        stkTestCommands.STK_CMD_GET_INPUT, unableToProcess));
+    });
+
+    test('Should not respond because the message has been already responded',
+      function() {
+        var testCommand = stkTestCommands.STK_CMD_DISPLAY_TEXT;
+        testCommand.response = true;
+        icc._currentMessage = testCommand;
+        icc.discardCurrentMessageIfNeeded(stkTestCommands.STK_CMD_GET_INPUT);
+        assert.isFalse(stubResponseSTKCommand.calledOnce);
+    });
+  });
+
+  suite('STK messages with icons >', function() {
+    var icons = [{
+      'pixels':[0xFFFFFFFF,0xFFFFFFFF,0xFFFFFFFF,0xFFFFFFFF,
+                0x000000FF,0x000000FF,0x000000FF,0x000000FF,
+                0xFFFFFFFF,0x000000FF,0xFFFFFFFF,0x000000FF,
+                0xFFFFFFFF,0x000000FF,0x000000FF,0xFFFFFFFF],
+      'codingScheme': 'basic',
+      'width': 4,
+      'height': 4
+    }];
+
+    setup(function() {
+      icc.hideViews();
+      stkTestCommands.STK_CMD_SET_UP_CALL.icons = icons;
+      stkTestCommands.STK_CMD_GET_INPUT.icons = icons;
+      stkTestCommands.STK_CMD_DISPLAY_TEXT.icons = icons;
+      stkTestCommands.STK_CMD_SEND_DTMF.icons = icons;
+    });
+
+    teardown(function() {
+      delete stkTestCommands.STK_CMD_SET_UP_CALL.icons;
+      delete stkTestCommands.STK_CMD_GET_INPUT.icons;
+      delete stkTestCommands.STK_CMD_DISPLAY_TEXT.icons;
+      delete stkTestCommands.STK_CMD_SEND_DTMF.icons;
+    });
+
+    test('UI: icons should be displayed - asyncconfirm', function() {
+      var testCmd = stkTestCommands.STK_CMD_SET_UP_CALL;
+      window.icc.asyncConfirm(testCmd, testCmd.command.options.confirmMessage,
+        testCmd.icons, null);
+      var img = document.getElementById('icc-asyncconfirm-icons');
+      assert.equal(img.children.length, 1);
+    });
+
+    test('UI: icons should not be displayed - asyncconfirm', function() {
+      var testCmd = stkTestCommands.STK_CMD_SET_UP_CALL;
+      window.icc.asyncConfirm(testCmd, testCmd.command.options.confirmMessage,
+        null, null);
+      var img = document.getElementById('icc-asyncconfirm-icons');
+      assert.equal(img.children.length, 0);
+    });
+
+    test('UI: icons should be displayed - confirm', function() {
+      var testCmd = stkTestCommands.STK_CMD_DISPLAY_TEXT;
+      window.icc.confirm(testCmd, testCmd.command.options.text, testCmd.icons,
+        null);
+      var img = document.getElementById('icc-confirm-icons');
+      assert.equal(img.children.length, 1);
+    });
+
+    test('UI: icons should not be displayed - confirm', function() {
+      var testCmd = stkTestCommands.STK_CMD_DISPLAY_TEXT;
+      window.icc.confirm(testCmd, testCmd.command.options.text, null,
+        null);
+      var img = document.getElementById('icc-confirm-icons');
+      assert.equal(img.children.length, 0);
+    });
+
+    test('UI: icons should be displayed - alert', function() {
+      var testCmd = stkTestCommands.STK_CMD_SEND_DTMF;
+      window.icc.alert(testCmd, testCmd.command.options.text, testCmd.icons);
+      var img = document.getElementById('icc-alert-icons');
+      assert.equal(img.children.length, 1);
+    });
+
+    test('UI: icons should not be displayed - alert', function() {
+      var testCmd = stkTestCommands.STK_CMD_SEND_DTMF;
+      window.icc.alert(testCmd, testCmd.command.options.text, null);
+      var img = document.getElementById('icc-alert-icons');
+      assert.equal(img.children.length, 0);
+    });
+
+    test('UI: icons should be displayed - input', function() {
+      var testCmd = stkTestCommands.STK_CMD_GET_INPUT;
+      window.icc.input(testCmd, testCmd.command.options.text, testCmd.icons,
+        0, testCmd.command.options, function() {});
+      var img = document.getElementById('icc-input-icons');
+      assert.equal(img.children.length, 1);
+    });
+
+    test('UI: icons should not be displayed - input', function() {
+      var testCmd = stkTestCommands.STK_CMD_GET_INPUT;
+      window.icc.input(testCmd, testCmd.command.options.text, null,
+        0, testCmd.command.options, function() {});
+      var img = document.getElementById('icc-input-icons');
+      assert.equal(img.children.length, 0);
+    });
   });
 });

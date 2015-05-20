@@ -1,7 +1,4 @@
-/* -*- Mode: js; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- /
-/* vim: set shiftwidth=2 tabstop=2 autoindent cindent expandtab: */
-
-/* global LinkActionHandler, WapPushManager */
+/* global LinkActionHandler, Utils, WapPushManager */
 
 /* exported SiSlScreenHelper */
 
@@ -10,6 +7,9 @@
 var SiSlScreenHelper = (function() {
   /** Screen node */
   var screen = null;
+
+  /** Header node */
+  var header = null;
 
   /** Title of the message, usually holds the sender's number */
   var title = null;
@@ -25,14 +25,17 @@ var SiSlScreenHelper = (function() {
 
   function sssh_init() {
     // Retrieve the various page elements
-    title = document.getElementById('title');
-
+    title = document.getElementById('title-si-sl');
     screen = document.getElementById('si-sl-screen');
+    header = document.getElementById('header-si-sl');
+
     container = screen.querySelector('.container');
+
     text = container.querySelector('p');
     link = container.querySelector('a');
 
     // Event handlers
+    header.addEventListener('action', sssh_onClose);
     link.addEventListener(
       'click',
       LinkActionHandler.onClick.bind(LinkActionHandler)
@@ -41,19 +44,13 @@ var SiSlScreenHelper = (function() {
   }
 
   function sssh_populateScreen(message) {
-    var _ = navigator.mozL10n.get;
-
-    // The close button in the header is shared between screens but sadly the
-    // flow differs. Let the WapPushManaget knwo what SiSlScreenHelper function
-    // invoque when the user click on the close button.
-    WapPushManager.setOnCloseCallback(sssh_onClose);
-
-    WapPushManager.enableAcceptButton(false);
     screen.hidden = false;
 
     // Populate the message
     if (message && !message.isExpired()) {
-      title.textContent = message.sender;
+      var l10nTitle = Utils.prepareMessageTitle(message);
+
+      navigator.mozL10n.setAttributes(title, l10nTitle.id, l10nTitle.args);
       text.textContent = message.text;
       link.textContent = message.href;
       link.href = message.href;
@@ -61,8 +58,8 @@ var SiSlScreenHelper = (function() {
     } else {
       /* If we couldn't retrieve the message then it means that the
        * message has been expired before it was displayed. */
-      title.textContent = _('wap-push-message');
-      text.textContent = _('this-message-has-expired');
+      navigator.mozL10n.setAttributes(title, 'wap-push-message');
+      navigator.mozL10n.setAttributes(text, 'this-message-has-expired');
       link.textContent = '';
       link.href = '';
       link.dataset.url = '';

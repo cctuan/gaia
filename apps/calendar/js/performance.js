@@ -1,4 +1,4 @@
-(function(exports) {
+define(function(require, exports) {
 'use strict';
 
 // Helper for the performance testing events. we created
@@ -6,26 +6,37 @@
 // race conditions and the app contains way too many async operations during
 // startup and no simple way to listen to these events.
 
-exports._isDayBaseInteractive = false;
+exports._isMonthAgendaInteractive = false;
 exports._isMonthReady = false;
 exports._isVisuallyActive = false;
 exports._isPendingReady = false;
 
+// TODO: It would be nice if this had an events interface so I could
+//     simply do performance.once('fullyLoaded', () => ...) and
+//     I would be called immediately if we were already loaded or
+//     when we're loaded otherwise. Revisit this option once
+//     PerformanceObserver has been standardized.
+var dispatched = {};
+
 /**
  * Performance testing events. See <https://bugzil.la/996038>.
  */
-function dispatch(eventType) {
-  window.dispatchEvent(new CustomEvent(eventType));
+function dispatch(markName) {
+  dispatched[markName] = true;
+  window.performance.mark(markName);
 }
 
+exports.isComplete = function(markName) {
+  return dispatched[markName];
+};
+
 /**
- * Dispatch 'moz-chrome-dom-loaded' event.
+ * Dispatch 'navigationLoaded' marker.
  * Designates that the app's *core* chrome or navigation interface
  * exists in the DOM and is marked as ready to be displayed.
  */
 exports.domLoaded = function() {
-  // PERFORMANCE EVENT (1): moz-chrome-dom-loaded
-  dispatch('moz-chrome-dom-loaded');
+  dispatch('navigationLoaded');
 };
 
 /**
@@ -33,21 +44,20 @@ exports.domLoaded = function() {
  * has its events bound and is ready for user interaction.
  */
 exports.chromeInteractive = function() {
-  // PERFORMANCE EVENT (2): moz-chrome-interactive
-  dispatch('moz-chrome-interactive');
+  dispatch('navigationInteractive');
 };
 
 /**
- * Should be called when the DayBased view (inherited by MonthsDayView)
+ * Should be called when the MonthsDayView
  * rendered all the busytimes for that day.
  */
-exports.dayBasedReady = function() {
-  if (exports._isDayBaseInteractive) {
+exports.monthsDayReady = function() {
+  if (exports._isMonthAgendaInteractive) {
     return;
   }
 
-  exports._isDayBaseInteractive = true;
-  dispatchVisuallyCompleteAndInteractive();
+  exports._isMonthAgendaInteractive = true;
+  dispatchVisuallyLoadedAndInteractive();
 };
 
 /**
@@ -60,34 +70,34 @@ exports.monthReady = function() {
   }
 
   exports._isMonthReady = true;
-  dispatchVisuallyCompleteAndInteractive();
+  dispatchVisuallyLoadedAndInteractive();
 };
 
 /**
- * app-visually-complete and content-interactive will happen after the
+ * visuallyLoaded and contentInteractive will happen after the
  * MonthChild#activate + rendering the busy counts for the current month +
  * DayBased#_loadRecords (inherited by MonthsDayView)
  */
-function dispatchVisuallyCompleteAndInteractive() {
+function dispatchVisuallyLoadedAndInteractive() {
   if (exports._isVisuallyActive ||
-      !exports._isDayBaseInteractive ||
+      !exports._isMonthAgendaInteractive ||
       !exports._isMonthReady) {
     return;
   }
 
   exports._isVisuallyActive = true;
 
-  // PERFORMANCE EVENT (3): moz-app-visually-complete
+  // PERFORMANCE MARKER (3): visuallyLoaded
   // Designates that the app is visually loaded (e.g.: all of the
   // "above-the-fold" content exists in the DOM and is marked as
   // ready to be displayed).
-  dispatch('moz-app-visually-complete');
+  dispatch('visuallyLoaded');
 
-  // PERFORMANCE EVENT (4): moz-content-interactive
+  // PERFORMANCE MARKER (4): contentInteractive
   // Designates that the app has its events bound for the minimum
   // set of functionality to allow the user to interact with the
   // "above-the-fold" content.
-  dispatch('moz-content-interactive');
+  dispatch('contentInteractive');
 
   dispatchAppLoad();
 }
@@ -105,7 +115,7 @@ exports.pendingReady = function() {
 };
 
 /**
- * App is only considered "loaded" after the MonthView and MonthsDayView
+ * App is only considered "loaded" after the MonthView and MonthDayAgenda
  * are "ready" and the first pending operations batch is completed (loading
  * events from DB and recurring events expansion).
  */
@@ -117,12 +127,13 @@ function dispatchAppLoad() {
     return;
   }
 
-  // PERFORMANCE EVENT (5): moz-app-loaded
+  // PERFORMANCE MARKER (5): fullyLoaded
   // Designates that the app is *completely* loaded and all relevant
   // "below-the-fold" content exists in the DOM, is marked visible,
   // has its events bound and is ready for user interaction. All
   // required startup background processing should be complete.
-  dispatch('moz-app-loaded');
+  dispatch('fullyLoaded');
+  window.dispatchEvent(new CustomEvent('fullyLoaded'));
 }
 
-}(Calendar.performance = {}));
+});

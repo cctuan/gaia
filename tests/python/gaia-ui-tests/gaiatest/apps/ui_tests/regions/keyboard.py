@@ -2,7 +2,8 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-from marionette.by import By
+from marionette_driver import expected, By, Wait
+
 from gaiatest.apps.base import Base
 
 
@@ -17,12 +18,15 @@ class KeyboardPage(Base):
         Base.__init__(self, marionette)
 
     def switch_to_frame(self):
-        self.wait_for_element_displayed(*self._frame_locator)
-        keyboard_page_iframe = self.marionette.find_element(*self._frame_locator)
-        self.marionette.switch_to_frame(keyboard_page_iframe)
+        frame = Wait(self.marionette).until(
+            expected.element_present(*self._frame_locator))
+        Wait(self.marionette).until(expected.element_displayed(frame))
+        self.marionette.switch_to_frame(frame)
 
     def tap_number_input(self):
-        self.marionette.find_element(*self._number_input_locator).tap()
+        number_input = self.marionette.find_element(*self._number_input_locator)
+        self.marionette.execute_script("arguments[0].scrollIntoView(false);", [number_input])
+        number_input.tap()
         from gaiatest.apps.keyboard.app import Keyboard
 
         return Keyboard(self.marionette)

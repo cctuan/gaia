@@ -3,11 +3,13 @@
 
 /* global loadBodyHTML, MockL10n, MessageDB, MockNavigatormozApps,
           MockNavigatorMozIccManager, MockNavigatormozSetMessageHandler,
-          MockNavigatorSettings, MockNotification, MocksHelper, Notification,
-          WapPushManager */
+          MockNavigatorSettings, MockNotification, MockNotificationHelper,
+          MocksHelper, WapPushManager, MockParsedProvisioningDoc,
+          SiSlScreenHelper */
 
 'use strict';
 
+require('/shared/js/event_dispatcher.js');
 require('/shared/test/unit/mocks/mock_dump.js');
 require('/shared/test/unit/mocks/mock_navigator_moz_apps.js');
 require('/shared/test/unit/mocks/mock_navigator_moz_set_message_handler.js');
@@ -24,16 +26,18 @@ require('/js/si_sl_screen_helper.js');
 require('/js/utils.js');
 require('/js/wappush.js');
 
-require('/test/unit/mock_l10n.js');
+require('/shared/test/unit/mocks/mock_l10n.js');
 require('/test/unit/mock_link_action_handler.js');
 require('/test/unit/mock_whitelist.js');
+require('/test/unit/mock_parsed_doc.js');
 
 var mocksHelperWapPush = new MocksHelper([
   'Dump',
   'LinkActionHandler',
   'NotificationHelper',
   'Notification',
-  'WhiteList'
+  'WhiteList',
+  'ParsedProvisioningDoc'
 ]).init();
 
 suite('WAP Push', function() {
@@ -121,8 +125,11 @@ suite('WAP Push', function() {
                    WapPushManager.onWapPushReceived);
     });
 
-    test('the header is empty', function() {
-      assert.equal(document.getElementById('title').textContent, '');
+    test('the headers are empty', function() {
+      assert.equal(document.getElementById('title-si-sl').textContent, '');
+      assert.equal(document.getElementById('title-apn').textContent, '');
+      assert.equal(document.getElementById('title-details').textContent, '');
+      assert.equal(document.getElementById('title-pin').textContent, '');
     });
   });
 
@@ -155,19 +162,28 @@ suite('WAP Push', function() {
     };
 
     test('the notification is sent and populated correctly', function(done) {
-      this.sinon.spy(window, 'Notification');
+      this.sinon.spy(MockNotificationHelper, 'send');
 
       WapPushManager.onWapPushReceived(message).then(function() {
         done(function checks() {
-          sinon.assert.calledWithMatch(Notification, message.sender,
-            { body: 'check this out http://www.mozilla.org' });
+          sinon.assert.calledWithMatch(MockNotificationHelper.send, {
+            id: 'message-title',
+            args: { title: message.sender }
+          }, {
+            bodyL10n: {
+              args: {
+                text: 'check this out',
+                url: 'http://www.mozilla.org'
+              },
+              id: 'si-message-body'
+            }
+          });
         });
       }, done);
     });
 
     test('the display is populated with the message contents', function(done) {
-      var acceptButton = document.getElementById('accept');
-      var title = document.getElementById('title');
+      var title = document.getElementById('title-si-sl');
       var screen = document.getElementById('si-sl-screen');
       var container = screen.querySelector('.container');
       var text = container.querySelector('p');
@@ -175,6 +191,7 @@ suite('WAP Push', function() {
 
       this.sinon.stub(Date, 'now').returns(0);
       this.sinon.spy(MockNotification.prototype, 'close');
+      this.sinon.spy(MockL10n, 'setAttributes');
 
       WapPushManager.onWapPushReceived(message).then(function() {
         return WapPushManager.displayWapPushMessage(0);
@@ -182,10 +199,8 @@ suite('WAP Push', function() {
         done(function checks() {
           sinon.assert.calledWith(MockNotification.get, { tag: 0 });
           sinon.assert.calledOnce(MockNotification.prototype.close);
-
-          assert.isTrue(acceptButton.classList.contains('hidden'),
-            'the accept button should be hidden');
-          assert.equal(title.textContent, message.sender);
+          sinon.assert.calledWith(MockL10n.setAttributes, title,
+            'message-title', { title: message.sender });
           assert.equal(text.textContent, 'check this out');
           assert.equal(link.textContent, 'http://www.mozilla.org');
           assert.equal(link.dataset.url, 'http://www.mozilla.org');
@@ -196,7 +211,7 @@ suite('WAP Push', function() {
 
     suite('DSDS scenarios', function() {
       setup(function() {
-        this.sinon.spy(window, 'Notification');
+        this.sinon.spy(MockNotificationHelper, 'send');
 
         MockNavigatorMozIccManager.addIcc(1, {});
       });
@@ -204,8 +219,12 @@ suite('WAP Push', function() {
       test('the notification is populated correctly for SIM1', function(done) {
         WapPushManager.onWapPushReceived(message).then(function() {
           done(function checks() {
-            sinon.assert.calledWithMatch(Notification, /1/, {
-              body: 'check this out http://www.mozilla.org'
+            sinon.assert.calledWithMatch(MockNotificationHelper.send, {
+              args: {
+                id: 1,
+                title: message.sender
+              },
+              id: 'message-title-with-sim'
             });
           });
         }, done);
@@ -216,8 +235,12 @@ suite('WAP Push', function() {
 
         WapPushManager.onWapPushReceived(message).then(function() {
           done(function checks() {
-            sinon.assert.calledWithMatch(Notification, /2/, {
-              body: 'check this out http://www.mozilla.org'
+            sinon.assert.calledWithMatch(MockNotificationHelper.send, {
+              args: {
+                id: 2,
+                title: message.sender
+              },
+              id: 'message-title-with-sim'
             });
           });
         }, done);
@@ -234,19 +257,27 @@ suite('WAP Push', function() {
     };
 
     test('the notification is sent and populated correctly', function(done) {
-      this.sinon.spy(window, 'Notification');
+      this.sinon.spy(MockNotificationHelper, 'send');
 
       WapPushManager.onWapPushReceived(message).then(function() {
         done(function checks() {
-          sinon.assert.calledWithMatch(Notification, message.sender,
-            { body: 'http://www.mozilla.org' });
+          sinon.assert.calledWithMatch(MockNotificationHelper.send, {
+            id: 'message-title',
+            args: { title: message.sender }
+          }, {
+            bodyL10n: {
+              args: {
+                url: 'http://www.mozilla.org'
+              },
+              id: 'sl-message-body'
+            }
+          });
         });
       }, done);
     });
 
     test('the display is populated with the message contents', function(done) {
-      var acceptButton = document.getElementById('accept');
-      var title = document.getElementById('title');
+      var title = document.getElementById('title-si-sl');
       var screen = document.getElementById('si-sl-screen');
       var container = screen.querySelector('.container');
       var text = container.querySelector('p');
@@ -254,6 +285,7 @@ suite('WAP Push', function() {
 
       this.sinon.stub(Date, 'now').returns(0);
       this.sinon.spy(MockNotification.prototype, 'close');
+      this.sinon.spy(MockL10n, 'setAttributes');
 
       WapPushManager.onWapPushReceived(message).then(function() {
         return WapPushManager.displayWapPushMessage(0);
@@ -262,9 +294,8 @@ suite('WAP Push', function() {
           sinon.assert.calledWith(MockNotification.get, { tag: 0 });
           sinon.assert.calledOnce(MockNotification.prototype.close);
 
-          assert.isTrue(acceptButton.classList.contains('hidden'),
-            'the accept button should be hidden');
-          assert.equal(title.textContent, message.sender);
+          sinon.assert.calledWith(MockL10n.setAttributes, title,
+            'message-title', { title: message.sender });
           assert.equal(text.textContent, '');
           assert.equal(link.textContent, 'http://www.mozilla.org');
           assert.equal(link.dataset.url, 'http://www.mozilla.org');
@@ -304,22 +335,88 @@ suite('WAP Push', function() {
       }
     };
 
+    var apns = {
+      none: [],
+      single: [
+        { carrier: 'Test APN'}
+      ],
+      multiple: [
+        { carrier: 'Test APN 1'},
+        { carrier: 'Test APN 2'},
+        { carrier: 'Test APN 3'}
+      ],
+    };
+
     test('the notification is sent and populated correctly', function(done) {
-      this.sinon.spy(window, 'Notification');
+      this.sinon.spy(MockNotificationHelper, 'send');
       WapPushManager.onWapPushReceived(messages.netwpin).then(function() {
         done(function checks() {
-          sinon.assert.calledWithMatch(Notification, messages.netwpin.sender,
-            { body: 'cp-message-received' });
+          sinon.assert.calledWithMatch(MockNotificationHelper.send, {
+            args: { title: messages.netwpin.sender },
+            id: 'message-title'
+          }, {
+            bodyL10n: 'cp-message-received'
+          });
         });
       }, done);
     });
 
-    test('the display is populated with the NETWPIN message contents',
+    test('the display shows warning message asking for install configuration',
       function(done) {
-        var title = document.getElementById('title');
-        var screen = document.getElementById('cp-screen');
-        var acceptButton = document.getElementById('accept');
-        var pin = screen.querySelector('input');
+        var installCfgConfirmDialog =
+          document.getElementById('cp-install-configuration-confirm');
+        var acceptButton = installCfgConfirmDialog.querySelector('.accept');
+
+        this.sinon.stub(Date, 'now').returns(0);
+        this.sinon.spy(MockNotification.prototype, 'close');
+
+        WapPushManager.onWapPushReceived(messages.netwpin).then(function() {
+          return WapPushManager.displayWapPushMessage(0);
+        }).then(function() {
+          done(function checks() {
+            sinon.assert.notCalled(MockNotification.prototype.close);
+            assert.isFalse(acceptButton.classList.contains('hidden'),
+              'the accept button should be visible');
+            assert.isFalse(acceptButton.hidden);
+          });
+        }, done);
+      }
+    );
+
+    test('the app is closed when if the user does not accept the instalation',
+      function(done) {
+        var installCfgConfirmDialog =
+          document.getElementById('cp-install-configuration-confirm');
+        var cancelButton = installCfgConfirmDialog.querySelector('.cancel');
+
+        this.sinon.spy(WapPushManager, 'close');
+        this.sinon.stub(Date, 'now').returns(0);
+        this.sinon.spy(MockNotification.prototype, 'close');
+
+        WapPushManager.onWapPushReceived(messages.netwpin).then(function() {
+          return WapPushManager.displayWapPushMessage(0);
+        }).then(function() {
+          done(function checks() {
+            sinon.assert.notCalled(MockNotification.prototype.close);
+            assert.isFalse(cancelButton.classList.contains('hidden'),
+              'the accept button should be visible');
+            assert.isFalse(cancelButton.hidden);
+            cancelButton.click();
+            sinon.assert.calledOnce(WapPushManager.close);
+          });
+        }, done);
+      }
+    );
+
+    test('show finish dialog when no apns are present in a CP message',
+      function(done) {
+        MockParsedProvisioningDoc.mSetup(apns.none);
+
+        var installCfgConfirmDialog =
+          document.getElementById('cp-install-configuration-confirm');
+        var acceptCfgButton = installCfgConfirmDialog.querySelector('.accept');
+        var dialog = document.getElementById('cp-finish-confirm');
+        var finishButton = dialog.querySelector('button');
 
         this.sinon.stub(Date, 'now').returns(0);
         this.sinon.spy(MockNotification.prototype, 'close');
@@ -330,36 +427,182 @@ suite('WAP Push', function() {
           done(function checks() {
             sinon.assert.notCalled(MockNotification.prototype.close);
 
-            assert.equal(title.textContent, messages.netwpin.sender);
-            assert.isFalse(acceptButton.classList.contains('hidden'),
+            acceptCfgButton.click();
+
+            assert.isFalse(finishButton.classList.contains('hidden'),
               'the accept button should be visible');
-            assert.isFalse(acceptButton.hidden);
+            assert.isFalse(finishButton.hidden);
+          });
+        }, done);
+      }
+    );
+
+    test('details of apn are shown after warning message when a single apn ' +
+         'is defined in CP message',
+      function(done) {
+        MockParsedProvisioningDoc.mSetup(apns.single);
+
+        var title = document.getElementById('title-details');
+        var screen = document.getElementById('cp-details-screen');
+        var details = screen.querySelector('.message');
+        var installCfgConfirmDialog =
+          document.getElementById('cp-install-configuration-confirm');
+        var acceptCfgButton = installCfgConfirmDialog.querySelector('.accept');
+
+        this.sinon.stub(Date, 'now').returns(0);
+        this.sinon.spy(MockNotification.prototype, 'close');
+        this.sinon.spy(MockL10n, 'setAttributes');
+
+        WapPushManager.onWapPushReceived(messages.netwpin).then(function() {
+          return WapPushManager.displayWapPushMessage(0);
+        }).then(function() {
+          done(function checks() {
+            sinon.assert.notCalled(MockNotification.prototype.close);
+
+            acceptCfgButton.click();
+
+            sinon.assert.calledWith(MockL10n.setAttributes, title,
+              'message-title', { title: messages.netwpin.sender });
+            assert.isFalse(screen.classList.contains('left') ||
+                           screen.classList.contains('right'),
+                           'the details screen should be visible');
+
+            var apnList = details.getElementsByTagName('li');
+            assert.equal(apns.single.length, apnList.length);
+            for (var i = 0; i < apnList.length; i++) {
+              assert.equal(apns.single[i].carrier,
+                           apnList[i].childNodes[1].textContent);
+            }
+          });
+        }, done);
+      }
+    );
+
+    test('apn list screen is shown after warning message when multiple apns ' +
+         'are defined in CP message',
+      function(done) {
+        MockParsedProvisioningDoc.mSetup(apns.multiple);
+
+        var titleApn = document.getElementById('title-apn');
+        var titleDetails = document.getElementById('title-details');
+        var apnScreen = document.getElementById('cp-apn-screen');
+        var detailsScreen = document.getElementById('cp-details-screen');
+        var apnsElement = apnScreen.querySelector('.message');
+        var installCfgConfirmDialog =
+          document.getElementById('cp-install-configuration-confirm');
+        var acceptCfgButton = installCfgConfirmDialog.querySelector('.accept');
+
+        this.sinon.stub(Date, 'now').returns(0);
+        this.sinon.spy(MockNotification.prototype, 'close');
+        this.sinon.spy(MockL10n, 'setAttributes');
+
+        WapPushManager.onWapPushReceived(messages.netwpin).then(function() {
+          return WapPushManager.displayWapPushMessage(0);
+        }).then(function() {
+          done(function checks() {
+            sinon.assert.notCalled(MockNotification.prototype.close);
+
+            acceptCfgButton.click();
+
+            sinon.assert.calledWith(MockL10n.setAttributes, titleApn,
+              'message-title', { title: messages.netwpin.sender });
+            assert.isFalse(apnScreen.classList.contains('left') ||
+                           apnScreen.classList.contains('right'),
+                           'the apn screen should be visible');
+
+            sinon.assert.calledWith(MockL10n.setAttributes, titleDetails,
+              'message-title', { title: messages.netwpin.sender });
+            assert.isTrue(detailsScreen.classList.contains('right'),
+                           'the details screen should not be visible');
+
+            var apnList = apnsElement.getElementsByTagName('li');
+            assert.equal(apns.multiple.length, apnList.length);
+            for (var i = 0; i < apnList.length; i++) {
+              assert.equal(apns.multiple[i].carrier,
+                           apnList[i].childNodes[0].childNodes[1].textContent);
+            }
+
+            // Test that click on apn element shows its details.
+            apnList[0].childNodes[0].click();
+            assert.isFalse(detailsScreen.classList.contains('left') ||
+                           detailsScreen.classList.contains('right'),
+                           'the details screen should be visible');
+
+            assert.isTrue(apnScreen.classList.contains('left'),
+                           'the apn screen should not be visible');
+          });
+        }, done);
+      }
+    );
+
+    test('the display is populated with the NETWPIN message contents after ' +
+         'accepting installation ',
+      function(done) {
+        MockParsedProvisioningDoc.mSetup(apns.single);
+
+        var title = document.getElementById('title-pin');
+        var screen = document.getElementById('cp-pin-screen');
+        var acceptButton = document.getElementById('details-accept');
+        var pin = screen.querySelector('input');
+        var installCfgConfirmDialog =
+          document.getElementById('cp-install-configuration-confirm');
+        var acceptInstallButton =
+          installCfgConfirmDialog.querySelector('.accept');
+
+        this.sinon.stub(Date, 'now').returns(0);
+        this.sinon.spy(MockNotification.prototype, 'close');
+        this.sinon.spy(MockL10n, 'setAttributes');
+
+        WapPushManager.onWapPushReceived(messages.netwpin).then(function() {
+          return WapPushManager.displayWapPushMessage(0);
+        }).then(function() {
+          done(function checks() {
+            sinon.assert.notCalled(MockNotification.prototype.close);
+            acceptInstallButton.click();
+            acceptButton.click();
+
+            sinon.assert.calledWith(MockL10n.setAttributes, title,
+              'message-title', { title: messages.netwpin.sender });
+            assert.isFalse(screen.classList.contains('left') ||
+                           screen.classList.contains('right'),
+                           'the details screen should be visible');
             assert.equal(pin.type, 'hidden');
           });
         }, done);
       }
     );
 
-    test('the display is populated with the USERPIN message contents',
+    test('the display is populated with the USERPIN message contents after ' +
+         'accepting installation ',
       function(done) {
-        var title = document.getElementById('title');
-        var screen = document.getElementById('cp-screen');
-        var acceptButton = document.getElementById('accept');
+        MockParsedProvisioningDoc.mSetup(apns.single);
+
+        var title = document.getElementById('title-pin');
+        var screen = document.getElementById('cp-pin-screen');
+        var acceptButton = document.getElementById('details-accept');
         var pin = screen.querySelector('input');
+        var installCfgConfirmDialog =
+          document.getElementById('cp-install-configuration-confirm');
+        var acceptInstallButton =
+          installCfgConfirmDialog.querySelector('.accept');
 
         this.sinon.stub(Date, 'now').returns(0);
         this.sinon.spy(MockNotification.prototype, 'close');
+        this.sinon.spy(MockL10n, 'setAttributes');
 
         WapPushManager.onWapPushReceived(messages.userpin).then(function() {
           return WapPushManager.displayWapPushMessage(0);
         }).then(function() {
           done(function checks() {
             sinon.assert.notCalled(MockNotification.prototype.close);
+            acceptInstallButton.click();
+            acceptButton.click();
 
-            assert.equal(title.textContent, messages.userpin.sender);
-            assert.isFalse(acceptButton.classList.contains('hidden'),
-              'the accept button should be visible');
-            assert.isFalse(acceptButton.hidden);
+            sinon.assert.calledWith(MockL10n.setAttributes, title,
+              'message-title', { title: messages.netwpin.sender });
+            assert.isFalse(screen.classList.contains('left') ||
+                           screen.classList.contains('right'),
+                           'the details screen should be visible');
             assert.equal(pin.type, 'number');
           });
         }, done);
@@ -398,7 +641,7 @@ suite('WAP Push', function() {
       var container = screen.querySelector('.container');
       var text = container.querySelector('p');
 
-      this.sinon.spy(window, 'Notification');
+      this.sinon.spy(MockNotificationHelper, 'send');
       this.sinon.stub(Date, 'now')
         .onFirstCall().returns(0)
         .onSecondCall().returns(1);
@@ -409,8 +652,12 @@ suite('WAP Push', function() {
         return WapPushManager.displayWapPushMessage(0);
       }).then(function() {
         done(function checks() {
-          sinon.assert.alwaysCalledWithMatch(Notification,
-            messages.current.sender, { tag: '0' });
+          sinon.assert.alwaysCalledWithMatch(MockNotificationHelper.send, {
+            id: 'message-title',
+            args: { title: messages.current.sender }
+          }, {
+            tag: '0'
+          });
           assert.equal(text.textContent, 'current message');
         });
       }, done);
@@ -421,7 +668,7 @@ suite('WAP Push', function() {
       var container = screen.querySelector('.container');
       var text = container.querySelector('p');
 
-      this.sinon.spy(window, 'Notification');
+      this.sinon.spy(MockNotificationHelper, 'send');
       this.sinon.stub(Date, 'now')
         .onFirstCall().returns(0)
         .onSecondCall().returns(1);
@@ -432,9 +679,13 @@ suite('WAP Push', function() {
         return WapPushManager.displayWapPushMessage(0);
       }).then(function() {
         done(function checks() {
-          sinon.assert.calledOnce(Notification);
-          sinon.assert.calledWithMatch(Notification, messages.current.sender,
-            { tag: '0' });
+          sinon.assert.calledOnce(MockNotificationHelper.send);
+          sinon.assert.calledWithMatch(MockNotificationHelper.send, {
+            id: 'message-title',
+            args: { title: messages.current.sender }
+          }, {
+            tag: '0'
+          });
           assert.equal(text.textContent, 'current message');
         });
       }, done);
@@ -468,18 +719,21 @@ suite('WAP Push', function() {
       this.sinon.stub(Date, 'now')
         .onFirstCall().returns(0)
         .onSecondCall().returns(1378204533001);
+      this.sinon.spy(MockL10n, 'setAttributes');
 
       WapPushManager.onWapPushReceived(message).then(function() {
         return WapPushManager.displayWapPushMessage(0);
       }).then(function() {
         done(function checks() {
-          assert.equal(text.textContent, 'this-message-has-expired');
+          sinon.assert.calledWith(MockL10n.setAttributes, text,
+            'this-message-has-expired');
         });
       }, done);
     });
   });
 
   suite('handling actions', function() {
+    var clock;
     var messages = {
       none: {
         sender: '+31641600986',
@@ -491,21 +745,112 @@ suite('WAP Push', function() {
                  '</indication>' +
                  '</si>',
         serviceId: 0
+      },
+      signal_high: {
+        sender: '+31641600986',
+        contentType: 'text/vnd.wap.si',
+        content: '<si>' +
+                 '<indication si-id="gaia-test@mozilla.org"' +
+                 '            action="signal-high">' +
+                 'check this out' +
+                 '</indication>' +
+                 '</si>',
+        serviceId: 0
+      },
+      execute_high: {
+        sender: '+31641600986',
+        contentType: 'text/vnd.wap.sl',
+        content: '<sl href="http://www.mozilla.org" action="execute-high"/>',
+        serviceId: 0
+      },
+      no_action: {
+        sender: '+31641600986',
+        contentType: 'text/vnd.wap.si',
+        content: '<si>' +
+                 '<indication si-id="gaia-test@mozilla.org">' +
+                 'check this out' +
+                 '</indication>' +
+                 '</si>',
+        serviceId: 0
+      },
+      delete: {
+        sender: '+31641600986',
+        contentType: 'text/vnd.wap.si',
+        content: '<si>' +
+                 '<indication si-id="gaia-test@mozilla.org"' +
+                 '            action="delete">' +
+                 'check this out' +
+                 '</indication>' +
+                 '</si>',
+        serviceId: 0
       }
     };
+
+    setup(function() {
+      clock = this.sinon.useFakeTimers();
+      isDocumentHidden = true;
+      this.sinon.spy(MockNotificationHelper, 'send');
+      this.sinon.spy(window, 'close');
+    });
 
     /* XXX: Workaround for bug 981521. We shouldn't send notifications for
      * signal-none messages but we do until we'll have another way for the user
      * to find & display them. */
     test('action=signal-none sends a notification', function(done) {
-      this.sinon.spy(window, 'Notification');
-
       WapPushManager.onWapPushReceived(messages.none).then(function() {
-        done(function checks() {
-          sinon.assert.calledWithMatch(Notification, messages.none.sender,
-            { body: 'check this out' });
+        clock.tick(100);
+        sinon.assert.calledWithMatch(MockNotificationHelper.send, {
+          id: 'message-title',
+          args: { title: messages.none.sender }
+        }, {
+          bodyL10n: {
+            id: 'si-message-body',
+            args: { text: 'check this out' }
+          }
         });
-      }, done);
+        sinon.assert.calledOnce(window.close);
+        assert.isFalse(MockNavigatormozApps.mAppWasLaunched);
+      }).then(done, done);
+    });
+
+    test('action=signal-high displays the SI message immediately',
+    function(done) {
+      this.sinon.spy(SiSlScreenHelper, 'populateScreen');
+
+      WapPushManager.onWapPushReceived(messages.signal_high).then(function() {
+        clock.tick(100);
+        sinon.assert.notCalled(MockNotificationHelper.send);
+        sinon.assert.notCalled(window.close);
+        sinon.assert.calledOnce(SiSlScreenHelper.populateScreen);
+        assert.isTrue(MockNavigatormozApps.mAppWasLaunched);
+      }).then(done, done);
+    });
+
+    test('action=execute-high displays the SL message immediately',
+    function(done) {
+      this.sinon.spy(SiSlScreenHelper, 'populateScreen');
+
+      WapPushManager.onWapPushReceived(messages.execute_high).then(function() {
+        clock.tick(100);
+        sinon.assert.notCalled(MockNotificationHelper.send);
+        sinon.assert.notCalled(window.close);
+        sinon.assert.calledOnce(SiSlScreenHelper.populateScreen);
+        assert.isTrue(MockNavigatormozApps.mAppWasLaunched);
+      }).then(done, done);
+    });
+
+    test('action=delete causes notifications of the deleted messages to ' +
+         'be removed', function(done) {
+      this.sinon.spy(MockNotification.prototype, 'close');
+      this.sinon.stub(Date, 'now').returns(0);
+
+      WapPushManager.onWapPushReceived(messages.no_action).then(function() {
+        return WapPushManager.onWapPushReceived(messages.delete);
+      }).then(function() {
+        sinon.assert.calledOnce(MockNotificationHelper.send);
+        sinon.assert.calledWith(MockNotification.get, { tag: 0 });
+        sinon.assert.calledOnce(MockNotification.prototype.close);
+      }).then(done, done);
     });
   });
 

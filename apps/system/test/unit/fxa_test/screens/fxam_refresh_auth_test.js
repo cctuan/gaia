@@ -1,3 +1,6 @@
+/* global FxaModuleErrorOverlay, FxaModuleOverlay, FxaModuleRefreshAuth,
+          FxModuleServerRequest, FxaModuleUI, HtmlImports, LoadElementHelper,
+          MocksHelper, MockL10n */
 'use strict';
 
 // Helper for loading the elements
@@ -38,8 +41,6 @@ var mocksHelperForRefreshAuthModule = new MocksHelper([
   'FxModuleServerRequest',
   'FxaModuleErrors'
 ]);
-
-mocha.globals(['FxModuleServerRequest', 'FxaModuleErrors']);
 
 suite('Screen: Enter password', function() {
   var realL10n;

@@ -4,10 +4,9 @@
 
 import time
 
-from marionette.by import By
-from marionette.errors import NoSuchElementException
-from marionette.errors import StaleElementException
-from marionette.wait import Wait
+from marionette_driver import By, Wait
+from marionette_driver.errors import (NoSuchElementException,
+                                      StaleElementException)
 
 from gaiatest import GaiaApps
 from gaiatest import Accessibility
@@ -85,24 +84,25 @@ class Base(object):
         time.sleep(0.2)
 
         li = self.wait_for_element_present(*_list_item_locator)
-
-       # TODO Remove scrollintoView upon resolution of bug 877651
+        # We need to keep this because the Ok button may hang over the element and stop
+        # Marionette from scrolling the element entirely into view
         self.marionette.execute_script(
             'arguments[0].scrollIntoView(false);', [li])
-
         return li
 
     def wait_for_select_closed(self, by, locator):
         self.wait_for_element_not_displayed(by, locator)
 
-        # TODO we should find something suitable to wait for, but this goes too
-        # fast against desktop builds causing intermittent failures
-        time.sleep(0.2)
-
         # now back to app
         self.apps.switch_to_displayed_app()
 
-    def select(self, match_string):
+        # TODO we should find something suitable to wait for, but this goes too
+        # fast against desktop builds causing intermittent failures
+        # This sleep is necessary to make sure the select is completely faded out,
+        # see bug 1148154
+        time.sleep(1)
+
+    def select(self, match_string, tap_close=True):
         # cheeky Select wrapper until Marionette has its own
         # due to the way B2G wraps the app's select box we match on text
         _close_button_locator = (By.CSS_SELECTOR, 'button.value-option-confirm')
@@ -111,7 +111,8 @@ class Base(object):
         li.tap()
 
         # Tap close and wait for it to hide
-        self.marionette.find_element(*_close_button_locator).tap()
+        if tap_close:
+          self.marionette.find_element(*_close_button_locator).tap()
         self.wait_for_select_closed(*_close_button_locator)
 
     def a11y_select(self, match_string):

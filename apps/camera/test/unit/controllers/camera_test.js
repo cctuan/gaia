@@ -29,6 +29,11 @@ suite('controllers/camera', function() {
     this.app = sinon.createStubInstance(this.App);
     this.app.camera = sinon.createStubInstance(this.Camera);
     this.app.geolocation = sinon.createStubInstance(this.GeoLocation);
+    this.app.views = {
+      notification: {
+        display: sinon.spy()
+      }
+    };
 
     // Activity
     this.app.activity = {};
@@ -53,6 +58,7 @@ suite('controllers/camera', function() {
 
     // Aliases
     this.settings = this.app.settings;
+    this.notification = this.app.views.notification;
     this.storage = this.app.storage;
     this.camera = this.app.camera;
 
@@ -68,7 +74,7 @@ suite('controllers/camera', function() {
 
   suite('CameraController()', function() {
     setup(function() {
-      this.sandbox.stub(this.CameraController.prototype, 'onHidden');
+      this.sandbox.stub(this.CameraController.prototype, 'shutdownCamera');
     });
 
     test('Should filter the `cameras` setting based on the camera list', function() {
@@ -76,11 +82,11 @@ suite('controllers/camera', function() {
     });
 
     test('Should load camera on app `visible`', function() {
-      assert.isTrue(this.app.on.calledWith('visible', this.camera.load));
+      assert.isTrue(this.app.on.calledWith('visible', this.controller.onVisible));
     });
 
     test('Should teardown camera on app `hidden`', function() {
-      assert.isTrue(this.app.on.calledWith('hidden', this.controller.onHidden));
+      assert.isTrue(this.app.on.calledWith('hidden', this.controller.shutdownCamera));
     });
 
     test('Should relay focus change events', function() {
@@ -188,9 +194,67 @@ suite('controllers/camera', function() {
     });
   });
 
+  suite('CameraController#onCaptureKey', function() {
+    test('`keydown:capture` triggers capture', function() {
+      var callback = this.app.on.withArgs('keydown:capture').args[0][1];
+      var event = { preventDefault: sinon.spy() };
+
+      callback(event);
+      sinon.assert.called(this.camera.capture);
+    });
+
+    test('It calls preventDefault if the capture call doesn\'t return false', function() {
+      var callback = this.app.on.withArgs('keydown:capture').args[0][1];
+      var event = { preventDefault: sinon.spy() };
+
+      this.camera.capture.returns(false);
+      callback(event);
+      sinon.assert.notCalled(event.preventDefault);
+
+      this.camera.capture.returns(undefined);
+      callback(event);
+      sinon.assert.called(event.preventDefault);
+    });
+
+    test('It doesnt capture if timer is active', function() {
+      this.app.get.withArgs('timerActive').returns(true);
+      var callback = this.app.on.withArgs('keydown:capture').args[0][1];
+      var event = { preventDefault: sinon.spy() };
+
+      callback(event);
+      sinon.assert.notCalled(this.camera.capture);
+    });
+
+    test('It doesnt capture if confirm overlay is shown', function() {
+      this.app.get.withArgs('confirmViewVisible').returns(true);
+      var callback = this.app.on.withArgs('keydown:capture').args[0][1];
+      var event = { preventDefault: sinon.spy() };
+
+      callback(event);
+      sinon.assert.notCalled(this.camera.capture);
+    });
+  });
+
+  suite('CameraController#onFocusKey', function() {
+    setup(function() {
+      this.camera.focus = {
+        focus: this.sinon.spy()
+      };
+    });
+
+    test('`keydown:focus` triggers focus', function() {
+      var callback = this.app.on.withArgs('keydown:focus').args[0][1];
+      var event = { preventDefault: sinon.spy() };
+
+      callback(event);
+      sinon.assert.called(this.camera.focus.focus);
+    });
+  });
+
   suite('CameraController#setMode()', function() {
     test('It sets the flash mode', function() {
       this.controller.setMode();
+      sinon.assert.called(this.notification.display);
       sinon.assert.called(this.camera.setFlashMode);
     });
 
@@ -458,18 +522,15 @@ suite('controllers/camera', function() {
     });
   });
 
-  suite('CameraController#onHidden()', function() {
+  suite('CameraController#shutdownCamera()', function() {
     setup(function() {
-      this.controller.onHidden();
+      this.controller.shutdownCamera();
     });
 
-    test('Should stop recording if recording', function() {
-      assert.isTrue(this.camera.stopRecording.called);
+    test('Should stop shutdown the camera', function() {
+      assert.isTrue(this.camera.shutdown.called);
     });
 
-    test('Should release the camera hardware', function() {
-      assert.isTrue(this.camera.release.called);
-    });
   });
 
   suite('CameraController#onStorageChanged()', function() {
@@ -479,21 +540,50 @@ suite('controllers/camera', function() {
     });
   });
 
+  suite('CameraController#onVisible()', function() {
+    setup(function() {
+      this.app.isSharingActivity = sinon.stub();
+    });
+
+    test('It doesn\'t load the camera if gallery is open', function() {
+      this.app.activity.pick = false;
+      this.app.isSharingActivity.returns(false);
+      this.controller.galleryOpen = true;
+      this.controller.onVisible();
+      sinon.assert.notCalled(this.camera.load);
+    });
+
+    test('It does load the camera if gallery is closed', function() {
+      this.app.activity.pick = false;
+      this.app.isSharingActivity.returns(false);
+      this.controller.galleryOpen = false;
+      this.controller.onVisible();
+      sinon.assert.called(this.camera.load);
+    });
+  });
+
+  suite('CameraController#onGalleryOpened()', function() {
+    test('Should store gallery open state', function() {
+      this.controller.galleryOpen = false;
+      this.controller.onGalleryOpened();
+      assert.isTrue(this.controller.galleryOpen);
+      sinon.assert.called(this.camera.shutdown);
+    });
+  });
+
   suite('CameraController#onGalleryClosed()', function() {
     test('It loads the camera', function() {
+      this.controller.galleryOpen = true;
       this.controller.onGalleryClosed();
+      assert.isFalse(this.controller.galleryOpen);
       sinon.assert.called(this.camera.load);
     });
 
-    test('It clears loading after the camera has loaded', function() {
-      this.controller.onGalleryClosed();
-      this.camera.load.args[0][0]();
-      sinon.assert.called(this.app.clearSpinner);
-    });
-
     test('It doesn\'t load the camera if the app is hidden', function() {
+      this.controller.galleryOpen = true;
       this.app.hidden = true;
       this.controller.onGalleryClosed();
+      assert.isFalse(this.controller.galleryOpen);
       sinon.assert.notCalled(this.camera.load);
     });
   });

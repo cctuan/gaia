@@ -7,7 +7,8 @@ define(function(require, exports) {
 
   var BrowserBox = require('browserbox');
   var ImapClient = require('browserbox-imap');
-  var slog = require('slog');
+  var imapHandler = require('imap-handler');
+  var logic = require('logic');
   var syncbase = require('../syncbase');
   var errorutils = require('../errorutils');
   var oauth = require('../oauth');
@@ -24,13 +25,15 @@ define(function(require, exports) {
     // nothing
   }
 
+  var scope = logic.scope('ImapClient');
+
    /**
    * Open a connection to an IMAP server.
    *
    * @param {object} credentials
-   *   keys: hostname, port, crypto
+   *   keys: username, password, [oauth2]
    * @param {object} connInfo
-   *   keys: username, password, accessToken and/or refreshToken
+   *   keys: hostname, port, crypto
    * @param {function(credentials)} credsUpdatedCallback
    *   Callback, called if the credentials have been updated and
    *   should be stored to disk. Not called if the credentials are
@@ -44,12 +47,8 @@ define(function(require, exports) {
                                           credsUpdatedCallback) {
     var conn;
 
-    return oauth.ensureUpdatedCredentials(
-      credentials
-    ).then(function(credentialsChanged) {
-      if (credentialsChanged) {
-        credsUpdatedCallback(credentials);
-      }
+    return oauth.ensureUpdatedCredentials(credentials, credsUpdatedCallback)
+    .then(function() {
       return new Promise(function(resolve, reject) {
         conn = new BrowserBox(
           connInfo.hostname,
@@ -60,9 +59,21 @@ define(function(require, exports) {
               xoauth2: credentials.oauth2 ?
                          credentials.oauth2.accessToken : null
             },
+            id: {
+              vendor: 'Mozilla',
+              name: 'GaiaMail',
+              version: '0.2',
+              'support-url': 'http://mzl.la/file-gaia-email-bug'
+            },
             useSecureTransport: (connInfo.crypto === 'ssl' ||
                                  connInfo.crypto === true),
-            starttls: connInfo.crypto === 'starttls'
+            requireTLS: connInfo.crypto === 'starttls',
+            // In the case no encryption is explicitly requested (either for
+            // testing or because a user regrettably chose to disable it via
+            // manual config), we want to avoid opportunistic encryption
+            // since in the latter case the user may have done this because
+            // the server's certificates are invalid.
+            ignoreTLS: connInfo.crypto === 'plain'
           });
 
         var connectTimeout = setTimeout(function() {
@@ -72,7 +83,7 @@ define(function(require, exports) {
 
         conn.onauth = function() {
           clearTimeout(connectTimeout);
-          slog.info('imap:connected', connInfo);
+          logic(scope, 'connected', { connInfo: connInfo });
           conn.onauth = conn.onerror = noop;
           resolve(conn);
         };
@@ -89,13 +100,25 @@ define(function(require, exports) {
       if (conn) {
         conn.close();
       }
-      slog.error('imap:connect-error', {
-        error: errorString,
-        connInfo: connInfo
-      });
-      throw errorString;
+
+      // Could hit an oauth reauth case due to date skews, so give a token
+      // review a shot before really bailing.
+      if (errorString === 'needs-oauth-reauth' &&
+          oauth.isRenewPossible(credentials)) {
+        return oauth.ensureUpdatedCredentials(credentials,
+                                              credsUpdatedCallback, true)
+        .then(function() {
+          return exports.createImapConnection(credentials, connInfo,
+                                              credsUpdatedCallback);
+        });
+      } else {
+        logic(scope, 'connect-error', {
+          error: errorString
+        });
+        throw errorString;
+      }
     });
-  }
+  };
 
   //****************************************************************
   // UNFORTUNATE IMAP WORKAROUNDS & SHIMS BEGIN HERE
@@ -117,10 +140,21 @@ define(function(require, exports) {
           .toUpperCase().trim();
 
     if (['NO', 'BAD'].indexOf(cmd) !== -1) {
-      slog.log('imap:protocol-error', {
-        humanReadable: response.humanReadable
+      logic(scope, 'protocol-error', {
+        humanReadable: response.humanReadable,
+        responseCode: response.code,
+        // Include the command structure
+        commandData: this._currentCommand && this._currentCommand.request &&
+                     imapHandler.compiler(this._currentCommand.request)
       });
-      this._lastImapError = response;
+      this._lastImapError = {
+        // To most accurately report STARTTLS issues, latch the active command
+        // at the time of the failure rather than just the response.  (An evil
+        // attacker could say "NO SUCKER" instead of "NO STARTTLS" or
+        // something.)
+        command: this._currentCommand,
+        response: response
+      };
     }
   }
 
@@ -142,59 +176,24 @@ define(function(require, exports) {
     this.close();
   };
 
-
-  // STARTTLS support. (Send upstream when possible.)
-  var origOpen = ImapClient.prototype._onOpen;
-  ImapClient.prototype._onOpen = function() {
-    origOpen.apply(this, arguments);
-    if (this.options.starttls) {
-      // The library uses a queue of commands; by injecting the
-      // STARTTLS request here, we're guaranteed to run before any
-      // other operations.
-      this._sentSTARTTLS = true;
-      this.exec({ command: 'STARTTLS' }, function(response, next) {
-        var command = (response && response.command || '').toUpperCase().trim();
-        if (['BAD', 'NO'].indexOf(command) !== -1) {
-          slog.error('imap:no-starttls-support', {
-            humanReadable: response.humanReadable
-          });
-          this._onError({ name: 'SecurityError' });
-        } else {
-          slog.log('imap:upgrading-to-starttls');
-          this.socket.upgradeToSecure();
-        }
-        next();
-      }.bind(this));
-    }
-  };
-
-  // If we see LOGINDISABLED, the server won't let us log in right now
-  // (unless we're waiting to upgrade with STARTTLS, in which case we
-  // expect to see that message in our now-outdated capability list.
-  var origLogin = BrowserBox.prototype.login;
-  BrowserBox.prototype.login = function(creds, cb) {
-    var expectsLoginDisabled = (this.options.starttls &&
-                                !this.client._sentSTARTTLS);
-    if (this.capability.indexOf('LOGINDISABLED') !== -1 &&
-        !expectsLoginDisabled) {
-      this.onerror('server-maintenance');
-    } else {
-      origLogin.apply(this, arguments);
-    }
-  };
-
   /**
    * Given an error possibly generated by the IMAP client, analyze it
    * and convert it to a normalized string if possible. Otherwise,
    * return null.
    */
-  function analyzeLastImapError(err, conn) {
+  function analyzeLastImapError(lastErrInfo, conn) {
     // Make sure it's an error we know how to analyze:
-    if (!err || !err.humanReadable) {
+    if (!lastErrInfo || !lastErrInfo.response) {
       return null;
     }
 
-    var state = conn && conn.state;
+    // If the most recent command was to initiate STARTTLS, then this is a
+    // security error.
+    if (lastErrInfo.command && lastErrInfo.command.request &&
+        lastErrInfo.command.request.command === 'STARTTLS') {
+      return 'bad-security';
+    }
+
     var wasOauth = conn && !!conn.options.auth.xoauth2;
 
     // Structure of an IMAP error response:
@@ -214,6 +213,7 @@ define(function(require, exports) {
     // Yahoo says after a delay and does not terminate the connection:
     //     NO [AUTHENTICATIONFAILED] Incorrect username or password.
 
+    var err = lastErrInfo.response;
     var str = (err.code || '') + (err.humanReadable || '');
 
     if (/Your account is not enabled for IMAP use/.test(str) ||
@@ -221,15 +221,25 @@ define(function(require, exports) {
       return 'imap-disabled';
     } else if (/UNAVAILABLE/.test(str)) {
       return 'server-maintenance';
-    }
+    // If login failed and LOGINDISABLED was claimed, then it's
+    // server-maintenance.  We used to be more aggressive about
+    // LOGINDISABLED and would just give up if we saw it, but we had a
+    // bad regression, so the balance has tipped here.  Additionally, it
+    // makes a lot of sense to only report the error if we actually failed
+    // to login!
+    } else if (conn.capability.indexOf('LOGINDISABLED') != -1 &&
+               !conn.authenticated) {
+      return 'server-maintenance';
     // The invalid-credentials case goes last, because we
     // optimistically assume that any other not-authenticated failure
     // is caused by the user's invalid credentials.
-    else if (/AUTHENTICATIONFAILED/.test(str) ||
+    } else if (/AUTHENTICATIONFAILED/.test(str) ||
                /Invalid credentials/i.test(str) || // Gmail bad access token
                /login failed/i.test(str) ||
                /password/.test(str) ||
-               state <= BrowserBox.prototype.STATE_NOT_AUTHENTICATED) {
+               // We can't trust state since it gets updated on close, but
+               // authenticated latches to true and stays that way.
+               !conn.authenticated) {
       // If we got a protocol-level error but we weren't authenticated
       // yet, it's likely an authentication problem, as authenticating
       // is the first thing we do. Any other socket-level connection
@@ -272,7 +282,7 @@ define(function(require, exports) {
                     protocolLevelError ||
                     'unknown');
 
-    slog.error('imap:normalized-error', {
+    logic(scope, 'normalized-error', {
       error: err,
       errorName: err && err.name,
       errorMessage: err && err.message,
@@ -283,6 +293,6 @@ define(function(require, exports) {
     });
 
     return reportAs;
-  }
+  };
 
 });

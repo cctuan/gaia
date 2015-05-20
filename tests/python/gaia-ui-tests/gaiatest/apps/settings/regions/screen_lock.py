@@ -2,23 +2,34 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-from marionette.by import By
+from marionette_driver import expected, By, Wait
+
 from gaiatest.apps.base import Base
 
 
 class ScreenLock(Base):
 
     _screen_lock_section_locator = (By.ID, 'screenLock')
-    _passcode_enable_locator = (By.CSS_SELECTOR, 'li.lockscreen-enabled label')
+    _lockscreen_checkbox_locator = (By.XPATH, '//li/label[span[@data-l10n-id="lockScreen"]]')
+    _passcode_checkbox_locator = (By.XPATH, '//li/label[span[@data-l10n-id="passcode-lock"]]')
     _screen_lock_passcode_section_locator = (By.ID, 'screenLock-passcode')
     _passcode_create_locator = (By.CLASS_NAME, 'passcode-create')
 
+    def enable_lockscreen(self):
+        label = Wait(self.marionette).until(
+            expected.element_present(*self._lockscreen_checkbox_locator))
+        Wait(self.marionette).until(expected.element_displayed(label))
+        label.tap()
+        checkbox = label.find_element(By.TAG_NAME, 'input')
+        Wait(self.marionette).until(expected.element_selected(checkbox))
+
     def enable_passcode_lock(self):
-        # This wait would be in __init__ but lockscreen could be disabled meaning init would timeout
-        self.wait_for_element_displayed(*self._passcode_enable_locator)
-        self.marionette.find_element(*self._passcode_enable_locator).tap()
-        self.wait_for_condition(lambda m:
-            m.find_element(*self._screen_lock_passcode_section_locator).location['x'] == 0)
+        label = Wait(self.marionette).until(
+            expected.element_present(*self._passcode_checkbox_locator))
+        Wait(self.marionette).until(expected.element_displayed(label))
+        label.tap()
+        section = self.marionette.find_element(*self._screen_lock_passcode_section_locator)
+        Wait(self.marionette).until(lambda m: section.location['x'] == 0)
 
     def create_passcode(self, passcode):
 
@@ -27,6 +38,8 @@ class ScreenLock(Base):
             self.keyboard.send("".join(passcode))
 
         # Back to create passcode
-        self.wait_for_element_displayed(*self._screen_lock_passcode_section_locator)
+        Wait(self.marionette).until(expected.element_displayed(
+            *self._screen_lock_passcode_section_locator))
         self.marionette.find_element(*self._passcode_create_locator).tap()
-        self.wait_for_element_displayed(*self._screen_lock_section_locator)
+        Wait(self.marionette).until(expected.element_displayed(
+            *self._screen_lock_section_locator))

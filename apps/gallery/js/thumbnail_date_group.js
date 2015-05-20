@@ -1,19 +1,15 @@
+'use strict';
+/* global
+  MediaUtils,
+  ThumbnailItem
+*/
+
 /**
  * ThumbnailDateGroup is a grouping mechanism supported in gallery app. It
  * groups file data by its year and month. The grouping
  * identity is based on the groupID. Once the groupID is different, we view
  * two groups as different groups. ThumbnailDateGroup also sorts the added file
  * data descendant. We can just put a item into group and let it sort the list.
- *
- * Before use it, we need to initialize the static property Template with
- * template.js object. It is used when rendering group header, the HTML DOM
- * node of this object. The initialization may look like this:
- *
- *    `ThumbnailDateGroup.Template = new Template('thumbnail-group-header');`
- *
- *
- * The HTML Node of this object contains all UI of its children. If we move it,
- * all items under this group are also moved.
  *
  * CONSTRUCTOR:
  *   To create a group, we need to supply one argument:
@@ -52,27 +48,23 @@ function ThumbnailDateGroup(item) {
 
   this.thumbnails = [];
   this.groupID = ThumbnailDateGroup.getGroupID(item);
+  this.date = item.date;
 
-  if (!ThumbnailDateGroup.Template) {
-    throw new Error('template is required while rendering.');
+  // Create the DOM elements for this thumbnail group
+  this.header = document.createElement('div');
+  this.header.className = 'thumbnail-group-header';
+  this.container = document.createElement('div');
+  this.container.className = 'thumbnail-group-container';
+  this.htmlNode = document.createElement('li');
+  this.htmlNode.appendChild(this.header);
+  this.htmlNode.appendChild(this.container);
+
+  // Localize the date header if L10N is ready. Otherwise,
+  // ThumbnailList.localize will call localize when the it becomes
+  // ready or when the locale changes.
+  if (navigator.mozL10n.readyState === 'complete') {
+    this.localize();
   }
-
-  var _ = navigator.mozL10n.get;
-  var dateFormatter = new navigator.mozL10n.DateTimeFormat();
-  var htmlText = ThumbnailDateGroup.Template.interpolate({
-    'group-header': dateFormatter.localeFormat(new Date(item.date),
-                                               _('date-group-header'))});
-
-  // create dummy node for converting to DOM node.
-  var dummyDiv = document.createElement('DIV');
-  dummyDiv.innerHTML = htmlText;
-  var domNode = dummyDiv.firstElementChild;
-
-  if (!domNode) {
-    throw new Error('the template is empty');
-  }
-  this.htmlNode = domNode;
-  this.container = domNode.querySelector('.thumbnail-group-container');
 }
 
 ThumbnailDateGroup.getGroupID = function(item) {
@@ -141,4 +133,15 @@ ThumbnailDateGroup.prototype.removeItem = function(thumbnail) {
   this.thumbnails.splice(idx, 1);
   URL.revokeObjectURL(thumbnail.imgNode.src);
   this.container.removeChild(thumbnail.htmlNode);
+};
+
+ThumbnailDateGroup.formatter = new navigator.mozL10n.DateTimeFormat();
+
+ThumbnailDateGroup.prototype.localize = function() {
+  var date = new Date(this.date);
+  var format = navigator.mozL10n.get('date-group-header');
+  var formattedDate = ThumbnailDateGroup.formatter.localeFormat(date, format);
+  this.header.textContent = formattedDate;
+  // Localize each of the group's thumbnails.
+  this.thumbnails.forEach(function(thumbnail) { thumbnail.localize(); });
 };

@@ -1,5 +1,5 @@
 /* global ScreenLayout, Promise,
-          Utils, FinishScreen */
+          Utils, FinishScreen, LazyLoader */
 /* exported Tutorial */
 
 (function(exports) {
@@ -10,47 +10,6 @@
 
   // Most used DOM elements
   var dom = {};
-
-  var HOMESCREEN_MANIFEST = 'homescreen.manifestURL';
-  var MSG_MIGRATE_CON = 'migrate';
-  var TXT_MSG = 'migrate';
-
-  function notifyHomescreenApp() {
-    _getHomescreenManifestURL(function(url) {
-      // Get default homescreen manifest URL from settings, and will only notify
-      // vertical homescreen to perform data migration
-      if (url !== 'app://verticalhome.gaiamobile.org/manifest.webapp') {
-        return;
-      }
-
-      navigator.mozApps.getSelf().onsuccess = function(evt) {
-        var app = evt.target.result;
-        if (app.connect) {
-          app.connect(MSG_MIGRATE_CON).then(function onConnAccepted(ports) {
-            // Get the token data info to attach to message
-            var message = {
-              txt: TXT_MSG
-            };
-            ports.forEach(function(port) {
-              port.postMessage(message);
-            });
-          }, function onConnRejected(reason) {
-            console.error('Cannot notify homescreen: ', reason);
-          });
-        } else {
-          console.error('mozApps does not have a connect method. ' +
-                        'Cannot launch the collection migration process');
-        }
-      };
-    });
-  }
-
-  function _getHomescreenManifestURL(callback) {
-    var req = navigator.mozSettings.createLock().get(HOMESCREEN_MANIFEST);
-    req.onsuccess = function() {
-      callback(req.result[HOMESCREEN_MANIFEST]);
-    };
-  }
 
   /**
    * Helper function to load imagaes and video
@@ -167,10 +126,6 @@
         }
       }, this);
 
-      // homescreen notification is out of band and neednt block
-      // the other init steps
-      notifyHomescreenApp();
-
       initTasks.next();
     },
 
@@ -275,7 +230,7 @@
       dom.tutorial.dataset.step = this._currentStep;
 
       // Internationalize
-      navigator.mozL10n.localize(
+      navigator.mozL10n.setAttributes(
         dom.tutorialStepTitle,
         stepData.l10nKey
       );
@@ -375,30 +330,12 @@
 
         var configUrl = '/config/' + currentLayout + '.json';
 
-        this._configPromise = new Promise(function(resolve, reject) {
-          var xhr = Tutorial._configRequest = new XMLHttpRequest();
-          xhr.open('GET', configUrl, true);
-          xhr.responseType = 'json';
-
-          xhr.onload = function() {
-            Tutorial._configRequest = null;
-            if (xhr.response) {
-              Tutorial.config = xhr.response;
-              resolve(Tutorial.config);
-            } else {
-              reject(
-                new Error('Tutorial config failed to load from: ' + configUrl)
-              );
-            }
-          };
-
-          xhr.onerror = function(err) {
-            Tutorial._configRequest = null;
-            reject(
-              new Error('Tutorial config failed to load from: ' + configUrl)
-            );
-          };
-          xhr.send(null);
+        this._configPromise = LazyLoader.getJSON(configUrl)
+                                        .then(function(json) {
+          Tutorial.config = json;
+          return Tutorial.config;
+        }, function() {
+          return new Error('Tutorial config failed to load from: ' + configUrl);
         });
       }
       return this._configPromise;
@@ -413,9 +350,6 @@
       if (this._initialization) {
         this._initialization.abort();
         this._initialization = null;
-      }
-      if (this._configRequest) {
-        this._configRequest.abort();
       }
       this._configPromise = null;
       this._currentStep = 1;

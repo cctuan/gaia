@@ -1,4 +1,4 @@
-/* global AttentionWindow, System */
+/* global AttentionWindow, Service */
 'use strict';
 
 (function(exports) {
@@ -53,6 +53,7 @@
       url: CSORIGIN + 'index.html',
       origin: CSORIGIN
     };
+    this.isCallscreenWindow = true;
     this.reConfig(this.config);
     this.render();
     if (this._DEBUG) {
@@ -116,7 +117,7 @@
     }
     var timestamp = new Date().getTime();
     var src = this.config.url + '#' +
-              (System.locked ? 'locked' : '');
+              (Service.locked ? 'locked' : '');
     src = src + '&timestamp=' + timestamp;
     this.browser.element.src = src;
     this._terminated = false;
@@ -128,6 +129,7 @@
       return;
     }
     this._terminated = true;
+    this.publish('terminated');
     if (this.isActive()) {
       var self = this;
       this.element.addEventListener('_closed', function onclosed() {
@@ -135,13 +137,11 @@
         self.element.removeEventListener('_closed', onclosed);
         self.hide();
         self.reloadWindow();
-        self.publish('terminated');
       });
       this.requestClose();
     } else {
       this.hide();
       this.reloadWindow();
-      this.publish('terminated');
     }
     // XXX: We are leaving the focus in the callscreen iframe
     if (document.activeElement === this.browser.element) {

@@ -20,27 +20,6 @@ define(function(require) {
   function Root() {}
 
   Root.prototype = {
-    _initSimItems: function root_initSimItems() {
-      // Show proper SIM items.
-      if (navigator.mozMobileConnections) {
-        if (navigator.mozMobileConnections.length == 1) { // single sim
-          document.getElementById('simCardManager-settings').hidden = true;
-        } else { // dsds
-          document.getElementById('simSecurity-settings').hidden = true;
-        }
-      } else {
-        // hide telephony panels
-        var elements = ['call-settings',
-                        'data-connectivity',
-                        'messaging-settings',
-                        'simSecurity-settings',
-                        'simCardManager-settings'];
-        elements.forEach(function(el) {
-          document.getElementById(el).hidden = true;
-        });
-      }
-    },
-
     _loadScripts: function root_loadScripts() {
       /**
        * Enable or disable the menu items related to the ICC card
@@ -48,10 +27,6 @@ define(function(require) {
        */
       LazyLoader.load([
         'js/firefox_accounts/menu_loader.js',
-        'js/try_show_homescreen_section.js',
-        'js/security_privacy.js',
-        'js/icc_menu.js',
-        'js/dsds_settings.js',
         'js/telephony_settings.js',
         'js/telephony_items_handler.js'
       ], function() {
@@ -64,7 +39,6 @@ define(function(require) {
     },
 
     init: function root_init() {
-      this._initSimItems();
       // Load the necessary scripts after the UI update.
       setTimeout(this._loadScripts);
     }

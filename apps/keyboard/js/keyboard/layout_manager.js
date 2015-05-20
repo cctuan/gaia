@@ -1,6 +1,6 @@
 'use strict';
 
-/* global KeyboardEvent, LayoutLoader, Promise */
+/* global KeyboardEvent, LayoutLoader, LayoutKeyNormalizer */
 
 /** @fileoverview These are special keyboard layouts.
  * Language-specific layouts are in individual js files in layouts/ .
@@ -33,8 +33,6 @@ var LayoutManager = function(app) {
 LayoutManager.prototype.start = function() {
   this.loader = new LayoutLoader();
   this.loader.start();
-
-  this._switchStateId = 0;
 };
 
 // Special key codes on special buttons
@@ -55,17 +53,8 @@ LayoutManager.prototype.PAGE_INDEX_DEFAULT = 0;
  *
  */
 LayoutManager.prototype.switchCurrentLayout = function(layoutName) {
-  var switchStateId = ++this._switchStateId;
-
   var loaderPromise = this.loader.getLayoutAsync(layoutName);
   var p = loaderPromise.then(function(layout) {
-    if (switchStateId !== this._switchStateId) {
-      console.log('LayoutManager: ' +
-        'Promise is resolved after another switchCurrentLayout() call.');
-
-      return Promise.reject();
-    }
-
     this._typeGenericLayoutName = layoutName;
     this.currentPageIndex = this.PAGE_INDEX_DEFAULT;
 
@@ -156,10 +145,12 @@ LayoutManager.prototype._updateCurrentPage = function() {
   // to prevent from modifying it.
   page = this.currentPage = Object.create(page);
 
+  var keyNormalizer = new LayoutKeyNormalizer(page);
+
   // These properties needs to be carry over to the page from the layout
   // regardless where the page is come from.
   ['imEngine', 'autoCorrectLanguage',
-    'autoCorrectPunctuation', 'needsCandidatePanel'
+    'autoCorrectPunctuation', 'needsCandidatePanel', 'lang'
   ].forEach(function(prop) {
     if (prop in layout) {
       page[prop] = layout[prop];
@@ -212,25 +203,27 @@ LayoutManager.prototype._updateCurrentPage = function() {
   // Insert switch-to-symbol-and-back keys
   if (!layout.disableAlternateLayout) {
     spaceKeyObject.ratio -= 2;
+    pageSwitchingKeyObject = {
+      keyCode: KeyboardEvent.DOM_VK_ALT,
+      ratio: 2,
+      className: 'page-switch-key'
+    };
     if (this.currentPageIndex === this.PAGE_INDEX_DEFAULT) {
-      pageSwitchingKeyObject = {
-        keyCode: KeyboardEvent.DOM_VK_ALT,
+      Object.assign(pageSwitchingKeyObject, {
         value: layout.alternateLayoutKey || '12&',
-        ratio: 2,
-        ariaLabel: 'alternateLayoutKey',
-        className: 'page-switch-key',
+        ariaLabel: 'alternateLayoutKey2',
         targetPage: 1
-      };
+      });
     } else {
-      pageSwitchingKeyObject = {
-        keyCode: KeyboardEvent.DOM_VK_ALT,
+      Object.assign(pageSwitchingKeyObject, {
         value: layout.basicLayoutKey || 'ABC',
-        ratio: 2,
-        ariaLabel: 'basicLayoutKey',
-        className: 'page-switch-key',
+        ariaLabel: 'basicLayoutKey2',
         targetPage: this.PAGE_INDEX_DEFAULT
-      };
+      });
     }
+
+    pageSwitchingKeyObject =
+      keyNormalizer.normalizeKey(pageSwitchingKeyObject, false);
 
     spaceKeyRow.splice(spaceKeyCount, 0, pageSwitchingKeyObject);
     spaceKeyCount++;
@@ -241,14 +234,16 @@ LayoutManager.prototype._updateCurrentPage = function() {
   if (needsSwitchingKey) {
     var imeSwitchKey = {
       value: '&#x1f310;', // U+1F310 GLOBE WITH MERIDIANS
-      ratio: 1,
+      uppercaseValue: '&#x1f310;',
       keyCode: this.KEYCODE_SWITCH_KEYBOARD,
-      className: 'switch-key'
+      className: 'switch-key',
+      isSpecialKey: true
     };
 
     // Replace the label with short label if there is one
     if (layout.shortLabel) {
       imeSwitchKey.value = layout.shortLabel;
+      imeSwitchKey.uppercaseValue = layout.shortLabel;
       imeSwitchKey.className += ' alternate-indicator';
     }
 
@@ -278,15 +273,9 @@ LayoutManager.prototype._updateCurrentPage = function() {
 
   // Respond to different input types
   if (!page.typeInsensitive) {
-    var periodKey = {
-      value: '.',
-      ratio: 1,
-      keyCode: 46
-    };
-    if (page.alt && page.alt['.']) {
-      periodKey.className = 'alternate-indicator';
-    }
-
+    var periodKey = keyNormalizer.normalizeKey({
+      value: '.'
+    }, !!(page.alt && page.alt['.']));
 
     var modifyType = 'default';
     // We have different rules to handle the default layout page and
@@ -320,11 +309,9 @@ LayoutManager.prototype._updateCurrentPage = function() {
       case 'url':
         spaceKeyObject.ratio -= 2.0;
         // Add '/' key when we are at the default page
-        spaceKeyRow.splice(spaceKeyCount, 0, {
-          value: '/',
-          ratio: 1,
-          keyCode: 47
-        });
+        spaceKeyRow.splice(spaceKeyCount, 0, keyNormalizer.normalizeKey(
+          { value: '/' }, false
+        ));
         spaceKeyCount++;
 
         // period key (after space key)
@@ -335,11 +322,9 @@ LayoutManager.prototype._updateCurrentPage = function() {
       case 'email':
         spaceKeyObject.ratio -= 2;
         // Add '@' key when we are at the default page
-        spaceKeyRow.splice(spaceKeyCount, 0, {
-          value: '@',
-          ratio: 1,
-          keyCode: 64
-        });
+        spaceKeyRow.splice(spaceKeyCount, 0, keyNormalizer.normalizeKey(
+          { value: '@' }, false
+        ));
         spaceKeyCount++;
 
         // period key (after space key)
@@ -362,15 +347,15 @@ LayoutManager.prototype._updateCurrentPage = function() {
         // set explicitly.
         if (overwrites[','] !== false &&
             (!needsSwitchingKey || page.needsCommaKey)) {
-          var commaKey = {
-            value: ',',
-            ratio: 1,
-            keyCode: 44
-          };
+
+          var commaKey;
 
           if (overwrites[',']) {
-            commaKey.value = overwrites[','];
-            commaKey.keyCode = overwrites[','].charCodeAt(0);
+            commaKey = overwrites[','];
+          } else {
+            commaKey = keyNormalizer.normalizeKey(
+              {value: ','}, !!(page.alt && page.alt[','])
+            );
           }
 
           spaceKeyObject.ratio -= 1;
@@ -381,8 +366,7 @@ LayoutManager.prototype._updateCurrentPage = function() {
         // Only add peroid key if we are asked to.
         if (overwrites['.'] !== false) {
           if (overwrites['.']) {
-            periodKey.value = overwrites['.'];
-            periodKey.keyCode = overwrites['.'].charCodeAt(0);
+            periodKey = overwrites['.'];
           }
 
           spaceKeyObject.ratio -= 1;

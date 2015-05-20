@@ -2,7 +2,6 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-from marionette.by import By
 from gaiatest import GaiaTestCase
 from gaiatest.mocks.mock_contact import MockContact
 from gaiatest.apps.phone.app import Phone
@@ -43,10 +42,11 @@ class TestAccessibilityPhoneCallLog(GaiaTestCase):
         self.assertFalse(self.accessibility.is_disabled(self.marionette.find_element(
             *call_log._call_log_edit_button_locator)))
 
+        call_list = call_log.call_list
         # Now check that one call appears in the call log
-        self.assertEqual(call_log.all_calls_count, 1)
+        self.assertEqual(len(call_list), 1)
         # Check that the call displayed is for the call we made
-        self.assertIn(test_phone_number, call_log.first_all_call_text)
+        self.assertIn(test_phone_number, call_list[0].phone_number)
 
         call_log_first_item = self.marionette.find_elements(
             *call_log._all_calls_list_item_button_locator)[0]

@@ -232,6 +232,9 @@ SettingsController.prototype.onOptionTap = function(key, setting) {
 SettingsController.prototype.onPickActivity = function(data) {
   debug('pick activity', data);
 
+  var setting;
+  var options;
+  var updated = false;
   var maxFileSize = data.maxFileSizeBytes;
   var maxPixelSize = data.maxPixelSize;
 
@@ -240,15 +243,49 @@ SettingsController.prototype.onPickActivity = function(data) {
   this.settings.dontSave();
 
   if (maxPixelSize) {
+    setting = this.settings.pictureSizes;
+    var lastMaxPixelSize = setting.get('maxPixelSize');
+
     this.settings.pictureSizesFront.set('maxPixelSize', maxPixelSize);
     this.settings.pictureSizesBack.set('maxPixelSize', maxPixelSize);
     debug('set maxPixelSize: %s', maxPixelSize);
+
+    if (lastMaxPixelSize !== maxPixelSize) {
+      options = setting.get('options');
+      var restricted = [];
+      if (options && options.length > 0) {
+        options.forEach(function(option) {
+          if (option.pixelSize <= maxPixelSize) {
+            restricted.push(option);
+          }
+        });
+        setting.resetOptions(restricted);
+        updated = true;
+      }
+    }
   }
 
   if (maxFileSize) {
+    setting = this.settings.recorderProfiles;
+    var lastMaxFileSize = setting.get('maxFileSizeBytes');
+
     this.settings.recorderProfilesFront.set('maxFileSizeBytes', maxFileSize);
     this.settings.recorderProfilesBack.set('maxFileSizeBytes', maxFileSize);
     debug('set maxFileSize: %s', maxFileSize);
+
+    if (lastMaxFileSize !== maxFileSize) {
+      options = setting.get('options');
+      if (options && options.length > 1) {
+        setting.resetOptions([options[options.length - 1]]);
+        updated = true;
+      }
+    }
+  }
+
+  // If the size restrictions come in after the camera was brought
+  // up, then we must retrigger a configuration event
+  if (updated) {
+    this.app.emit('settings:configured');
   }
 };
 
@@ -267,24 +304,24 @@ SettingsController.prototype.notify = function(setting, flashDeactivated) {
   if (dontNotify) { return; }
 
   var localizeOption = setting.get('optionsLocalizable') !== false;
-  var title = this.l10nGet(setting.get('title'));
-  var optionTitle = setting.selected('title');
-  var html;
-
+  var title = '<span data-l10n-id="' + setting.get('title') + '"></span>';
   // Localize option title only if not specified in the config
-  optionTitle = localizeOption ? this.l10nGet(optionTitle) : optionTitle;
+  var optionTitle = localizeOption ? 
+    '<span data-l10n-id="' + setting.selected('title') + '"></span>' :
+    '<span>' + optionTitle + '</span>';
+  var html;
 
   // Check if the `flashMode` setting is going to be deactivated as part
   // of the change in the `hdr` setting and display a specialized
   // notification if that is the case
   if (flashDeactivated) {
     html = title + ' ' + optionTitle + '<br/>' +
-      this.l10nGet('flash-deactivated');
+      '<span data-l10n-id="flash-deactivated"></span>';
   } else {
     html = title + '<br/>' + optionTitle;
   }
 
-  this.notification.display({ text: html });
+  this.notification.display({ text: {html: html} });
 };
 
 /**

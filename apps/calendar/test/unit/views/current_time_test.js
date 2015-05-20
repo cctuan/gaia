@@ -1,17 +1,12 @@
+define(function(require) {
+'use strict';
 
-requireLib('views/current_time.js');
+var CurrentTime = require('views/current_time');
 
-suiteGroup('Views.CurrentTime', function() {
-  'use strict';
-
-  var app;
+suite('Views.CurrentTime', function() {
   var subject;
   var container;
   var timespan;
-
-  suiteSetup(function() {
-    app = testSupport.calendar.app();
-  });
 
   setup(function() {
     var startOfDay = new Date();
@@ -34,10 +29,7 @@ suiteGroup('Views.CurrentTime', function() {
       'removeChild': sinon.spy()
     };
 
-    subject = new Calendar.Views.CurrentTime({
-      container: container,
-      timespan: timespan
-    });
+    subject = new CurrentTime({ container: container, timespan: timespan });
   });
 
   suite('#_create', function() {
@@ -52,6 +44,7 @@ suiteGroup('Views.CurrentTime', function() {
         'current-time',
         'className'
       );
+      assert.equal(subject.element.getAttribute('aria-hidden'), 'true');
       assert.ok(
         container.appendChild.calledWithExactly(subject.element),
         'append to DOM'
@@ -120,7 +113,7 @@ suiteGroup('Views.CurrentTime', function() {
   suite('#_maybeActivateInTheFuture', function() {
     var clock;
     var start;
-    var offset = 123456;
+    var offset = 24 * 60 * 60 * 1000;
 
     setup(function() {
       clock = sinon.useFakeTimers();
@@ -185,6 +178,7 @@ suiteGroup('Views.CurrentTime', function() {
 
     test('should update position and time', function() {
       subject._render();
+      assert.equal(subject.element.id, 'current-time-indicator');
       assert.deepEqual(
         subject.element,
         {
@@ -192,6 +186,7 @@ suiteGroup('Views.CurrentTime', function() {
           style: {
             top: '21.875%'
           },
+          id: 'current-time-indicator',
           dataset: {
             date: date,
             l10nDateFormat: 'current-time24'
@@ -462,5 +457,6 @@ suiteGroup('Views.CurrentTime', function() {
       assert.ok(container.removeChild.calledWithExactly(el), 'removeChild');
     });
   });
+});
 
 });

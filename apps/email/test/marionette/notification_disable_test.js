@@ -1,5 +1,6 @@
+'use strict';
 /*jshint node: true */
-/*global marionette, setup, test */
+/*global marionette, setup, test, Notification:true */
 
 var Email = require('./lib/email');
 var EmailData = require('./lib/email_data');
@@ -9,12 +10,7 @@ var serverHelper = require('./lib/server_helper');
 
 marionette('email notifications, disable', function() {
   var app, sync,
-      client = marionette.client({
-        settings: {
-          // disable keyboard ftu because it blocks our display
-          'keyboard.ftu.enabled': false
-        }
-      }),
+      client = marionette.client(),
       server1 = serverHelper.use({
                   credentials: {
                     username: 'testy1',
@@ -43,8 +39,9 @@ marionette('email notifications, disable', function() {
     // no cross sending of email across fakeserver instances.
     app.manualSetupImapEmail(server1);
 
-    for (var i = 0; i < messageCount; i++)
+    for (var i = 0; i < messageCount; i++) {
       sendEmail(server1);
+    }
   }
 
   setup(function() {

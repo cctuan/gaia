@@ -1,19 +1,15 @@
-/*global Factory */
+define(function(require) {
+'use strict';
 
-suite('Provider.Mock', function() {
-  'use strict';
+var Factory = require('test/support/factory');
+var nextTick = require('common/next_tick');
 
-  testSupport.calendar.loadObjects(
-    'Models.Account',
-    'Models.Calendar'
-  );
-
-  var app;
+suite('provider/mock', function() {
   var subject;
 
   setup(function() {
-    app = testSupport.calendar.app();
-    subject = Calendar.App.provider('Mock');
+    var core = testSupport.calendar.core();
+    subject = core.providerFactory.get('Mock');
   });
 
   test('staged data events', function(done) {
@@ -37,7 +33,7 @@ suite('Provider.Mock', function() {
       assert.ok(firedBefore, 'fires before event');
       assert.ok(!firedAfter, 'after fires after callback');
 
-      Calendar.nextTick(function() {
+      nextTick(function() {
         done(function() {
           assert.ok(firedAfter, 'fires after');
         });
@@ -198,5 +194,6 @@ suite('Provider.Mock', function() {
       });
     });
   });
+});
 
 });

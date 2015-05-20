@@ -2,24 +2,17 @@
 
 marionette('FontSizeUtils >', function() {
   var ReflowHelper =
-      require('../../../../tests/js-marionette/reflow_helper.js');
+      require('../../../../tests/jsmarionette/plugins/reflow_helper.js');
 
   var assert = require('assert');
-  var System = require('./lib/system.js');
 
   var EMAIL_APP = 'app://email.gaiamobile.org';
-  var client = marionette.client({
-    settings: {
-      'ftu.manifestURL': null,
-      'lockscreen.enabled': false
-    }
-  });
+  var client = marionette.client();
 
-  var sys = new System(client);
-
-  var reflowHelper;
+  var reflowHelper, sys;
 
   setup(function() {
+    sys = client.loader.getAppClass('system');
     reflowHelper = new ReflowHelper(client);
 
     var email = sys.waitForLaunch(EMAIL_APP);

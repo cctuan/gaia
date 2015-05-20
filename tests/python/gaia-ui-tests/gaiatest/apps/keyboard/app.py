@@ -3,11 +3,11 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-from marionette.by import By
-from marionette.marionette import Actions
-from marionette.wait import Wait
+from marionette_driver import expected, By, Wait
+from marionette_driver.marionette import Actions
 
 from gaiatest.apps.base import Base
+from gaiatest.apps.system.app import System
 
 
 class Keyboard(Base):
@@ -81,8 +81,8 @@ class Keyboard(Base):
     _space_key = '32'
 
     # keyboard app locators
-    _keyboards_locator = (By.ID, 'keyboards')
-    _keyboard_frame_locator = (By.CSS_SELECTOR, '#keyboards iframe:not([hidden])')
+    _keyboard_active_frame_locator = (By.CSS_SELECTOR, '#keyboards .inputWindow.active iframe')
+    _input_window_locator = (By.CSS_SELECTOR, '#keyboards .inputWindow')
     _button_locator = (By.CSS_SELECTOR, '.keyboard-type-container[data-active] button.keyboard-key[data-keycode="%s"], .keyboard-type-container[data-active] button.keyboard-key[data-keycode-upper="%s"]')
     _highlight_key_locator = (By.CSS_SELECTOR, '#keyboard-accent-char-menu button')
     _predicted_word_locator = (By.CSS_SELECTOR, '.autocorrect')
@@ -99,42 +99,39 @@ class Keyboard(Base):
     # Try to switch to the correct layout. There are 3 keyboard layers:
     # Basic (layoutPage = 0), Alternate (layoutPage = 1) and Symbol (layoutPage = 2)
     def _switch_to_correct_layout(self, val):
-        layout_page = self._layout_page
-        current_input_type = self._current_input_type
-        if val.isspace():
-            # Space is available on every keyboard panel
+        if val.isspace() or val in [',', '.']:
+            # certain keys are available on every keyboard panel
             pass
         # Alphabetic keys available on the basic page
         elif val.isalpha():
             is_upper_case = self._is_upper_case
             # If the key to press isalpha and the keyboard layout is not, go back to Basic
-            if not layout_page == 0:
+            if not self._layout_page == 0:
                 self._tap_page_switching_key(0)
-                self.wait_for_condition(lambda m: self._layout_page == 0)
+                Wait(self.marionette).until(lambda m: self._layout_page == 0)
             # If the key to press isupper and the keyboard is not (or vice versa) then press shift
             if not val.isupper() == is_upper_case:
                 self._tap(self._upper_case_key)
-                self.wait_for_condition(lambda m: is_upper_case != self._is_upper_case)
+                Wait(self.marionette).until(lambda m: is_upper_case != self._is_upper_case)
         # Numbers and symbols are in other keyboard panels
         else:
             # If it's not space or alpha then it must be in Alternate or Symbol.
             # It can't be in Basic so let's go into Alternate and then try to find it
-            if not current_input_type == 'number' and layout_page == 0:
+            if self._layout_page == 0 and not self._current_input_type == 'number' and not self._current_input_mode == 'numeric':
                 self._tap_page_switching_key(1)
                 page_0_key_locator = (self._page_switching_key_locator[0], self._page_switching_key_locator[1] % (0))
-                self.wait_for_element_displayed(*page_0_key_locator)
+                Wait(self.marionette).until(expected.element_displayed(*page_0_key_locator))
             # If it is not present here then it must be in the other non-Basic page
             # (since we must be in either Alternate or Symbol at this stage)
             if not self.is_element_present(*self._key_locator(val)):
-                layout_page = self._layout_page
-                if layout_page == 1:
+                if self._layout_page == 1:
                     self._tap_page_switching_key(2)
                     page_1_key_locator = (self._page_switching_key_locator[0], self._page_switching_key_locator[1] % (1))
-                    self.wait_for_element_displayed(*page_1_key_locator)
+                    Wait(self.marionette).until(expected.element_displayed(*page_1_key_locator))
                 else:
                     self._tap_page_switching_key(1)
                     page_2_key_locator = (self._page_switching_key_locator[0], self._page_switching_key_locator[1] % (2))
-                    self.wait_for_element_displayed(*page_2_key_locator)
+                    Wait(self.marionette).until(expected.element_displayed(*page_2_key_locator))
 
     @property
     def _is_upper_case(self):
@@ -152,22 +149,30 @@ class Keyboard(Base):
     def _layout_page(self):
         return self.marionette.execute_script('return window.wrappedJSObject.app.layoutManager.currentPageIndex;')
 
-    # this is to switch to the frame of keyboard
-    def switch_to_keyboard(self):
-        self.marionette.switch_to_frame()
-        keyboards = self.marionette.find_element(*self._keyboards_locator)
-        self.wait_for_condition(lambda m: 'hide' not in keyboards.get_attribute('class') and \
-            keyboards.location['y'] == 0,
-            message="Keyboard not interpreted as displayed. Debug is_displayed(): %s"
-                %keyboards.is_displayed())
+    @property
+    def _current_input_mode(self):
+        return self.marionette.execute_script('return window.wrappedJSObject.app.inputContext.inputMode;')
 
-        keybframe = self.marionette.find_element(*self._keyboard_frame_locator)
-        return self.marionette.switch_to_frame(keybframe, focus=False)
+    # this is to switch to the frame of keyboard
+    def switch_to_keyboard(self, focus=False):
+        self.marionette.switch_to_frame()
+        input_window = self.marionette.find_element(*self._input_window_locator)
+
+        # if we have software buttons, keyboar's y will not be 0 but the minus height of the button container.
+        expected_y = -System(self.marionette).software_buttons_height
+
+        Wait(self.marionette).until(
+            lambda m: 'active' in input_window.get_attribute('class') and input_window.location['y'] == expected_y,
+            message='Keyboard inputWindow not interpreted as displayed. Debug is_displayed(): %s, class: %s.'
+            % (input_window.is_displayed(), input_window.get_attribute('class')))
+
+        keybframe = self.marionette.find_element(*self._keyboard_active_frame_locator)
+        return self.marionette.switch_to_frame(keybframe, focus)
 
     @property
     def current_keyboard(self):
         self.marionette.switch_to_frame()
-        keyboard = self.marionette.find_element(*self._keyboard_frame_locator).get_attribute('data-frame-name')
+        keyboard = self.marionette.find_element(*self._keyboard_active_frame_locator).get_attribute('data-frame-name')
         return keyboard
 
     # this is to get the locator of desired key on keyboard
@@ -178,27 +183,23 @@ class Keyboard(Base):
 
     # this is to tap on desired key on keyboard
     def _tap(self, val):
-        is_upper_case = self._is_upper_case
-        is_upper_case_locked = self._is_upper_case_locked
-
-        self.wait_for_element_displayed(*self._key_locator(val))
-        key = self.marionette.find_element(*self._key_locator(val))
-        Actions(self.marionette).press(key).wait(0.1).release().perform()
+        key = Wait(self.marionette).until(expected.element_present(*self._key_locator(val)))
+        Wait(self.marionette).until(expected.element_displayed(key))
+        Actions(self.marionette).press(key).release().perform()
 
         # These two tap cases are most important because they cause the keyboard to change state which affects next step
         if val.isspace():
             # Space switches back to Default layout
-            self.wait_for_condition(lambda m: self._layout_page == 0)
-        if val.isupper() and is_upper_case and not is_upper_case_locked:
+            Wait(self.marionette).until(lambda m: self._layout_page == 0)
+        if val.isupper() and not self._is_upper_case_locked:
             # Tapping key with shift enabled causes the keyboard to switch back to lower
-            self.wait_for_condition(lambda m: not self._is_upper_case)
+            Wait(self.marionette).until(lambda m: not self._is_upper_case)
 
     def _tap_page_switching_key(self, val):
         locator = (self._page_switching_key_locator[0], self._page_switching_key_locator[1] % val)
-
-        self.wait_for_element_displayed(*locator)
-        key = self.marionette.find_element(*locator)
-        Actions(self.marionette).press(key).wait(0.1).release().perform()
+        key = Wait(self.marionette).until(expected.element_present(*locator))
+        Wait(self.marionette).until(expected.element_displayed(key))
+        Actions(self.marionette).press(key).release().perform()
 
     # This is for selecting special characters after long pressing
     # "selection" is the nth special element you want to select (n>=1)
@@ -208,8 +209,8 @@ class Keyboard(Base):
 
         # after switching to correct keyboard, set long press if the key is there
         self._switch_to_correct_layout(long_press_key)
-        self.wait_for_element_displayed(*self._key_locator(long_press_key))
-        key = self.marionette.find_element(*self._key_locator(long_press_key))
+        key = Wait(self.marionette).until(expected.element_present(*self._key_locator(long_press_key)))
+        Wait(self.marionette).until(expected.element_displayed(key))
         action.press(key).wait(1).perform()
 
         # find the extended key and perform the action chain
@@ -241,13 +242,19 @@ class Keyboard(Base):
                 action.press(middle_key).wait(1).perform()
 
                 # find the targeted extended key to send
-                self.wait_for_element_displayed(*self._key_locator(val))
-                target_key = self.marionette.find_element(*self._key_locator(val))
-                action.move(target_key).release().perform()
+                key = Wait(self.marionette).until(
+                    expected.element_present(*self._key_locator(val)))
+                Wait(self.marionette).until(expected.element_displayed(key))
+                action.move(key).release().perform()
             else:
                 # after switching to correct keyboard, tap/click if the key is there
                 self._switch_to_correct_layout(val)
                 self._tap(val)
+
+                # when we tap on '@' the layout switches to the default keyboard - Bug 996332
+                if val == '@':
+                    Wait(self.marionette).until(
+                        lambda m: self._layout_page == 0)
 
         self.apps.switch_to_displayed_app()
 
@@ -286,8 +293,10 @@ class Keyboard(Base):
 
     def tap_keyboard_language_key(self):
         self.switch_to_keyboard()
-        self.wait_for_element_displayed(*self._language_key_locator)
-        self.marionette.find_element(*self._language_key_locator).tap()
+        key = Wait(self.marionette).until(
+            expected.element_present(*self._language_key_locator))
+        Wait(self.marionette).until(expected.element_displayed(key))
+        key.tap()
         self.apps.switch_to_displayed_app()
 
     # following are "5 functions" to substitute finish switch_to_frame()s and tap() for you
@@ -319,37 +328,57 @@ class Keyboard(Base):
         self.apps.switch_to_displayed_app()
 
     def dismiss(self):
+        # Make sure that keyboard is focused, otherwise dismissing it doesn't work
+        self.switch_to_keyboard(focus=True)
         self.marionette.switch_to_frame()
         # navigator.mozKeyboard is needed for v1.3 support
         self.marionette.execute_script("""
 var keyboard = navigator.mozKeyboard || navigator.mozInputMethod;
 keyboard.removeFocus();""")
-        keyboards = self.marionette.find_element(*self._keyboards_locator)
+        input_window = self.marionette.find_element(*self._input_window_locator)
+
+        # if we have software buttons, keyboar's y will not be 0 but the minus height of the button container.
+        expected_y = int(input_window.size['height']) - System(self.marionette).software_buttons_height
+
         Wait(self.marionette).until(
-            lambda m: 'hide' in keyboards.get_attribute('class') and
-            not keyboards.is_displayed() and
-            int(keyboards.location['y']) == int(keyboards.size['height']),
+            lambda m: 'active' not in input_window.get_attribute('class') and
+            not input_window.is_displayed() and
+            (int(input_window.location['y']) == expected_y),
             message="Keyboard was not dismissed. Debug is_displayed(): %s, class: %s."
-                    %(keyboards.is_displayed(), keyboards.get_attribute('class')))
+                    %(input_window.is_displayed(), input_window.get_attribute('class')))
         self.apps.switch_to_displayed_app()
 
     def tap_first_predictive_word(self):
         self.switch_to_keyboard()
-        self.wait_for_element_displayed(*self._predicted_word_locator)
-        self.marionette.find_element(*self._predicted_word_locator).tap()
+        key = Wait(self.marionette).until(
+            expected.element_present(*self._predicted_word_locator))
+        Wait(self.marionette).until(expected.element_displayed(key))
+        key.tap()
+        self.apps.switch_to_displayed_app()
+
+    def tap_suggestion(self, word):
+        self.switch_to_keyboard()
+
+        # find the requested suggestion
+        selector = (By.CSS_SELECTOR, '.suggestions-container span[data-data=\"%s\"]' % word)
+        key = Wait(self.marionette).until(expected.element_present(*selector))
+        Wait(self.marionette).until(expected.element_displayed(key))
+        key.tap()
         self.apps.switch_to_displayed_app()
 
     # Accessibility related properties and methods
 
     def _a11y_get_role(self, locator_args):
-        self.wait_for_element_displayed(*locator_args)
-        return self.accessibility.get_role(
-            self.marionette.find_element(*locator_args))
+        element = Wait(self.marionette).until(
+            expected.element_present(*locator_args))
+        Wait(self.marionette).until(expected.element_displayed(element))
+        return self.accessibility.get_role(element)
 
     def _a11y_get_name(self, locator_args):
-        self.wait_for_element_displayed(*locator_args)
-        return self.accessibility.get_name(
-            self.marionette.find_element(*locator_args))
+        element = Wait(self.marionette).until(
+            expected.element_present(*locator_args))
+        Wait(self.marionette).until(expected.element_displayed(element))
+        return self.accessibility.get_name(element)
 
     @property
     def a11y_first_predictive_word_name(self):
@@ -403,7 +432,12 @@ keyboard.removeFocus();""")
 
     def a11y_first_predictive_word_click(self):
         self.switch_to_keyboard()
-        self.wait_for_element_displayed(*self._predicted_word_locator)
-        self.accessibility.click(
-            self.marionette.find_element(*self._predicted_word_locator))
+        element = Wait(self.marionette).until(
+            expected.element_present(*self._predicted_word_locator))
+        Wait(self.marionette).until(expected.element_displayed(element))
+        self.accessibility.click(element)
         self.apps.switch_to_displayed_app()
+
+    @property
+    def is_keyboard_displayed(self):
+        return 'active' in self.marionette.find_element(*self._input_window_locator).get_attribute('class')

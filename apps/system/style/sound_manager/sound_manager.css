@@ -5,10 +5,10 @@
   left: 0;
   right: 0;
   height: 4rem;
-  -moz-transition: opacity 0.5s ease;
-  pointer-events: none;
+  -moz-transition: opacity var(--transition-duration) ease;
   display: none;
   background-image: url("images/header_bg.png");
+  pointer-events: auto;
 }
 
 #volume.visible {

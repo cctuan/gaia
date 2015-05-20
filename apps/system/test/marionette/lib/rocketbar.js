@@ -18,21 +18,6 @@ function Rocketbar(client) {
 
 module.exports = Rocketbar;
 
-Rocketbar.clientOptions = {
-  prefs: {
-    // This is true on Gonk, but false on desktop, so override.
-    'dom.inter-app-communication-api.enabled': true,
-    'dom.w3c_touch_events.enabled': 1
-  },
-  settings: {
-    'homescreen.manifestURL':
-      'app://verticalhome.gaiamobile.org/manifest.webapp',
-    'ftu.manifestURL': null,
-    'keyboard.ftu.enabled': false,
-    'lockscreen.enabled': false
-  }
-};
-
 Rocketbar.prototype = {
   selectors: {
     activeBrowserFrame: '#windows .appWindow.active',
@@ -43,7 +28,8 @@ Rocketbar.prototype = {
     cancel: '#rocketbar-cancel',
     clear: '#rocketbar-clear',
     backdrop: '#rocketbar-backdrop',
-    results: '#rocketbar-results'
+    results: '#rocketbar-results',
+    appTitle: '.appWindow.active .chrome .title'
   },
 
   /**
@@ -77,11 +63,17 @@ Rocketbar.prototype = {
    * the homescreen app. If we move it to the system app we can remove this.
    */
   homescreenFocus: function() {
-    var HomeLib = require(
-      '../../../../../apps/verticalhome/test/marionette/lib/home2');
-    var homeLib = new HomeLib(this.client);
+    var homeLib = this.client.loader.getAppClass('verticalhome');
     homeLib.waitForLaunch();
     homeLib.focusRocketBar();
+  },
+
+  /**
+   * Trigger rocketbar from app title.
+   */
+  appTitleFocus: function() {
+    var title = this.client.findElement(this.selectors.appTitle);
+    title.click();
   },
 
   /**
@@ -99,6 +91,12 @@ Rocketbar.prototype = {
         window.wrappedJSObject.rocketbar.handleInput();
       });
     }
+
+    // Manually blur the input with script or the keyboard can mess up
+    // visibility in tests.
+    input.scriptWith(function(el) {
+      el.blur();
+    });
   },
 
   /**

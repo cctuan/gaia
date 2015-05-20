@@ -1,22 +1,18 @@
-/*global Factory */
+define(function(require, exports, module) {
+'use strict';
 
-requireLib('responder.js');
-requireLib('db.js');
-requireLib('store/abstract.js');
-requireLib('models/account.js');
-requireApp('calendar/test/unit/helper.js');
+var Abstract = require('store/abstract');
+var Factory = require('test/support/factory');
+var Responder = require('common/responder');
+var core = require('core');
 
 suite('store/abstract', function() {
-  'use strict';
-
   var subject;
   var db;
-  var app;
 
   setup(function(done) {
-    app = testSupport.calendar.app();
-    db = app.db;
-    subject = new Calendar.Store.Abstract(db);
+    db = core.db;
+    subject = new Abstract(db);
 
     // set _store to accounts so we can actually
     // persist stuff.
@@ -47,8 +43,7 @@ suite('store/abstract', function() {
   });
 
   test('initialization', function() {
-    assert.equal(subject.db, db);
-    assert.instanceOf(subject, Calendar.Responder);
+    assert.instanceOf(subject, Responder);
     assert.deepEqual(subject._cached, {});
   });
 
@@ -166,7 +161,7 @@ suite('store/abstract', function() {
           });
         }
 
-        trans = subject.db.transaction(
+        trans = core.db.transaction(
           subject._store,
           'readwrite'
         );
@@ -322,7 +317,7 @@ suite('store/abstract', function() {
 
   suite('#count', function() {
     setup(function(done) {
-      var trans = subject.db.transaction(
+      var trans = core.db.transaction(
         subject._store,
         'readwrite'
       );
@@ -370,7 +365,7 @@ suite('store/abstract', function() {
       var results = [];
 
       function complete() {
-        assert.length(results, expected);
+        assert.lengthOf(results, expected);
 
         var idx = 1;
 
@@ -459,5 +454,6 @@ suite('store/abstract', function() {
     });
 
   });
+});
 
 });

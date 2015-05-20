@@ -1,14 +1,15 @@
 define(function(require) {
   'use strict';
 
-  var SettingsPanel = require('modules/settings_panel');
+  var DialogPanel = require('modules/dialog_panel');
   var WifiHelper = require('shared/wifi_helper');
+  var WifiContext = require('modules/wifi_context');
   var wifiManager = WifiHelper.getWifiManager();
 
   return function ctor_statusWifi() {
     var elements = {};
 
-    return SettingsPanel({
+    return DialogPanel({
       onInit: function(panel) {
         elements = {};
         elements.ip = panel.querySelector('[data-ip]');
@@ -21,24 +22,26 @@ define(function(require) {
         this._updateNetworkInfo();
         elements.ssid.textContent = options.network.ssid;
         elements.signal.setAttribute('data-l10n-id',
-                                     'signalLevel' + options.sl);
+          'signalLevel' + options.sl);
         if (options.security) {
           elements.security.removeAttribute('data-l10n-id');
           elements.security.textContent = options.security;
         } else {
           elements.security.setAttribute('data-l10n-id', 'securityNone');
         }
-        wifiManager.onconnectioninfoupdate = this._updateNetworkInfo;
+
+        WifiContext.addEventListener('wifiConnectionInfoUpdate',
+          this._updateNetworkInfo);
       },
       onBeforeHide: function() {
-        wifiManager.onconnectioninfoupdate = null;
+        WifiContext.removeEventListener('wifiConnectionInfoUpdate',
+          this._updateNetworkInfo);
       },
       _updateNetworkInfo: function() {
         var info = wifiManager.connectionInformation || {};
         elements.ip.textContent = info.ipAddress || '';
         navigator.mozL10n.setAttributes(elements.speed,
-                                        'linkSpeedMbs',
-                                        { linkSpeed: info.linkSpeed });
+          'linkSpeedMbs', { linkSpeed: info.linkSpeed });
       }
     });
   };

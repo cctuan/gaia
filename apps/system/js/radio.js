@@ -1,15 +1,9 @@
-/* exported Radio */
-/* global CustomEvent */
+/* global BaseModule, MobileConnectionIcon, OperatorIcon, LazyLoader */
 
 'use strict';
 
-(function(exports) {
-
-  if (!window.navigator.mozMobileConnections) {
-    return;
-  }
-
-  var Radio = function() {
+(function() {
+  var Radio = function(core) {
     /*
      * An internal key used to make sure Radio is
      * enabled or not.
@@ -27,11 +21,10 @@
     this._setRadioOpCount = 0;
 
     /*
-     * An internal array storing the expecting radio states.
-     *
-     * @default {Boolean} false
+     * Data connection type mapping result
      */
-    this._expectedRadioStates = [];
+    this.types = [];
+    this.states = [];
 
     /*
      * An internal key used to track whether there is any error
@@ -44,102 +37,147 @@
     /*
      * An internal variable to cache mozMobileConnections
      */
-    this._mozMobileConnections = null;
-
-    this._init();
+    this._mobileConnections = core.mobileConnections || null;
   };
 
-  Radio.prototype = {
+  Radio.EVENTS = [
+    'airplanemode-enabled',
+    'airplanemode-disabled',
+    'callschanged'
+  ];
 
-    /*
-     * We can use this value to know Radio is enabled or not
-     *
-     * @return {Boolean}
-     */
-    get enabled() {
-      return this._enabled;
+  Radio.SETTINGS = [
+    'operatorResources.data.icon'
+  ];
+
+  Radio.STATES = [
+    'enabled',
+    'isCDMA',
+    'getDataConnectionType'
+  ];
+
+  BaseModule.create(Radio, {
+    name: 'Radio',
+    EVENT_PREFIX: 'radio',
+
+    isCDMA: function(index) {
+      return !!this.dataExclusiveCDMATypes[
+              this.mobileConnections[index].data.type];
     },
 
-    /*
-     * An internal helper to make mobileConnections iterable
-     */
-    get mobileConnections() {
-      if (!this._mozMobileConnections) {
-        this._mozMobileConnections =
-          Array.prototype.slice.call(window.navigator.mozMobileConnections);
+    getDataConnectionType: function(index) {
+      return this.types[index];
+    },
+
+    '_handle_callschanged': function() {
+      this.icon && this.icon.updateData();
+    },
+
+    '_handle_airplanemode-enabled': function() {
+      this.enabled = false;
+    },
+
+    '_handle_airplanemode-disabled': function() {
+      this.enabled = true;
+    },
+
+    '_observe_operatorResources.data.icon': function(value) {
+      var dataIconValues = value;
+      if (!dataIconValues) {
+        return;
       }
-      return this._mozMobileConnections;
-    },
 
-    /*
-     * We can set this value to tell Radio service turn on / off
-     * radio.
-     *
-     * @param {Boolean} value
-     */
-    set enabled(value) {
-      if (value !== this._enabled) {
-        this._setRadioOpCount = 0;
-        this._isSetRadioOpError = false;
-
-        this.mobileConnections.forEach(function(conn, index) {
-          this._setRadioEnabled(conn, value);
-        }, this);
-      }
-    },
-
-    /*
-     * We can addEventListener on conn with this helper.
-     * This is used only when one mobileConnection got enabled
-     * by Gecko when Emergency call happened.
-     *
-     * In order not to bind this on multiple connecitnos, we
-     * only bind on the first one with simcard inserted
-     *
-     * @param {String} key
-     * @param {Function} callback
-     */
-    addEventListener: function(key, callback) {
-      if (key === 'radiostatechange') {
-        this.mobileConnections.forEach(function(conn, index) {
-          conn.addEventListener(key, function() {
-            var connState = conn.radioState;
-            callback(connState);
-          });
-        });
-      }
-    },
-
-    /*
-     * Checks if the state change is expected. If not, we should re-enable the
-     * radio when necessary.
-     */
-    _onRadioStateChange: function(conn, index) {
-      if (this._expectedRadioStates[index] !== null) {
-        // we are expecting radio state changes
-        if (this._expectedRadioStates[index] &&
-            conn.radioState === 'enabled' ||
-            !this._expectedRadioStates[index] &&
-            conn.radioState === 'disabled') {
-          // clear the expected state if the real state meets the expection.
-          this._expectedRadioStates[index] = null;
+      for (var key in dataIconValues) {
+        //Change only dataIcon values that actually really know
+        if (this.mobileDataIconTypes[key]) {
+          this.mobileDataIconTypes[key] = dataIconValues[key];
         }
-      } else {
-        // there is an unexpected radio state change from gecko
-        this._reEnableRadioIfNeeded(conn, index);
       }
+    },
+
+    _onDataChange: function(conn, index) {
+      this.types[index] = this.mobileDataIconTypes[conn.data.type];
+      if (this.mobileConnections.length === 1) {
+        this.operatorIcon.update();
+      }
+      this.icon && this.icon.update(index);
+      this.icon && this.icon.updateData(index);
+    },
+
+    _onVoiceChange: function(conn, index) {
+      if (this.operatorIcon && this.mobileConnections.length === 1) {
+        this.operatorIcon.update();
+      }
+      this.icon && this.icon.update(index);
+    },
+
+    _onRadioStateChange: function(conn, index) {
+      this.icon && this.icon.update(index);
+      this.debug('radiostatechange: [' + index + '] ' + conn.radioState);
+      this.publish('statechange', {
+        index: index,
+        state: conn.radioState
+      });
     },
 
     /*
      * An internal function used to make sure current radioState
      * is ok to do following operations.
      */
-    _init: function() {
+    _start: function() {
+      this.dataExclusiveCDMATypes = {
+        'evdo0': true, 'evdoa': true, 'evdob': true, // data call only
+        '1xrtt': true, 'is95a': true, 'is95b': true  // data call or voice call
+      };
+      /* A mapping table between technology names
+         we would get from API v.s. the icon we want to show. */
+      this.mobileDataIconTypes = {
+        'lte': '4G', // 4G LTE
+        'ehrpd': '4G', // 4G CDMA
+        'hspa+': 'H+', // 3.5G HSPA+
+        'hsdpa': 'H', 'hsupa': 'H', 'hspa': 'H', // 3.5G HSDPA
+        'evdo0': 'Ev', 'evdoa': 'Ev', 'evdob': 'Ev', // 3G CDMA
+        'umts': '3G', // 3G
+        'edge': 'E', // EDGE
+        'gprs': '2G',
+        '1xrtt': '1x', 'is95a': '1x', 'is95b': '1x' // 2G CDMA
+      };
+      this.service.request('stepReady', '#languages').then(function() {
+        this.debug('step is resolved.');
+        LazyLoader.load(['js/roaming_icon.js', 
+                         'js/signal_icon.js',
+                         'js/mobile_connection_icon.js']).then(function() {
+                            this._stepReady = true;
+                            this.icon = new MobileConnectionIcon(this);
+                            this.icon.start();
+                         }.bind(this)).catch(function(err) {
+                           console.error(err);
+                         });
+      }.bind(this));
+      LazyLoader.load(['js/operator_icon.js']).then(function() {
+        this.operatorIcon = new OperatorIcon(this);
+        this.operatorIcon.start();
+      }.bind(this)).catch(function(err) {
+        console.error(err);
+      });
       this.mobileConnections.forEach(function(conn, index) {
-        this._expectedRadioStates.push(null);
+        this.types.push('');
         conn.addEventListener('radiostatechange',
           this._onRadioStateChange.bind(this, conn, index));
+        conn.addEventListener('datachange',
+          this._onDataChange.bind(this, conn, index));
+        conn.addEventListener('voicechange',
+          this._onVoiceChange.bind(this, conn, index));
       }, this);
+      this.service.request('AirplaneMode:registerNetwork', 'radio', this);
+      var airplaneMode = this.service.query('AirplaneMode.isActive');
+      if (undefined !== airplaneMode) {
+        this.enabled = !airplaneMode;
+      }
+    },
+
+    _stop: function() {
+      this.service.request('AirplaneMode:unregisterNetwork', 'radio', this);
     },
 
     /*
@@ -149,11 +187,12 @@
      * @param {MozMobileConnection} conn
      * @param {Boolean} enabled
      */
-    _setRadioEnabled: function(conn, enabled) {
+    _setRadioEnabled: function(conn, enabled, index) {
+      this.debug(conn.radioState + ' ======> ' + enabled);
       if (conn.radioState !== 'enabling' &&
           conn.radioState !== 'disabling' &&
           conn.radioState !== null) {
-        this._doSetRadioEnabled(conn, enabled);
+        this._doSetRadioEnabled(conn, enabled, index);
       } else {
         var radioStateChangeHandler = (function onchange() {
           if (conn.radioState == 'enabling' ||
@@ -163,7 +202,7 @@
           }
           conn.removeEventListener('radiostatechange',
             radioStateChangeHandler);
-          this._doSetRadioEnabled(conn, enabled);
+          this._doSetRadioEnabled(conn, enabled, index);
         }).bind(this);
         conn.addEventListener('radiostatechange', radioStateChangeHandler);
       }
@@ -175,24 +214,25 @@
      * @param {MozMobileConnection} conn
      * @param {Boolean} enabled
      */
-    _doSetRadioEnabled: function(conn, enabled) {
-      // Set the expected state so that we can tell whether a radio change
-      // results from gaia or gecko.
-      this._expectedRadioStates[this.mobileConnections.indexOf(conn)] = enabled;
-
+    _doSetRadioEnabled: function(conn, enabled, index) {
+      this.debug('Real operation to turn ' + (enabled ? 'on' : 'off') +
+        ' for ' + index + ' connection.');
       var self = this;
-      var req = conn.setRadioEnabled(enabled);
+      (function() {
+        var req = conn.setRadioEnabled(enabled);
 
-      req.onsuccess = function() {
-        self._setRadioOpCount++;
-        self._setRadioAfterReqsCalled(enabled);
-      };
+        req.onsuccess = function() {
+          self._setRadioOpCount++;
+          self._setRadioAfterReqsCalled(enabled);
+        };
 
-      req.onerror = function() {
-        self._isSetRadioOpError = true;
-        self._setRadioOpCount++;
-        self._setRadioAfterReqsCalled(enabled);
-      };
+        req.onerror = function() {
+          self.debug('toggle connection ' + index + ' error.');
+          self._isSetRadioOpError = true;
+          self._setRadioOpCount++;
+          self._setRadioAfterReqsCalled(enabled);
+        };
+      }());
     },
 
     /*
@@ -208,22 +248,58 @@
       }
 
       if (this._setRadioOpCount !== this.mobileConnections.length) {
+        this.debug('operation not completed yet.', this._setRadioOpCount);
         return;
       } else {
         this._enabled = enabled;
         var evtName = enabled ?
-          'radio-enabled' : 'radio-disabled';
+          '-enabled' : '-disabled';
 
-        window.dispatchEvent(new CustomEvent(evtName));
+        this.publish(evtName);
+      }
+    }
+  }, {
+    /*
+     * We can use this value to know Radio is enabled or not
+     *
+     * @return {Boolean}
+     */
+    enabled: {
+      congfigurable: false,
+      get: function() {
+        return this._enabled;
+      },
+      /*
+       * We can set this value to tell Radio service turn on / off
+       * radio.
+       *
+       * @param {Boolean} value
+       */
+      set: function(value) {
+        this.debug(this._enabled + ' => ' + value);
+        if (value !== this._enabled) {
+          this._setRadioOpCount = 0;
+          this._isSetRadioOpError = false;
+
+          this.mobileConnections.forEach(function(conn, index) {
+            this._setRadioEnabled(conn, value, index);
+          }, this);
+        }
       }
     },
 
-    _reEnableRadioIfNeeded: function(conn) {
-      if (conn.radioState === 'disabled' && this.enabled) {
-        this._setRadioEnabled(conn, true);
+    /*
+     * An internal helper to make mobileConnections iterable
+     */
+    mobileConnections: {
+      congfigurable: false,
+      get: function() {
+        if (!this._mozMobileConnections) {
+          this._mozMobileConnections =
+            Array.prototype.slice.call(this._mobileConnections);
+        }
+        return this._mozMobileConnections;
       }
     }
-  };
-
-  window.Radio = new Radio();
-})(window);
+  });
+})();

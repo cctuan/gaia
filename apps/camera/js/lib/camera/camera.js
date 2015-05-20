@@ -56,6 +56,10 @@ function Camera(options) {
   // The minimum available disk space to start recording a video.
   this.recordSpaceMin = options.recordSpaceMin || 1024 * 1024 * 2;
 
+  // The number of times to attempt
+  // hardware request before giving up
+  this.requestAttempts = options.requestAttempts || 3;
+
   // Test hooks
   this.getVideoMetaData = options.getVideoMetaData || getVideoMetaData;
   this.orientation = options.orientation || orientation;
@@ -75,10 +79,6 @@ function Camera(options) {
 
   this.focus = new Focus(options.focus);
   this.suspendedFlashCount = 0;
-
-  // Indicate this first
-  // load hasn't happened yet.
-  this.isFirstLoad = true;
 
   // Always boot in 'picture' mode
   // with 'back' camera. This may need
@@ -107,15 +107,6 @@ function Camera(options) {
 Camera.prototype.load = function() {
   debug('load camera');
 
-  // First load is different as we
-  // fetch the mozCameraConfig from
-  // the previous session and boot
-  // with that to optimize startup.
-  if (this.isFirstLoad) {
-    this.firstLoad();
-    return;
-  }
-
   var loadingNewCamera = this.selectedCamera !== this.lastLoadedCamera;
   var self = this;
 
@@ -131,6 +122,7 @@ Camera.prototype.load = function() {
   if (this.mozCamera && !loadingNewCamera) {
     this.setupNewCamera(this.mozCamera);
     debug('camera not changed');
+    this.ready();
     return;
   }
 
@@ -140,7 +132,6 @@ Camera.prototype.load = function() {
   // as the previous camera config
   // won't apply to the new camera.
   if (this.mozCamera) {
-    this.mozCameraConfig = null;
     this.release(ready);
   } else {
     ready();
@@ -158,104 +149,9 @@ Camera.prototype.load = function() {
   // request the camera again in exactly
   // the same state it was previously in.
   function ready() {
-    self.requestCamera(self.selectedCamera, self.mozCameraConfig);
+    self.requestCamera(self.selectedCamera);
     self.lastLoadedCamera = self.selectedCamera;
   }
-};
-
-/**
- * When the camera is loaded for the first
- * time run this specially optimized load path.
- *
- * We fetch the a previous camera config from storage
- * and request the camera *with* a configuration.
- *
- * This means that we get back a pre-configured
- * mozCamera and we don't have to run `.configure()`
- * on the critical path. This saves us ~400ms.
- *
- * @private
- */
-Camera.prototype.firstLoad = function() {
-  debug('first load');
-
-  var config = this.fetchBootConfig() || {};
-  var self = this;
-
-  // Save this to memory so that we can re-request
-  // the camera quickly after it has been .release()'d.
-  this.mozCameraConfig = config.mozCameraConfig;
-
-  // Request the camera, passing in the config.
-  // If this is the first time the camera app
-  // has been used `mozCameraConfig` will be undefined.
-  this.requestCamera(this.selectedCamera, this.mozCameraConfig);
-
-  // Set the pictureSize and recorderProfile
-  // as soon as we get the camera hardware.
-  // Set the `pictureSize` and `recorderProfile`
-  // from the cache so that any subsequent requests
-  // to `setPictureSize` and `setRecorderProfile`
-  // don't trigger slow hardware configuration.
-  this.once('newcamera', function() {
-    var noConfigure = { configure: false };
-    self.setPictureSize(config.pictureSize, noConfigure);
-    self.setRecorderProfile(config.recorderProfile, noConfigure);
-  });
-
-  // First load is done.
-  this.isFirstLoad = false;
-};
-
-/**
- * Save the current camera configuration
- * to persistent storage.
- *
- * This configuration is later used by
- * `.firstLoad()` to optimize the
- * first camera request.
- *
- * We only save the config if the camera
- * is using the 'back' camera in 'picture'
- * mode, as this is the mode we boot
- * the camera in. If partners have issues
- * with this, perhap we can make this
- * configurable.
- *
- * We're using localStorage because it's
- * currently the fastest option.
- *
- * @private
- */
-Camera.prototype.saveBootConfig = function() {
-  if (!this.cacheConfig) { return; }
-  if (this.selectedCamera !== 'back') { return; }
-  if (this.mode !== 'picture') { return; }
-  // Store the things we need for quickLoad
-  var json = {
-    mozCameraConfig: this.mozCameraConfig,
-    recorderProfile: this.recorderProfile,
-    pictureSize: this.pictureSize
-  };
-
-  this.configStorage.setItem('cameraBootConfig', JSON.stringify(json));
-  debug('saved camera config', json);
-};
-
-/**
- * Fetch the boot config from storage.
- *
- * We use this config to optimize the
- * first load of the camera on the
- * app's critical path.
- *
- * @return {Object}
- */
-Camera.prototype.fetchBootConfig = function() {
-  var string = this.configStorage.getItem('cameraBootConfig');
-  var json = string && JSON.parse(string);
-  debug('got camera config', json);
-  return json;
 };
 
 /**
@@ -265,23 +161,52 @@ Camera.prototype.fetchBootConfig = function() {
  * @private
  */
 Camera.prototype.requestCamera = function(camera, config) {
+  if (!config) {
+    config = {
+      mode: this.mode
+    };
+  }
+
   debug('request camera', camera, config);
   if (this.isBusy) { return; }
+
+  var attempts = this.requestAttempts;
   var self = this;
 
   // Indicate 'busy'
+  this.configured = false;
   this.busy('requestingCamera');
 
-  // If a config was passed we assume
-  // the camera has been configured.
-  this.configured = !!config;
+  // Make initial request
+  request();
 
-  navigator.mozCameras.getCamera(camera, config || {}, onSuccess, onError);
-  debug('camera requested', camera, config);
+  /**
+   * Requests the camera hardware.
+   *
+   * @private
+   */
+  function request() {
+    navigator.mozCameras.getCamera(camera, config)
+      .then(onSuccess, onError);
 
-  function onSuccess(mozCamera) {
+    self.emit('requesting');
+    debug('camera requested', camera, config);
+    attempts--;
+  }
+
+  function onSuccess(params) {
     debug('successfully got mozCamera');
-    self.setupNewCamera(mozCamera);
+
+    // release camera when press power key
+    // as soon as you open a camera app
+    if (document.hidden) {
+      self.mozCamera = params.camera;
+      self.release();
+      return;
+    }
+
+    self.updateConfig(params.configuration);
+    self.setupNewCamera(params.camera);
     self.configureFocus();
     self.emit('focusconfigured', {
       mode: self.mozCamera.focusMode,
@@ -294,13 +219,38 @@ Camera.prototype.requestCamera = function(camera, config) {
     // `mozCamera.getCamera()` call, we can
     // fire the 'configured' event now.
     if (self.configured) { self.emit('configured'); }
+
     self.ready();
   }
 
+  /**
+   * Called when the request for camera
+   * hardware fails.
+   *
+   * If the hardware is 'closed' we attempt
+   * to re-request it one second later, until
+   * all our attempts have run out.
+   *
+   * @param  {String} err
+   */
   function onError(err) {
     debug('error requesting camera', err);
+
+    if (err === 'HardwareClosed' && attempts) {
+      self.cameraRequestTimeout = setTimeout(request, 1000);
+      return;
+    }
+
+    self.emit('error', 'request-fail');
     self.ready();
   }
+};
+
+Camera.prototype.updateConfig = function(config) {
+  this.givenPreviewSize = config.previewSize;
+  this.pictureSize = config.pictureSize;
+  this.recorderProfile = config.recorderProfile;
+  this.configured = true;
 };
 
 /**
@@ -321,9 +271,12 @@ Camera.prototype.setupNewCamera = function(mozCamera) {
   this.mozCamera = mozCamera;
 
   // Bind to some events
-  this.mozCamera.onShutter = this.onShutter;
-  this.mozCamera.onPreviewStateChange = this.onPreviewStateChange;
-  this.mozCamera.onRecorderStateChange = this.onRecorderStateChange;
+  this.mozCamera.addEventListener('shutter', this.onShutter);
+  this.mozCamera.addEventListener('close', this.onClosed);
+  this.mozCamera.addEventListener('previewstatechange',
+                                  this.onPreviewStateChange);
+  this.mozCamera.addEventListener('recorderstatechange',
+                                  this.onRecorderStateChange);
 
   this.capabilities = this.formatCapabilities(capabilities);
 
@@ -380,26 +333,31 @@ Camera.prototype.configure = function() {
     return;
   }
 
+  // In some extreme cases the mode can
+  // get changed and configured whilst
+  // video recording is in progress.
+  this.stopRecording();
+
   // Indicate 'busy'
   this.busy();
 
   // Create a new `mozCameraConfig`
-  this.mozCameraConfig = {
+  var mozCameraConfig = {
     mode: this.mode,
-    previewSize: this.previewSize(),
+    pictureSize: this.pictureSize,
     recorderProfile: this.recorderProfile
   };
 
   // Configure the camera hardware
-  this.mozCamera.setConfiguration(this.mozCameraConfig, onSuccess, onError);
-  debug('mozCamera configuring', this.mozCameraConfig);
+  this.mozCamera.setConfiguration(mozCameraConfig)
+    .then(onSuccess, onError);
+  debug('mozCamera configuring', mozCameraConfig);
 
-  function onSuccess() {
+  function onSuccess(config) {
     debug('configuration success');
     if (!self.mozCamera) { return; }
+    self.updateConfig(config);
     self.configureFocus();
-    self.configured = true;
-    self.saveBootConfig();
     self.emit('configured');
     self.ready();
   }
@@ -412,17 +370,16 @@ Camera.prototype.configure = function() {
 };
 
 Camera.prototype.configureFocus = function() {
-  var focusMode;
-  // Determines focus mode based on camera mode
-  // If we're taking still pictures, and C-AF is enabled
-  if (this.mode === 'picture') {
-    focusMode = 'continuous-picture';
-  } else if (this.mode === 'video'){
-    focusMode = 'continuous-video';
-  }
-  this.focus.configure(this.mozCamera, focusMode);
+  this.focus.configure(this.mozCamera, this.mode);
   this.focus.onFacesDetected = this.onFacesDetected;
   this.focus.onAutoFocusChanged = this.onAutoFocusChanged;
+};
+
+Camera.prototype.shutdown = function() {
+  this.stopRecording();
+  this.set('previewActive', false);
+  this.set('focus', 'none');
+  this.release();
 };
 
 Camera.prototype.onAutoFocusChanged = function(state) {
@@ -480,10 +437,7 @@ Camera.prototype.previewSizes = function() {
  * @private
  */
 Camera.prototype.previewSize = function() {
-  var sizes = this.previewSizes();
-  var size = CameraUtils.getOptimalPreviewSize(sizes);
-  debug('get optimal previewSize', size);
-  return size;
+  return this.givenPreviewSize;
 };
 
 /**
@@ -530,12 +484,15 @@ Camera.prototype.setPictureSize = function(size, options) {
     return;
   }
 
-  this.mozCamera.setPictureSize(size);
   this.pictureSize = size;
-  this.setThumbnailSize();
 
   // Configure the hardware only when required
-  if (configure) { this.configure(); }
+  if (configure) {
+    this.configure();
+  } else {
+    this.mozCamera.setPictureSize(size);
+  }
+  this.setThumbnailSize();
 
   debug('pictureSize changed');
   return this;
@@ -637,38 +594,6 @@ Camera.prototype.setFlashMode = function(key) {
 };
 
 /**
- * Disables flash until it is
- * restored. restoreFlashMode
- * must be called the same
- * number of times in order to
- * restore the original state.
- */
-Camera.prototype.suspendFlashMode = function() {
-  if (this.suspendedFlashCount === 0) {
-    this.suspendedFlashMode = this.mozCamera.flashMode;
-    this.mozCamera.flashMode = 'off';
-    debug('flash mode suspended');
-  }
-  ++this.suspendedFlashCount;
-};
-
-/**
- * Restores flash mode to its
- * original state. If it was
- * disabled multiple times,
- * only the final call will
- * do the restoration.
- */
-Camera.prototype.restoreFlashMode = function() {
-  --this.suspendedFlashCount;
-  if (this.suspendedFlashCount === 0) {
-    this.mozCamera.flashMode = this.suspendedFlashMode;
-    debug('flash mode restored: %s', this.suspendedFlashMode);
-    this.suspendedFlashMode = null;
-  }
-};
-
-/**
  * Releases the camera hardware.
  *
  * @param  {Function} done
@@ -678,6 +603,9 @@ Camera.prototype.release = function(done) {
   done = done || function() {};
   var self = this;
 
+  // Clear any pending hardware requests
+  clearTimeout(this.cameraRequestTimeout);
+
   // Ignore if there is no loaded camera
   if (!this.mozCamera) {
     done();
@@ -686,11 +614,15 @@ Camera.prototype.release = function(done) {
 
   this.busy();
   this.stopRecording();
-  this.focus.stopFaceDetection();
   this.set('focus', 'none');
-  this.mozCamera.release(onSuccess, onError);
+  this.mozCamera.release().then(onSuccess, onError);
   this.releasing = true;
   this.mozCamera = null;
+
+  // Reset cached parameters
+  delete this.pictureSize;
+  delete this.recorderProfile;
+  delete this.givenPreviewSize;
 
   function onSuccess() {
     debug('successfully released');
@@ -767,9 +699,10 @@ Camera.prototype.pickThumbnailSize = function(thumbnailSizes, pictureSize) {
  *   - `position` {Object} - geolocation to store in EXIF
  *
  * @param  {Object} options
- *  public
+ * @public
  */
 Camera.prototype.capture = function(options) {
+  if (!this.mozCamera) { return false; }
   switch (this.mode) {
     case 'picture': this.takePicture(options); break;
     case 'video': this.toggleRecording(options); break;
@@ -786,7 +719,7 @@ Camera.prototype.capture = function(options) {
  * @param  {Object} options
  */
 Camera.prototype.takePicture = function(options) {
-  debug('take picture');
+  debug('take picture', options);
   this.busy();
 
   var rotation = this.orientation.get();
@@ -811,24 +744,18 @@ Camera.prototype.takePicture = function(options) {
   // If the camera focus is 'continuous' or 'infinity'
   // we can take the picture straight away.
   if (this.focus.getMode() === 'auto') {
-    this.set('focus', 'focusing');
     this.focus.focus(onFocused);
   } else {
     takePicture();
   }
 
   function onFocused(state) {
-    // State remains focusing if we are interrupted
-    // as the last caller should update it
-    if (state !== 'interrupted') {
-      self.set('focus', state);
-    }
     takePicture();
   }
 
   function takePicture() {
     self.busy('takingPicture');
-    self.mozCamera.takePicture(config, onSuccess, onError);
+    self.mozCamera.takePicture(config).then(onSuccess, onError);
   }
 
   function onError(error) {
@@ -862,19 +789,8 @@ Camera.prototype.takePicture = function(options) {
 };
 
 Camera.prototype.updateFocusArea = function(rect, done) {
-  var self = this;
-  this.set('focus', 'focusing');
-  // Disables flash temporarily so it doesn't go off while focusing
-  this.suspendFlashMode();
   this.focus.updateFocusArea(rect, focusDone);
   function focusDone(state) {
-    // Restores previous flash mode
-    self.restoreFlashMode();
-    // State remains focusing if we are interrupted
-    // as the last caller should update it
-    if (state !== 'interrupted') {
-      self.set('focus', state);
-    }
     if (done) {
       done(state);
     }
@@ -917,6 +833,7 @@ Camera.prototype.startRecording = function(options) {
   // Rotation is flipped for front camera
   if (frontCamera) { rotation = -rotation; }
 
+  this.set('recording', true);
   this.busy();
 
   // Lock orientation during video recording
@@ -959,14 +876,11 @@ Camera.prototype.startRecording = function(options) {
         self.onRecordingError('error-video-file-path');
         return;
       }
+
       video.filepath = filepath;
       self.emit('willrecord');
-      self.mozCamera.startRecording(
-        config,
-        storage,
-        filepath,
-        onSuccess,
-        onError);
+      self.mozCamera.startRecording(config, storage, filepath)
+        .then(onSuccess, onError);
     }
   }
 
@@ -977,7 +891,6 @@ Camera.prototype.startRecording = function(options) {
   }
 
   function onSuccess() {
-    self.set('recording', true);
     self.startVideoTimer();
     self.ready();
 
@@ -1124,6 +1037,7 @@ Camera.prototype.onRecordingError = function(id) {
   var title = navigator.mozL10n.get(id + '-title');
   var text = navigator.mozL10n.get(id + '-text');
   alert(title + '. ' + text);
+  this.set('recording', false);
   this.ready();
 };
 
@@ -1139,19 +1053,29 @@ Camera.prototype.onShutter = function() {
 };
 
 /**
+ * Emit a 'closed' event when camera controller
+ * closes
+ *
+ * @private
+ */
+Camera.prototype.onClosed = function(e) {
+  this.shutdown();
+  this.emit('closed', e.reason);
+};
+
+/**
  * The preview state change events come
  * from the camera hardware. If 'stopped'
  * or 'paused' the camera must not be used.
  *
- * @param  {String} state
+ * @param  event with {String} newState ['started', 'stopped', 'paused']
  * @private
  */
-Camera.prototype.onPreviewStateChange = function(state) {
+Camera.prototype.onPreviewStateChange = function(e) {
+  var state = e.newState;
   debug('preview state change: %s', state);
-  var busy = state === 'stopped' || state === 'paused';
+  this.previewState = state;
   this.emit('preview:' + state);
-  if (busy) { this.busy(); }
-  else { this.ready(); }
 };
 
 /**
@@ -1160,7 +1084,8 @@ Camera.prototype.onPreviewStateChange = function(state) {
  * @param  {String} msg
  * @private
  */
-Camera.prototype.onRecorderStateChange = function(msg) {
+Camera.prototype.onRecorderStateChange = function(e) {
+  var msg = e.newState;
   if (msg === 'FileSizeLimitReached') {
     this.emit('filesizelimitreached');
   }
@@ -1225,6 +1150,11 @@ Camera.prototype.createVideoFilepath = function(done) {
  */
 Camera.prototype.resumePreview = function() {
   this.mozCamera.resumePreview();
+  // After calling takePicture(Camera.ShutterCallback, Camera.PictureCallback,
+  // Camera.PictureCallback) or stopPreview(), and then resuming preview with
+  // startPreview(), the apps should call this method again to resume face
+  // detection. See Bug 1070791.
+  this.focus.startFaceDetection();
   this.emit('previewresumed');
 };
 
@@ -1391,7 +1321,7 @@ Camera.prototype.configureZoom = function() {
   this.set('maxHardwareZoom', maxHardwareZoom);
 
   this.setZoom(this.getMinimumZoom());
-  this.emit('zoomconfigured');
+  this.emit('zoomconfigured', this.getZoom());
   return this;
 };
 
@@ -1474,6 +1404,7 @@ Camera.prototype.busy = function(type) {
   debug('busy %s', type || '');
   this.isBusy = true;
   this.emit('busy', type);
+  clearTimeout(this.readyTimeout);
 };
 
 /**
@@ -1483,9 +1414,13 @@ Camera.prototype.busy = function(type) {
  * @private
  */
 Camera.prototype.ready = function() {
-  debug('ready');
+  var self = this;
   this.isBusy = false;
-  this.emit('ready');
+  clearTimeout(this.readyTimeout);
+  this.readyTimeout = setTimeout(function() {
+    debug('ready');
+    self.emit('ready');
+  }, 150);
 };
 
 });

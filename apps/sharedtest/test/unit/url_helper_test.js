@@ -1,6 +1,9 @@
+/* global UrlHelper */
+
 require('/shared/js/url_helper.js');
 
 suite('URL Helper', function() {
+  'use strict';
   test('isNotURL => true', function() {
     [
       'data',
@@ -14,7 +17,11 @@ suite('URL Helper', function() {
       '?mozilla',
       '?site:mozilla.org docshell',
       'http:',
-      'app:'
+      'http://',
+      'data:',
+      'view-source:',
+      'app:',
+      'rtsp:'
     ].forEach(function(input) {
       assert.ok(UrlHelper.isNotURL(input));
     });
@@ -30,7 +37,9 @@ suite('URL Helper', function() {
       'a?',
       'a?b',
       'http://foo.com',
-      'data:about'
+      'data:about',
+      'view-source:http://foo.com/',
+      'rtsp://100.100.100.100/rtsp.mp4'
     ].forEach(function(input) {
       assert.ok(!UrlHelper.isNotURL(input));
     });

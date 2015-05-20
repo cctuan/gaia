@@ -10,22 +10,32 @@
     this.blacklist;
 
     var mozApps = navigator.mozApps.mgmt;
-    var self = this;
 
-    mozApps.oninstall = function oninstall(e) {
-      self.apps[e.application.manifestURL] = e.application;
+    mozApps.oninstall = e => {
+      var app = e.application;
+      var processApp = () => {
+        this.apps[app.manifestURL] = app;
+        this.createAppListing();
+      };
+
+      if (app.downloading) {
+        app.ondownloadapplied = processApp;
+      } else {
+        processApp();
+      }
     };
 
-    mozApps.onuninstall = function oninstall(e) {
-      delete self.apps[e.application.manifestURL];
+    mozApps.onuninstall = e => {
+      delete this.apps[e.application.manifestURL];
+      this.createAppListing();
     };
 
-    mozApps.getAll().onsuccess = function r_getApps(e) {
-      e.target.result.forEach(function r_AppsForEach(app) {
-        self.apps[app.manifestURL] = app;
+    mozApps.getAll().onsuccess = e => {
+      e.target.result.forEach(app => {
+        this.apps[app.manifestURL] = app;
       });
-      self.createBlacklist().then(() => {
-        self.createAppListing();
+      this.createBlacklist().then(() => {
+        this.createAppListing();
       });
     };
   }
@@ -59,9 +69,12 @@
 
       manifestURLs.forEach(function eachManifest(manifestURL) {
         var app = this.apps[manifestURL];
-        var manifest = app.manifest;
+        var manifest = app.manifest || app.updateManifest;
 
-        var HIDDEN_ROLES = ['system', 'input', 'homescreen', 'search'];
+        var HIDDEN_ROLES = [
+          'system', 'input', 'homescreen', 'search', 'theme', 'addon',
+          'langpack'
+        ];
         if (HIDDEN_ROLES.indexOf(manifest.role) !== -1) {
           return;
         }
@@ -119,11 +132,28 @@
       });
     },
 
+    /**
+     * Checks if an app manifest matches a query.
+     */
+    matches: function(manifest, query) {
+      query = query.toLowerCase();
+
+      // Get the localized name from the query.
+      var shortName = manifest.short_name || '';
+      var userLang = document.documentElement.lang;
+      var locales = manifest.locales;
+      var localized = locales && locales[userLang] && locales[userLang].name;
+      localized = localized || '';
+
+      return shortName.toLowerCase().indexOf(query) != -1 ||
+        manifest.name.toLowerCase().indexOf(query) != -1 ||
+        localized.toLowerCase().indexOf(query) != -1;
+    },
+
     find: function(query) {
       var results = [];
-
       this.appListing.forEach(function(manifest) {
-        if (manifest.name.toLowerCase().indexOf(query.toLowerCase()) != -1) {
+        if (this.matches(manifest, query)) {
           results.push({
             app: this.apps[manifest.manifestURL],
             entryPoint: manifest.entryPoint

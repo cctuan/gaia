@@ -1,7 +1,7 @@
 .appWindow > .chrome {
   pointer-events: none;
   background-color: black;
-  transition: background-color 0.5s ease;
+  transition: background-color var(--transition-duration) ease;
   height: 5rem;
 }
 
@@ -18,14 +18,24 @@
   z-index: 1000;
 }
 
-.chrome gaia-progress.visible {
+.appWindow.fullscreen-app:not(.minimized-tray) gaia-progress,
+.appWindow.fullscreen-app .chrome:not(.dragged) gaia-progress.visible {
+  visibility: hidden;
+}
+
+.appWindow.fullscreen-app .chrome.dragged gaia-progress {
+  top: calc(var(--statusbar-height) + var(--rocketbar-urlbar-height));
+}
+
+.chrome gaia-progress.visible,
+.appWindow.fullscreen-app .chrome.dragged gaia-progress.visible {
   visibility: visible;
 }
 
 .chrome > .bar {
   pointer-events: auto;
   display: none;
-} 
+}
 
 .chrome > .bar.visible {
   display: block;

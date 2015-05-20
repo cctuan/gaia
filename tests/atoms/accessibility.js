@@ -4,11 +4,14 @@
 
 'use strict';
 
+/* globals Components, marionetteScriptFinished */
+/* exported Accessibility */
+
 var Accessibility = {
 
-  _accRetrieval: SpecialPowers.Cc[
-    "@mozilla.org/accessibleRetrieval;1"].getService(
-      SpecialPowers.Ci.nsIAccessibleRetrieval),
+  _accRetrieval: Components.classes[
+    '@mozilla.org/accessibleRetrieval;1'].getService(
+      Components.interfaces.nsIAccessibleRetrieval),
 
   _getAccessible:
     function Accessibility__getAccessible(element, callback, once) {
@@ -20,8 +23,8 @@ var Accessibility = {
         if (attempts <= 0) {
           let tagName = element ? element.tagName : undefined;
           let elemId = element ? element.id : undefined;
-          console.log('accessibility.js: failed to get accessible for tag="' +
-            tagName + '" id="' + elemId + '"');
+          console.log('accessibility.js: failed to get accessible for tag=\"' +
+            tagName + '\" id=\"' + elemId + '\"');
         }
         try {
           callback(acc);
@@ -33,8 +36,7 @@ var Accessibility = {
   },
 
   _matchState: function Accessibility__matchState(acc, stateName) {
-    let stateToMatch = SpecialPowers.wrap(
-      SpecialPowers.Components).interfaces.nsIAccessibleStates[stateName];
+    let stateToMatch = Components.interfaces.nsIAccessibleStates[stateName];
     let state = {};
     let extState = {};
     acc.getState(state, extState);
@@ -49,8 +51,8 @@ var Accessibility = {
   },
 
   wheel: function Accessibility_wheel(element, direction) {
-    let horizontal = direction === "left" || direction === "right";
-    let page = (direction === "left" || direction === "up") ? 1 : -1;
+    let horizontal = direction === 'left' || direction === 'right';
+    let page = (direction === 'left' || direction === 'up') ? 1 : -1;
     let event = new window.wrappedJSObject.WheelEvent('wheel', {
       bubbles: true,
       cancelable: true,

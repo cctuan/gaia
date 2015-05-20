@@ -1,28 +1,34 @@
-Calendar.ns('Views').MultiDay = (function() {
+define(function(require, exports, module) {
 'use strict';
 
-var HourDoubleTap = Calendar.Views.HourDoubleTap;
-var Pan = Calendar.Views.Pan;
-var SingleDay = Calendar.Views.SingleDay;
-var Timespan = Calendar.Timespan;
-var View = Calendar.View;
-var DateSpan = Calendar.Templates.DateSpan;
-var createDay = Calendar.Calc.createDay;
-var throttle = Calendar.Utils.mout.throttle;
+var Calc = require('common/calc');
+var CurrentTime = require('./current_time');
+var HourDoubleTap = require('./hour_double_tap');
+var Pan = require('./pan');
+var SingleDay = require('./single_day');
+var Timespan = require('common/timespan');
+var View = require('view');
+var animatedScroll = require('utils/animated_scroll');
+var core = require('core');
+var createDay = require('common/calc').createDay;
+var template = require('templates/multi_day');
+var throttle = require('utils/mout').throttle;
 
 function MultiDay(opts) {
-  this.app = opts.app;
-  this.timeController = opts.app.timeController;
   this.children = [];
   this._render = throttle(this._render, 200);
 }
+module.exports = MultiDay;
 
 MultiDay.prototype = {
 
-  // override this on child classes to change the behavior!
+  // override these properties on child classes to change the behavior!
   scale: 'week',
   visibleCells: 5,
   element: null,
+  _hourFormat: 'hour-format',
+  _oneDayLabelFormat: 'event-one-day-duration',
+  _addAmPmClass: false,
 
   childClass: SingleDay,
   children: null,
@@ -43,23 +49,27 @@ MultiDay.prototype = {
   },
 
   get daysHolder() {
-    return this.element.querySelector('.days');
+    return this.element.querySelector('.md__days');
   },
 
   get alldaysHolder() {
-    return this.element.querySelector('.alldays');
+    return this.element.querySelector('.md__alldays');
   },
 
   get main() {
-    return this.element.querySelector('.main');
+    return this.element.querySelector('.md__main');
   },
 
   get mainContent() {
-    return this.element.querySelector('.main-content');
+    return this.element.querySelector('.md__main-content');
   },
 
   get sidebar() {
-    return this.element.querySelector('.sidebar');
+    return this.element.querySelector('.md__sidebar');
+  },
+
+  get allDayIcon() {
+    return this.element.querySelector('.md__all-day');
   },
 
   onactive: function() {
@@ -70,14 +80,26 @@ MultiDay.prototype = {
       this.seen = true;
     }
 
-    var controller = this.timeController;
+    var controller = core.timeController;
     controller.scale = this.scale;
     controller.moveToMostRecentDay();
 
+    var previousBaseDate = this.baseDate;
     this.baseDate = this._calcBaseDate(controller.position);
     this._render();
-    this._resetScroll();
-    this._scrollToHour();
+
+    if (window.history.state && 'eventStartHour' in window.history.state) {
+      // scroll to last edited event
+      this._scrollToHour({
+        hour: Math.max(window.history.state.eventStartHour - 1, 0)
+      });
+    } else if (!(previousBaseDate &&
+                 Calc.isSameDate(previousBaseDate, this.baseDate))) {
+      // Do not scroll when come back from other time views without changing the
+      // base date
+      this._resetScroll();
+      this._scrollToHour();
+    }
 
     // add listeners afterwards to avoid calling render twice
     controller.on('dayChange', this);
@@ -93,9 +115,13 @@ MultiDay.prototype = {
     this._setupHours();
     this._setupCurrentTime();
     this._setupDoubleTap();
+    this.allDayIcon.id = 'md__all-day-icon-' + this.scale;
     // we keep the localized listener even when view is inactive to avoid
     // rebuilding the hours/dates every time we switch between views
     window.addEventListener('localized', this);
+    window.addEventListener('timeformatchange', this);
+    // When screen reader is used, scrolling is done using wheel events.
+    this.element.addEventListener('wheel', this);
   },
 
   _setupPan: function() {
@@ -110,10 +136,11 @@ MultiDay.prototype = {
       targets: [
         this.alldaysHolder,
         this.daysHolder
-      ],
-      onDragRelease: this._updateBaseDateAfterScroll.bind(this)
+      ]
     });
     this._pan.setup();
+    this._pan.on('start', () => this._hourDoubleTap.removeAddEventLink());
+    this._pan.on('release', obj => this._updateBaseDateAfterScroll(obj.diff));
   },
 
   _setupHours: function() {
@@ -121,36 +148,27 @@ MultiDay.prototype = {
     // we need to remove all children because when locale change we rebuild
     // the hours (we can't use data-l10n-id because of special format)
     sidebar.innerHTML = '';
-    var hour, i = -1;
+    var i = -1, hours = '';
     while (++i < 24) {
-      hour = this._createHour(i);
-      sidebar.appendChild(hour);
+      hours += template.hour.render({
+        hour: i,
+        format: this._hourFormat,
+        addAmPmClass: this._addAmPmClass
+      });
     }
-    this._hourHeight = hour.offsetHeight;
-  },
-
-  _createHour: function(hour) {
-    var el = document.createElement('li');
-    el.className = 'hour hour-' + hour;
-    el.innerHTML = DateSpan.hour.render({
-      hour: hour,
-      format: 'week-hour-format',
-      addAmPmClass: true,
-      className: 'display-hour'
-    });
-    return el;
+    sidebar.innerHTML = hours;
+    this._hourHeight = sidebar.querySelector('.md__hour').offsetHeight;
   },
 
   _setupCurrentTime: function() {
-    this._currentTime = new Calendar.Views.CurrentTime({
-      container: this.element.querySelector('.main-content'),
+    this._currentTime = new CurrentTime({
+      container: this.mainContent,
       sticky: this.alldaysHolder
     });
   },
 
   _setupDoubleTap: function() {
     this._hourDoubleTap = new HourDoubleTap({
-      app: this.app,
       main: this.main,
       daysHolder: this.daysHolder,
       alldaysHolder: this.alldaysHolder,
@@ -165,9 +183,22 @@ MultiDay.prototype = {
         this._onDayChange(e.data[0]);
         break;
       case 'localized':
+      case 'timeformatchange':
         this._localize();
         break;
+      case 'wheel':
+        this._onwheel(e);
+        break;
     }
+  },
+
+  _onwheel: function(event) {
+    if (event.deltaMode !== event.DOM_DELTA_PAGE || event.deltaX === 0) {
+      return;
+    }
+    // Update dates based on the number of visible cells after screen reader
+    // wheel.
+    this._updateBaseDateAfterScroll(event.deltaX * this.visibleCells);
   },
 
   _onDayChange: function(date) {
@@ -187,8 +218,8 @@ MultiDay.prototype = {
 
   _updateBaseDateAfterScroll: function(diff) {
     var day = createDayDiff(this.baseDate, diff);
-    this.timeController.move(day);
-    this.timeController.selectedDay = day;
+    core.timeController.move(day);
+    core.timeController.selectedDay = day;
   },
 
   _render: function() {
@@ -204,6 +235,7 @@ MultiDay.prototype = {
     this._prevRange = currentRange;
     this._visibleRange = this._getVisibleRange();
     this._sortDays();
+    this._setVisibleForScreenReader();
     this._pan.refresh();
     this._refreshCurrentTime();
   },
@@ -211,6 +243,11 @@ MultiDay.prototype = {
   _refreshCurrentTime: function() {
     this._currentTime.timespan = this._visibleRange;
     this._currentTime.refresh();
+  },
+
+  _setVisibleForScreenReader: function() {
+    this.children.forEach(
+      child => child.setVisibleForScreenReader(this._visibleRange));
   },
 
   _removeDatesOutsideRange: function(range) {
@@ -232,7 +269,9 @@ MultiDay.prototype = {
           date: date,
           daysHolder: this.daysHolder,
           alldaysHolder: this.alldaysHolder,
-          hourHeight: this._hourHeight
+          allDayIcon: this.allDayIcon,
+          hourHeight: this._hourHeight,
+          oneDayLabelFormat: this._oneDayLabelFormat
         });
         day.setup();
         this.children.push(day);
@@ -240,7 +279,7 @@ MultiDay.prototype = {
   },
 
   _getPendingDates: function(range) {
-    var dates = range.daysBetween();
+    var dates = Calc.daysBetween(range);
     if (this._prevRange) {
       dates = dates.filter(date => {
         return !this._prevRange.contains(date);
@@ -277,51 +316,33 @@ MultiDay.prototype = {
   },
 
   _scrollToHour: function(options) {
-    var now = new Date();
-    var hour;
-
-    if (this._visibleRange.contains(now)) {
-      hour = Math.max(now.getHours() - 1, 0);
-    } else if (!options || !options.onlyToday) {
-      hour = 8;
-    }
-
+    var hour = this._getScrollDestinationHour(options);
     if (hour != null) {
-      this._animatedScroll(hour * this._hourHeight);
+      animatedScroll({
+        content: this.mainContent,
+        container: this.main,
+        scrollTop: hour * this._hourHeight
+      });
     }
   },
 
-  _animatedScroll: function(scrollTop) {
-    var container = this.main;
-    var maxScroll = container.scrollHeight - container.clientHeight;
+  _getScrollDestinationHour: function(options) {
+    var hour = options && options.hour;
+    if (hour != null) {
+      return hour;
+    }
 
-    scrollTop = Math.min(scrollTop, maxScroll);
+    var now = new Date();
+    if (this._visibleRange.contains(now)) {
+      return Math.max(now.getHours() - 1, 0);
+    }
 
-    var content = this.mainContent;
-    var destination = container.scrollTop - scrollTop;
-    var seconds = Math.abs(destination) / 500;
-
-    container.style.overflowY = 'hidden';
-
-    window.requestAnimationFrame(() => {
-      content.style.transform = 'translateY(' + destination + 'px)';
-      // easeOutQuart borrowed from http://matthewlein.com/ceaser/
-      content.style.transition = 'transform ' + seconds + 's ' +
-        'cubic-bezier(0.165, 0.840, 0.440, 1.000)';
-    });
-
-    content.addEventListener('transitionend', function setScrollTop() {
-      content.removeEventListener('transitionend', setScrollTop);
-      content.style.transform = '';
-      content.style.transition = '';
-      container.scrollTop = scrollTop;
-      container.style.overflowY = 'scroll';
-    });
+    return (options && options.onlyToday) ? null : 8;
   },
 
   oninactive: function() {
     this.element.classList.remove(View.ACTIVE);
-    this.timeController.removeEventListener('dayChange', this);
+    core.timeController.removeEventListener('dayChange', this);
     this.children.forEach(child => child.oninactive());
   }
 };
@@ -330,5 +351,4 @@ function createDayDiff(date, diff) {
   return createDay(date, date.getDate() + diff);
 }
 
-return MultiDay;
-}());
+});

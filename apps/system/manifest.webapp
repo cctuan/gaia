@@ -9,6 +9,7 @@
     "url": "https://github.com/mozilla-b2g/gaia"
   },
   "permissions": {
+    "themeable":{},
     "alarms": {},
     "browser":{},
     "power":{},
@@ -24,7 +25,6 @@
     "device-storage:music":{ "access": "readcreate" },
     "device-storage:apps":{ "access": "readonly" },
     "settings":{ "access": "readwrite" },
-    "storage":{},
     "camera":{},
     "geolocation":{},
     "audio-capture": {},
@@ -41,11 +41,13 @@
     "audio-channel-ringer":{},
     "cellbroadcast":{},
     "input-manage":{},
-    "nfc":{ "access": "readwrite" },
+    "nfc":{},
+    "nfc-share":{},
     "nfc-manager":{},
     "downloads":{},
     "systemXHR":{},
-    "feature-detection": {}
+    "feature-detection": {},
+    "before-after-keyboard-event": {}
   },
   "locales": {
     "ar": {
@@ -74,6 +76,15 @@
     "284": "/style/icons/system_284.png"
   },
   "activities": {
+    "import-app": {
+      "filters": {
+        "blob": {
+          "required": true
+        }
+      },
+      "disposition": "inline",
+      "returnValue": true
+    },
     "view": {
       "filters": {
         "type": "url",
@@ -108,6 +119,10 @@
       "description": "Communicate between search results and search app",
       "rules": {}
     },
+    "app-metrics": {
+      "description": "Communicate between system app metrics and search app",
+      "rules": {}
+    },
     "ftucomms": {
       "description": "Communicate between communications/ftu and System",
       "rules": {}
@@ -116,8 +131,18 @@
       "description": "Communication with bluetooth apps for sending files info",
       "rules": {}
     },
+    "settingsstk": {
+      "description": "Communicate between Settings app and System app for SIM Toolkit.",
+      "rules": {}
+    },
     "fxa-mgmt": {
       "description": "Firefox Accounts management API",
+      "rules": {
+        "minimumAccessLevel": "certified"
+      }
+    },
+    "about-service-workers": {
+      "description": "about:serviceworkers proxy",
       "rules": {
         "minimumAccessLevel": "certified"
       }

@@ -5,10 +5,13 @@
     <meta charset="utf-8" />
     <title>Bluetooth</title>
     <!-- Localization -->
-    <link rel="manifest" href="manifest.webapp">
+    <meta name="defaultLanguage" content="en-US">
+    <meta name="availableLanguages" content="en-US">
     <link rel="localization" href="locales/bluetooth.{locale}.properties">
     <script type="application/javascript" src="shared/js/l10n.js"></script>
     <!-- Common style -->
+    <!-- <link rel="stylesheet" type="text/css" href="shared/elements/gaia-icons/gaia-icons.css" /> -->
+    <link rel="stylesheet" type="text/css" href="app://theme.gaiamobile.org/shared/elements/gaia-theme/gaia-theme.css" />
     <link rel="stylesheet" type="text/css" href="shared/style/confirm.css"/>
     <link rel="stylesheet" type="text/css" href="shared/style/buttons.css" />
     <link rel="stylesheet" type="text/css" href="shared/style/progress_activity.css"/>
@@ -16,9 +19,7 @@
     <script type="text/javascript" src="shared/js/l10n.js"></script>
     <!-- Web Components -->
     <script defer src="shared/elements/config.js"></script>
-    <script defer src="shared/elements/gaia-header/dist/script.js"></script>
-    <link rel="stylesheet" type="text/css" href="shared/elements/gaia-theme/style.css" />
-    <!-- <link rel="stylesheet" type="text/css" href="shared/elements/gaia-icons/style.css" /> -->
+    <script defer src="shared/elements/gaia-header/dist/gaia-header.js"></script>
     <script type="text/javascript" src="shared/js/component_utils.js"></script>
     <script type="text/javascript" src="shared/elements/gaia_subheader/script.js"></script>
     <!-- Specific style -->
@@ -26,9 +27,6 @@
     <link rel="stylesheet" type="text/css" href="style/lists.css">
     <link rel="stylesheet" type="text/css" href="style/icons.css">
     <link rel="stylesheet" type="text/css" href="style/settings.css">
-    <!-- Specific code -->
-    <script type="text/javascript" defer src="js/transfer.js"></script>
-    <script type="text/javascript" defer src="js/deviceList.js"></script>
   </head>
 
   <body role="application" class="skin-organic theme-settings uninit">
@@ -61,33 +59,34 @@
       </menu>
     </form>
     <!-- Devices List View -->
-    <section role="region" id="devices-list-view" class="current" data-rendered="true" hidden>
-      <gaia-header id="devices-list-header" action="close">
-        <h1 data-l10n-id="bluetooth"> Bluetooth </h1>
+    <section role="region" id="devices-list-view" class="devices-list-view current" data-rendered="true" hidden>
+      <gaia-header id="devices-list-header" class="devices-list-header" action="close">
+        <h1 data-l10n-id="bluetooth"></h1>
       </gaia-header>
       <div>
         <!-- Devices List View :: Paired Devices List -->
-        <gaia-subheader id="bluetooth-paired-title" skin="organic">
+        <gaia-subheader id="bluetooth-paired-title" class="bluetooth-paired-title" skin="organic">
           <span data-l10n-id="bluetooth-paired-devices">Paired Devices</span>
         </gaia-subheader>
-        <ul id="bluetooth-paired-devices" class="devices">
+        <ul id="bluetooth-paired-devices" class="bluetooth-paired-devices devices">
         </ul>
         <!-- Devices List View :: Found Devices List -->
-        <gaia-subheader id="bluetooth-found-title" skin="organic">
+        <gaia-subheader id="bluetooth-found-title" class="bluetooth-found-title" skin="organic">
           <span data-l10n-id="bluetooth-devices-in-area">Devices found</span>
         </gaia-subheader>
-        <ul id="bluetooth-devices" class="devices">
+        <ul id="bluetooth-devices" class="bluetooth-devices devices">
         </ul>
         <!-- Devices List View :: Search Button -->
-        <div id="bluetooth-searching" data-l10n-id="search-for-device" class="explanation">
+        <div id="bluetooth-searching" data-l10n-id="search-for-device" class="bluetooth-searching explanation">
           Searching for devices…
         </div>
-        <ul id="bluetooth-search">
+        <ul id="bluetooth-search" class="bluetooth-search">
           <li>
-            <button id="search-device" data-l10n-id="search-device" disabled>Search for Devices</button>
+            <button id="search-device" class="search-device" data-l10n-id="search-device" disabled>Search for Devices</button>
           </li>
         </ul>
       </div>
     </section>
+    <script data-main="js/startup_transfer.js" src="js/vendor/alameda.js"></script>
   </body>
 </html>

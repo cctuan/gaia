@@ -1,7 +1,7 @@
 suite('L10n', function() {
+  'use strict';
   var _;
   var _translateFragment;
-  var _localize;
 
   var l10props = [
     'cropimage                 = Crop',
@@ -10,21 +10,31 @@ suite('L10n', function() {
     'delete-n-items[one]       = Delete selected item?',
     'delete-n-items[other]     = Delete {{ n }} items?',
     'textcontent-test          = this is text content',
-    'prop-test.prop            = this is a property',
+    'dom-overlay-test          = this is text content <button>(bar)</button>',
+    'attr-test.title           = this is an attribute',
     'euroSign                  = price: 10\\u20ac to 20\\u20ac',
     'leadingSpaces             = \\u0020\\u020\\u20%2F',
     'trailingBackslash         = backslash\\\\',
     'multiLine                 = foo \\',
     '                            bar \\',
     '                            baz',
+    // XXX innerHTML is treated as value (https://bugzil.la/1142526)
     'update.innerHTML          = {[ plural(n) ]}',
     'update.innerHTML[zero]    = <strong>No updates.</strong>',
     'update.innerHTML[one]     = <strong>{{n}} update available.</strong> \\',
     '                            <span>Tap for more info.</span>',
     'update.innerHTML[other]   = <strong>{{n}} updates available.</strong> \\',
     '                            <span>Tap for more info.</span>',
+    'overlay                    = {[ plural(n) ]}',
+    'overlay[zero]              = <strong>No updates.</strong>',
+    'overlay[one]               = <strong>{{n}} update available.</strong> \\',
+    '                            <span>Tap for more info.</span>',
+    'overlay[other]             = <strong>{{n}} updates available.</strong> \\',
+    '                            <span>Tap for more info.</span>',
     'inline-translation-test   = static content provided by inlined JSON',
-    'a11y-label.ariaLabel      = label via ARIA'
+    'a11y-label.ariaLabel      = label via ARIA',
+    'a11y-label.ariaValueText  = valuetext via ARIA',
+    'a11y-label.ariaMozHint    = moz-hint via ARIA'
   ].join('\n');
 
   var inlineL10Props = {
@@ -52,7 +62,6 @@ suite('L10n', function() {
 
     _ = navigator.mozL10n.get;
     _translateFragment = navigator.mozL10n.translateFragment;
-    _localize = navigator.mozL10n.localize;
 
     // en-US has already been loaded in setup.js and l10n.js is smart enough
     // not to re-fetch resources;  hence, set the lang to something new
@@ -124,15 +133,27 @@ suite('L10n', function() {
     });
 
     test('properties', function() {
-      elem.dataset.l10nId = 'prop-test';
+      elem.dataset.l10nId = 'attr-test';
       _translateFragment(elem);
-      assert.equal(elem.getAttribute('prop'), 'this is a property');
+      assert.equal(elem.getAttribute('title'), 'this is an attribute');
     });
 
     test('ARIA labels', function() {
       elem.dataset.l10nId = 'a11y-label';
       _translateFragment(elem);
       assert.equal(elem.getAttribute('aria-label'), 'label via ARIA');
+    });
+
+    test('ARIA valuetext', function() {
+      elem.dataset.l10nId = 'a11y-label';
+      _translateFragment(elem);
+      assert.equal(elem.getAttribute('aria-valuetext'), 'valuetext via ARIA');
+    });
+
+    test('ARIA moz-hint', function() {
+      elem.dataset.l10nId = 'a11y-label';
+      _translateFragment(elem);
+      assert.equal(elem.getAttribute('aria-moz-hint'), 'moz-hint via ARIA');
     });
   });
 
@@ -143,20 +164,21 @@ suite('L10n', function() {
     });
 
     test('text content', function() {
-      _localize(elem, 'textcontent-test');
+      navigator.mozL10n.setAttributes(elem, 'textcontent-test');
       _translateFragment(elem);
       assert.equal(elem.textContent, 'this is text content');
     });
 
     test('properties', function() {
-      _localize(elem, 'prop-test');
+      navigator.mozL10n.setAttributes(elem, 'attr-test');
       _translateFragment(elem);
-      assert.equal(elem.getAttribute('prop'), 'this is a property');
+      assert.equal(elem.getAttribute('title'), 'this is an attribute');
     });
 
+    // XXX Remove in https://bugzil.la/1027117
     suite('properties + pluralization', function() {
       test('n=0', function() {
-        _localize(elem, 'update', { n: 0 });
+        navigator.mozL10n.setAttributes(elem, 'update', { n: 0 });
         _translateFragment(elem);
         var info = elem.querySelector('strong');
         var span = elem.querySelector('span');
@@ -166,7 +188,7 @@ suite('L10n', function() {
       });
 
       test('n=1', function() {
-        _localize(elem, 'update', { n: 1 });
+        navigator.mozL10n.setAttributes(elem, 'update', { n: 1 });
         _translateFragment(elem);
         var info = elem.querySelector('strong');
         var span = elem.querySelector('span');
@@ -176,7 +198,7 @@ suite('L10n', function() {
       });
 
       test('n=2', function() {
-        _localize(elem, 'update', { n: 2 });
+        navigator.mozL10n.setAttributes(elem, 'update', { n: 2 });
         _translateFragment(elem);
         var info = elem.querySelector('strong');
         var span = elem.querySelector('span');
@@ -186,12 +208,51 @@ suite('L10n', function() {
       });
     });
 
-    test('element with child', function() {
+    suite('DOM overlays + pluralization', function() {
+      test('n=0', function() {
+        navigator.mozL10n.setAttributes(elem, 'overlay', { n: 0 });
+        _translateFragment(elem);
+        var info = elem.querySelector('strong');
+        var span = elem.querySelector('span');
+        assert.ok(info);
+        assert.isNull(span);
+        assert.equal(info.textContent, 'No updates.');
+      });
+
+      test('n=1', function() {
+        navigator.mozL10n.setAttributes(elem, 'overlay', { n: 1 });
+        _translateFragment(elem);
+        var info = elem.querySelector('strong');
+        var span = elem.querySelector('span');
+        assert.ok(info);
+        assert.ok(span);
+        assert.equal(info.textContent, '1 update available.');
+      });
+
+      test('n=2', function() {
+        navigator.mozL10n.setAttributes(elem, 'overlay', { n: 2 });
+        _translateFragment(elem);
+        var info = elem.querySelector('strong');
+        var span = elem.querySelector('span');
+        assert.ok(info);
+        assert.ok(span);
+        assert.equal(info.textContent, '2 updates available.');
+      });
+    });
+
+    test('element with child, translation without a child', function() {
       elem.innerHTML = 'here is a button <button>(foo)</button>';
-      _localize(elem, 'textcontent-test');
+      navigator.mozL10n.setAttributes(elem, 'textcontent-test');
       _translateFragment(elem);
-      assert.equal(elem.textContent, 'this is text content(foo)');
-      assert.ok(elem.querySelector('button'));
+      assert.equal(elem.innerHTML, 'this is text content');
+    });
+
+    test('element and translation with child', function() {
+      elem.innerHTML = 'here is a button <button>(foo)</button>';
+      navigator.mozL10n.setAttributes(elem, 'dom-overlay-test');
+      _translateFragment(elem);
+      assert.equal(elem.innerHTML,
+                   'this is text content <button>(bar)</button>');
     });
   });
 
@@ -236,4 +297,3 @@ suite('L10n', function() {
     });
   });
 });
-

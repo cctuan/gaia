@@ -1,8 +1,9 @@
 /* -*- Mode: js; js-indent-level: 2; indent-tabs-mode: nil -*- */
 /* vim: set shiftwidth=2 tabstop=2 autoindent cindent expandtab: */
+/* global DUMP, icc, applications */
 
 'use strict';
-
+/* exported icc_events */
 var icc_events = {
   downloadEvent: function icc_events_downloadEvent(message, eventObject) {
     DUMP('icc_events_downloadEvent: Downloading event:', eventObject);
@@ -45,48 +46,65 @@ var icc_events = {
     });
   },
 
-  handleCallsChanged: function icc_events_handleCallsChanged(message, evt) {
+  handleCallsChanged: function icc_events_handleCallsChanged(evt) {
     if (evt.type != 'callschanged') {
       return;
     }
-    DUMP(' STK Communication changed');
+    DUMP(' STK Communication changed : ' + evt.type);
     var self = this;
     window.navigator.mozTelephony.calls.forEach(function callIterator(call) {
       DUMP(' STK:CALLS State change: ' + call.state);
       var outgoing = call.state == 'incoming';
-      if (call.state == 'incoming') {
-        self.downloadEvent(message, {
+      var iccMan = icc._iccManager,
+        serviceId = call.serviceId,
+        iccId = window.navigator.mozMobileConnections[serviceId].iccId,
+        iccEventSet = self.eventSet[iccId];
+      if (call.state == 'incoming' && iccEventSet &&
+        iccEventSet[iccMan.STK_EVENT_TYPE_MT_CALL]) {
+        self.downloadEvent(iccEventSet[iccMan.STK_EVENT_TYPE_MT_CALL], {
           eventType: icc._iccManager.STK_EVENT_TYPE_MT_CALL,
-          number: call.id ? call.id.number : call.number,
+          number: call.id.number,
           isIssuedByRemote: outgoing,
           error: null
         });
       }
       call.addEventListener('error', function callError(err) {
-        self.downloadEvent(message, {
-          eventType: icc._iccManager.STK_EVENT_TYPE_CALL_DISCONNECTED,
-          number: call.id ? call.id.number : call.number,
-          error: err
-        });
+        if (iccEventSet &&
+          iccEventSet[iccMan.STK_EVENT_TYPE_CALL_DISCONNECTED]) {
+          self.downloadEvent(
+            iccEventSet[iccMan.STK_EVENT_TYPE_CALL_DISCONNECTED], {
+            eventType: icc._iccManager.STK_EVENT_TYPE_CALL_DISCONNECTED,
+            number: call.id ? call.id.number : call.number,
+            error: err
+          });
+        }
       });
       call.addEventListener('statechange', function callStateChange() {
         DUMP(' STK:CALL State Change: ' + call.state);
         switch (call.state) {
           case 'connected':
-            self.downloadEvent(message, {
-              eventType: icc._iccManager.STK_EVENT_TYPE_CALL_CONNECTED,
-              number: call.id ? call.id.number : call.number,
-              isIssuedByRemote: outgoing
-            });
+            if (iccEventSet &&
+              iccEventSet[iccMan.STK_EVENT_TYPE_CALL_CONNECTED]) {
+              self.downloadEvent(
+                iccEventSet[iccMan.STK_EVENT_TYPE_CALL_CONNECTED], {
+                eventType: icc._iccManager.STK_EVENT_TYPE_CALL_CONNECTED,
+                number: call.id ? call.id.number : call.number,
+                isIssuedByRemote: outgoing
+              });
+            }
             break;
           case 'disconnected':
             call.removeEventListener('statechange', callStateChange);
-            self.downloadEvent(message, {
-              eventType: icc._iccManager.STK_EVENT_TYPE_CALL_DISCONNECTED,
-              number: call.id ? call.id.number : call.number,
-              isIssuedByRemote: outgoing,
-              error: null
-            });
+            if (iccEventSet &&
+              iccEventSet[iccMan.STK_EVENT_TYPE_CALL_DISCONNECTED]) {
+              self.downloadEvent(
+                iccEventSet[iccMan.STK_EVENT_TYPE_CALL_DISCONNECTED], {
+                eventType: icc._iccManager.STK_EVENT_TYPE_CALL_DISCONNECTED,
+                number: call.id ? call.id.number : call.number,
+                isIssuedByRemote: outgoing,
+                error: null
+              });
+            }
             break;
         }
       });
@@ -106,17 +124,20 @@ var icc_events = {
     function icc_events_handleBrowserTerminationEvent(message, evt) {
       DUMP(' STK Browser termination');
       this.downloadEvent(message, {
-        eventType: icc._iccManager.STK_EVENT_TYPE_BROWSER_TERMINATION
+        eventType: icc._iccManager.STK_EVENT_TYPE_BROWSER_TERMINATION,
+        terminationCause: icc._iccManager.STK_BROWSER_TERMINATION_CAUSE_USER
       });
   },
 
   handleUserActivityEvent:
-    function icc_events_handleUserActivity(message, idleObserverObject) {
+    function icc_events_handleUserActivity(message) {
       DUMP(' STK User Activity');
       this.downloadEvent(message, {
         eventType: icc._iccManager.STK_EVENT_TYPE_USER_ACTIVITY
       });
-      navigator.removeIdleObserver(idleObserverObject);
+      if (this.stkUserActivity) {
+        navigator.removeIdleObserver(this.stkUserActivity);
+      }
     },
 
   handleIdleScreenAvailableEvent:
@@ -125,85 +146,125 @@ var icc_events = {
       this.downloadEvent(message, {
         eventType: icc._iccManager.STK_EVENT_TYPE_IDLE_SCREEN_AVAILABLE
       });
+      window.removeEventListener('homescreenopened',
+        this.register_icc_event_idlescreen);
+  },
+
+  registerCallChanged: function(message, stkEvent) {
+    DUMP('icc_events_registerCallChanged message: ' + message);
+    DUMP('icc_events_registerCallChanged stkEvent: ' + stkEvent);
+    var self = this;
+    if (!self.eventSet) {
+      DUMP('icc_events create eventList');
+      var comm = window.navigator.mozTelephony;
+      comm.addEventListener('callschanged', function(teleEvent) {
+        self.handleCallsChanged(teleEvent);
+      });
+    }
+    self.eventSet = {};
+
+    if (!self.eventSet[message.iccId]) {
+      DUMP('icc_events create eventList for ' + message.iccId);
+      self.eventSet[message.iccId] = {};
+    }
+
+    if (!self.eventSet[message.iccId][stkEvent]) {
+      DUMP('icc_events create eventList for ' +
+        message.iccId + ' EVT: ' + stkEvent);
+      self.eventSet[message.iccId][stkEvent] = message;
+      DUMP('icc_events ' + self.eventSet[message.iccId]);
+    }
   },
 
   register: function icc_events_register(message, eventList) {
     DUMP('icc_events_register fpr card ' + message.iccId +
       ' - Events list:', eventList);
-    for (var evt in eventList) {
-      DUMP('icc_events_register - Registering event:', eventList[evt]);
-      switch (eventList[evt]) {
+
+    var conn = icc.getConnection(message.iccId);
+    conn.removeEventListener('voicechange',
+      this.register_icc_event_voicechange);
+
+    if (this.stkUserActivity) {
+      navigator.removeIdleObserver(this.stkUserActivity);
+    }
+
+    window.removeEventListener('homescreenopened',
+      this.register_icc_event_idlescreen);
+
+    if (this.icc_events_languageChanged) {
+      window.navigator.mozSettings.removeObserver('language.current',
+        this.icc_events_languageChanged);
+    }
+
+    window.removeEventListener('appterminated',
+      this.icc_events_browsertermination);
+
+    eventList.forEach(function(evtId) {
+      DUMP('icc_events_register - Registering event:', evtId);
+      switch (evtId) {
       case icc._iccManager.STK_EVENT_TYPE_MT_CALL:
       case icc._iccManager.STK_EVENT_TYPE_CALL_CONNECTED:
       case icc._iccManager.STK_EVENT_TYPE_CALL_DISCONNECTED:
         DUMP('icc_events_register - Communications changes event');
-        var comm = window.navigator.mozTelephony;
-        comm.addEventListener('callschanged',
-          function register_icc_event_callscahanged(evt) {
-            icc_events.handleCallsChanged(message, evt);
-          });
+        DUMP('icc_events_register message: ' + message);
+        DUMP('icc_events_register events: ' + eventList);
+        icc_events.registerCallChanged(message, evtId);
         break;
       case icc._iccManager.STK_EVENT_TYPE_LOCATION_STATUS:
         DUMP('icc_events_register - Location changes event');
-
-        // XXX: check bug-926169
-        // this is used to keep all tests passing while introducing
-        // multi-sim APIs
-        var conn = window.navigator.mozMobileConnection ||
-          window.navigator.mozMobileConnections &&
-            window.navigator.mozMobileConnections[0];
-
+        this.register_icc_event_voicechange = function(evt) {
+          icc_events.handleLocationStatus(message, evt);
+        };
         conn.addEventListener('voicechange',
-          function register_icc_event_voicechange(evt) {
-            icc_events.handleLocationStatus(message, evt);
-          });
+          this.register_icc_event_voicechange);
         break;
       case icc._iccManager.STK_EVENT_TYPE_USER_ACTIVITY:
         DUMP('icc_events_register - User activity event');
-        var stkUserActivity = {
-          time: 5,
+        this.stkUserActivity = {
+          time: 1,
           onidle: function() {
             DUMP('STK Event - User activity - Going to idle');
           },
           onactive: function() {
             DUMP('STK Event - User activity - Going to active');
-            icc_events.handleUserActivityEvent(message, stkUserActivity);
+            icc_events.handleUserActivityEvent(message);
           }
         };
-        navigator.addIdleObserver(stkUserActivity);
+        navigator.addIdleObserver(this.stkUserActivity);
         break;
       case icc._iccManager.STK_EVENT_TYPE_IDLE_SCREEN_AVAILABLE:
         DUMP('icc_events_register - Idle screen available event');
-        window.addEventListener('lockscreen-appopened',
-          function register_icc_event_idlescreen() {
-            icc_events.handleIdleScreenAvailableEvent(message);
-            window.removeEventListener('lockscreen-appopened',
-              register_icc_event_idlescreen);
-          });
+        this.register_icc_event_idlescreen = function() {
+          icc_events.handleIdleScreenAvailableEvent(message);
+        };
+        window.addEventListener('homescreenopened',
+          this.register_icc_event_idlescreen);
         break;
       case icc._iccManager.STK_EVENT_TYPE_CARD_READER_STATUS:
-        DUMP('icc_events_register - TODO event: ', eventList[evt]);
+        DUMP('icc_events_register - TODO event: ', evtId);
         break;
       case icc._iccManager.STK_EVENT_TYPE_LANGUAGE_SELECTION:
         DUMP('icc_events_register - Language selection event');
+        this.icc_events_languageChanged = function(e) {
+          icc_events.handleLanguageSelectionEvent(message, e);
+        };
         window.navigator.mozSettings.addObserver('language.current',
-          function icc_events_languageChanged(e) {
-            icc_events.handleLanguageSelectionEvent(message, e);
-          });
+          this.icc_events_languageChanged);
         break;
       case icc._iccManager.STK_EVENT_TYPE_BROWSER_TERMINATION:
         DUMP('icc_events_register - Browser termination event');
+        this.icc_events_browsertermination = function(e) {
+          var app = applications.getByManifestURL(e.detail.origin +
+            '/manifest.webapp');
+          if (!app) {
+            return;
+          }
+          if (app.manifest.name === 'Browser') {
+            icc_events.handleBrowserTerminationEvent(message, e);
+          }
+        };
         window.addEventListener('appterminated',
-          function icc_events_browsertermination(e) {
-            var app = applications.getByManifestURL(e.detail.origin +
-              '/manifest.webapp');
-            if (!app) {
-              return;
-            }
-            if (app.manifest.permissions.browser) {
-              icc_events.handleBrowserTerminationEvent(message, e);
-            }
-          });
+          this.icc_events_browsertermination);
         break;
       case icc._iccManager.STK_EVENT_TYPE_DATA_AVAILABLE:
       case icc._iccManager.STK_EVENT_TYPE_CHANNEL_STATUS:
@@ -213,10 +274,10 @@ var icc_events = {
       case icc._iccManager.STK_EVENT_TYPE_NETWORK_SEARCH_MODE_CHANGED:
       case icc._iccManager.STK_EVENT_TYPE_BROWSING_STATUS:
       case icc._iccManager.STK_EVENT_TYPE_FRAMES_INFORMATION_CHANGED:
-        DUMP('icc_events_register - TODO event: ', eventList[evt]);
+        DUMP('icc_events_register - TODO event: ', evtId);
         break;
       }
-    }
+    }, this);
   }
 
 };

@@ -22,7 +22,7 @@
     'use strict';
 
     if (typeof define === 'function' && define.amd) {
-        define(['tcp-socket', 'wo-imap-handler', 'mimefuncs', 'axe-logger'], function(TCPSocket, imapHandler, mimefuncs, axe) {
+        define(['tcp-socket', 'imap-handler', 'mimefuncs', 'axe'], function(TCPSocket, imapHandler, mimefuncs, axe) {
             return factory(TCPSocket, imapHandler, mimefuncs, axe);
         });
     } else if (typeof exports === 'object') {
@@ -88,7 +88,7 @@
         /**
          * Does the connection use SSL/TLS
          */
-        this._secureMode = !!this.options.useSecureTransport;
+        this.secureMode = !!this.options.useSecureTransport;
 
         /**
          * Is the conection established and greeting is received from the server
@@ -139,9 +139,14 @@
         this._globalAcceptUntagged = {};
 
         /**
-         * Time to wait until enter idle
+         * Timer waiting to enter idle
          */
         this._idleTimer = false;
+
+        /**
+         * Timer waiting to declare the socket dead starting from the last write
+         */
+        this._socketTimeoutTimer = false;
     }
 
     // Constants
@@ -150,6 +155,20 @@
      * How much time to wait since the last response until the connection is considered idling
      */
     ImapClient.prototype.TIMEOUT_ENTER_IDLE = 1000;
+
+    /**
+     * Lower Bound for socket timeout to wait since the last data was written to a socket
+     */
+    ImapClient.prototype.TIMEOUT_SOCKET_LOWER_BOUND = 10000;
+
+    /**
+     * Multiplier for socket timeout:
+     *
+     * We assume at least a GPRS connection with 115 kb/s = 14,375 kB/s tops, so 10 KB/s to be on
+     * the safe side. We can timeout after a lower bound of 10s + (n KB / 10 KB/s). A 1 MB message
+     * upload would be 110 seconds to wait for the timeout. 10 KB/s === 0.1 s/B
+     */
+    ImapClient.prototype.TIMEOUT_SOCKET_MULTIPLIER = 0.1;
 
     // PUBLIC EVENTS
     // Event functions should be overriden, these are just placeholders
@@ -201,12 +220,16 @@
     ImapClient.prototype.connect = function() {
         this.socket = this._TCPSocket.open(this.host, this.port, {
             binaryType: 'arraybuffer',
-            useSecureTransport: this._secureMode,
-            ca: this.options.ca
+            useSecureTransport: this.secureMode,
+            ca: this.options.ca,
+            tlsWorkerPath: this.options.tlsWorkerPath
         });
 
         // allows certificate handling for platform w/o native tls support
-        this.socket.oncert = this.oncert;
+        // oncert is non standard so setting it might throw if the socket object is immutable
+        try {
+            this.socket.oncert = this.oncert;
+        } catch (E) {}
 
         this.socket.onerror = this._onError.bind(this);
         this.socket.onopen = this._onOpen.bind(this);
@@ -221,6 +244,18 @@
         } else {
             this._destroy();
         }
+    };
+
+    /**
+     * Closes the connection to the server
+     */
+    ImapClient.prototype.upgrade = function(callback) {
+        if (this.secureMode) {
+            return callback(null, false);
+        }
+        this.secureMode = true;
+        this.socket.upgradeToSecure();
+        callback(null, true);
     };
 
     /**
@@ -257,11 +292,18 @@
 
     /**
      * Send data to the TCP socket
+     * Arms a timeout waiting for a response from the server.
      *
      * @param {String} str Payload
      */
     ImapClient.prototype.send = function(str) {
-        this.waitDrain = this.socket.send(mimefuncs.toTypedArray(str).buffer);
+        var buffer = mimefuncs.toTypedArray(str).buffer,
+            timeout = this.TIMEOUT_SOCKET_LOWER_BOUND + Math.floor(buffer.byteLength * this.TIMEOUT_SOCKET_MULTIPLIER);
+
+        clearTimeout(this._socketTimeoutTimer); // clear pending timeouts
+        this._socketTimeoutTimer = setTimeout(this._onTimeout.bind(this), timeout); // arm the next timeout
+
+        this.waitDrain = this.socket.send(buffer);
     };
 
     /**
@@ -305,6 +347,7 @@
         this._currentCommand = false;
 
         clearTimeout(this._idleTimer);
+        clearTimeout(this._socketTimeoutTimer);
 
         if (!this.destroyed) {
             this.destroyed = true;
@@ -320,6 +363,16 @@
      */
     ImapClient.prototype._onClose = function() {
         this._destroy();
+    };
+
+    /**
+     * Indicates that a socket timeout has occurred
+     */
+    ImapClient.prototype._onTimeout = function() {
+        // inform about the timeout, _onError takes case of the rest
+        var error = new Error(this.options.sessionId + ' Socket timed out!');
+        axe.error(DEBUG_TAG, error);
+        this._onError(error);
     };
 
     /**
@@ -345,6 +398,9 @@
         if (!evt || !evt.data) {
             return;
         }
+
+        clearTimeout(this._socketTimeoutTimer);
+
         var match,
             str = mimefuncs.fromTypedArray(evt.data);
 
@@ -397,7 +453,7 @@
      * @event
      */
     ImapClient.prototype._onOpen = function() {
-        axe.debug(DEBUG_TAG, 'tcp socket opened');
+        axe.debug(DEBUG_TAG, this.options.sessionId + ' tcp socket opened');
         this.socket.ondata = this._onData.bind(this);
         this.socket.onclose = this._onClose.bind(this);
         this.socket.ondrain = this._onDrain.bind(this);
@@ -445,10 +501,10 @@
                 };
             } else {
                 response = imapHandler.parser(data);
-                axe.debug(DEBUG_TAG, 'received response: ' + response.tag + ' ' + response.command);
+                axe.debug(DEBUG_TAG, this.options.sessionId + ' S: ' + imapHandler.compiler(response, false, true));
             }
         } catch (e) {
-            axe.error(DEBUG_TAG, 'error parsing imap response: ' + e + '\n' + e.stack + '\nraw:' + data);
+            axe.error(DEBUG_TAG, this.options.sessionId + ' error parsing imap response: ' + e + '\n' + e.stack + '\nraw:' + data);
             return this._onError(e);
         }
 
@@ -585,7 +641,17 @@
             data.payload[command] = [];
         });
 
-        this._clientQueue.push(data);
+        // if we're in priority mode (i.e. we ran commands in a precheck),
+        // queue any commands BEFORE the command that contianed the precheck,
+        // otherwise just queue command as usual
+        var index = data.ctx ? this._clientQueue.indexOf(data.ctx) : -1;
+        if (index >= 0) {
+            data.tag += '.p';
+            data.request.tag += '.p';
+            this._clientQueue.splice(index, 0, data);
+        } else {
+            this._clientQueue.push(data);
+        }
 
         if (this._canSend) {
             this._sendRequest();
@@ -593,7 +659,7 @@
     };
 
     /**
-     * Sends a command from command queue to the server.
+     * Sends a command from client queue to the server.
      */
     ImapClient.prototype._sendRequest = function() {
         if (!this._clientQueue.length) {
@@ -601,18 +667,63 @@
         }
         this._clearIdle();
 
+        // an operation was made in the precheck, no need to restart the queue manually
+        this._restartQueue = false;
+
+        var command = this._clientQueue[0];
+        if (typeof command.precheck === 'function') {
+            // remember the context
+            var context = command;
+            var precheck = context.precheck;
+            delete context.precheck;
+
+            // we need to restart the queue handling if no operation was made in the precheck
+            this._restartQueue = true;
+
+            // invoke the precheck command with a callback to signal that you're
+            // done with precheck and ready to resume normal operation
+            precheck(context, function(err) {
+                // we're done with the precheck
+                if (!err) {
+                    if (this._restartQueue) {
+                        // we need to restart the queue handling
+                        this._sendRequest();
+                    }
+                    return;
+                }
+
+                // precheck callback failed, so we remove the initial command
+                // from the queue, invoke its callback and resume normal operation
+                var cmd, index = this._clientQueue.indexOf(context);
+                if (index >= 0) {
+                    cmd = this._clientQueue.splice(index, 1)[0];
+                }
+                if (cmd && cmd.callback) {
+                    cmd.callback(err, function() {
+                        this._canSend = true;
+                        this._sendRequest();
+                        setTimeout(this._processServerQueue.bind(this), 0);
+                    }.bind(this));
+                }
+            }.bind(this));
+            return;
+        }
+
         this._canSend = false;
         this._currentCommand = this._clientQueue.shift();
+        var loggedCommand = false;
 
         try {
             this._currentCommand.data = imapHandler.compiler(this._currentCommand.request, true);
+            loggedCommand = imapHandler.compiler(this._currentCommand.request, false, true);
         } catch (e) {
-            axe.error(DEBUG_TAG, 'error compiling imap command: ' + e + '\nstack trace: ' + e.stack + '\nraw:' + this._currentCommand.request);
+            axe.error(DEBUG_TAG, this.options.sessionId + ' error compiling imap command: ' + e + '\nstack trace: ' + e.stack + '\nraw:' + this._currentCommand.request);
             return this._onError(e);
         }
 
-        axe.debug(DEBUG_TAG, 'sending request: ' + this._currentCommand.request.tag + ' ' + this._currentCommand.request.command);
+        axe.debug(DEBUG_TAG, this.options.sessionId + ' C: ' + loggedCommand);
         var data = this._currentCommand.data.shift();
+
         this.send(data + (!this._currentCommand.data.length ? '\r\n' : ''));
         return this.waitDrain;
     };

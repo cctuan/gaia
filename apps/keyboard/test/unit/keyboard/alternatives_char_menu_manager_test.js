@@ -9,8 +9,15 @@ suite('AlternativesCharMenuManager', function() {
   var container;
   var manager;
   var target;
+  var targetElem;
 
   var getFakeElementWithGetBoundingClientRect;
+
+  var dummyObjForChild1;
+
+  var fakeMenuView;
+
+  var viewManager;
 
   setup(function() {
     getFakeElementWithGetBoundingClientRect = function() {
@@ -33,37 +40,44 @@ suite('AlternativesCharMenuManager', function() {
     container.id = 'test-menu';
 
     var child1 = document.createElement('div');
-    child1.style.width = '30px';
-    child1.style.height = '100%';
-    child1.id = 'key1';
     container.appendChild(child1);
 
     var child2 = document.createElement('div');
-    child2.style.width = '30px';
-    child2.style.height = '100%';
-    child2.id = 'key2';
     container.appendChild(child2);
+
+    dummyObjForChild1 = {
+      dummy: 'dummy'
+    };
 
     document.body.appendChild(container);
 
-    // Create fake IMERender
-    window.IMERender = {
-      showAlternativesCharMenu: function(target, alternatives) {
-        return {
-          getMenuContainer: function() {
-            return container;
-          },
-          getBoundingClientRect: function() {
-            return container.getBoundingClientRect();
-          },
-          getLineHeight: function() {
-            return 10;
-          }
-        };
+    var viewMap = new WeakMap();
+
+    fakeMenuView = {
+      getMenuContainer: function() {
+        return container;
       },
-      hideAlternativesCharMenu: this.sinon.stub()
+      getBoundingClientRect: function() {
+        return container.getBoundingClientRect();
+      },
+      getMenuTarget: this.sinon.stub(),
+      isMenuTarget: this.sinon.stub()
     };
-    this.sinon.spy(window.IMERender, 'showAlternativesCharMenu');
+
+    // Create fake viewManager
+    viewManager = {
+      showAlternativesCharMenu: function(target, alternatives) {
+        return fakeMenuView;
+      },
+      hideAlternativesCharMenu: this.sinon.stub(),
+      registerView: function(target, view) {
+        viewMap.set(target, view);
+      },
+      getView(target) {
+        return viewMap.get(target);
+      }
+    };
+    this.sinon.spy(viewManager, 'showAlternativesCharMenu');
 
     // Create fake app
     app = {
@@ -76,18 +90,31 @@ suite('AlternativesCharMenuManager', function() {
           alt: {
           }
         }
-      }
+      },
+      layoutRenderingManager: {
+        getTargetObject: this.sinon.stub()
+      },
+      viewManager: viewManager
     };
 
-    // Create fake target
-    target = getFakeElementWithGetBoundingClientRect();
-    target.getBoundingClientRect.returns({
+    // Create fake target object and DOM element
+    targetElem = getFakeElementWithGetBoundingClientRect();
+    targetElem.getBoundingClientRect.returns({
       top: 50,
       bottom: 60,
       left: 10,
       right: 40,
       width: 30
     });
+
+    target = {
+      keyCode: 'x'.charCodeAt(0),
+      keyCodeUpper: 'X'.charCodeAt(0),
+      lowercaseValue: 'x',
+      uppercaseValue: 'X'
+    };
+
+    viewManager.registerView(target, {element: targetElem});
 
     // Show an alternatives chars menu
     manager = new AlternativesCharMenuManager(app);
@@ -97,7 +124,6 @@ suite('AlternativesCharMenuManager', function() {
   });
 
   teardown(function() {
-    window.IMERender = null;
     app = null;
     container = null;
   });
@@ -111,10 +137,10 @@ suite('AlternativesCharMenuManager', function() {
 
     manager.show(target);
 
-    assert.isTrue(window.IMERender.
+    assert.isTrue(viewManager.
       showAlternativesCharMenu.calledWith(target, ['x', 'a', 'b', 'c', 'd']));
     assert.isTrue(app.layoutManager.currentPage.alt.x !==
-      window.IMERender.showAlternativesCharMenu.getCall(0).args[1],
+      viewManager.showAlternativesCharMenu.getCall(0).args[1],
       'A copy of the array should be sent instead of the original one.');
     assert.isTrue(manager.isShown);
   });
@@ -130,10 +156,10 @@ suite('AlternativesCharMenuManager', function() {
 
     manager.show(target);
 
-    assert.isTrue(window.IMERender.
+    assert.isTrue(viewManager.
         showAlternativesCharMenu.calledWith(target, ['X', 'A', 'B', 'C', 'D']));
     assert.isTrue(app.layoutManager.currentPage.alt.x !==
-      window.IMERender.showAlternativesCharMenu.getCall(0).args[1],
+      viewManager.showAlternativesCharMenu.getCall(0).args[1],
       'A copy of the array should be sent instead of the original one.');
     assert.isTrue(manager.isShown);
   });
@@ -149,10 +175,10 @@ suite('AlternativesCharMenuManager', function() {
 
     manager.show(target);
 
-    assert.isTrue(window.IMERender.
+    assert.isTrue(viewManager.
         showAlternativesCharMenu.calledWith(target, ['X', 'E', 'F', 'G', 'H']));
     assert.isTrue(app.layoutManager.currentPage.alt.x !==
-      window.IMERender.showAlternativesCharMenu.getCall(0).args[1],
+      viewManager.showAlternativesCharMenu.getCall(0).args[1],
       'A copy of the array should be sent instead of the original one.');
     assert.isTrue(manager.isShown);
   });
@@ -163,7 +189,7 @@ suite('AlternativesCharMenuManager', function() {
 
     manager.show(target);
 
-    assert.isFalse(window.IMERender.showAlternativesCharMenu.called);
+    assert.isFalse(viewManager.showAlternativesCharMenu.called);
     assert.isFalse(manager.isShown);
   });
 
@@ -182,24 +208,21 @@ suite('AlternativesCharMenuManager', function() {
       manager.hide();
 
       assert.equal(manager.isShown, false);
-      assert.isTrue(window.IMERender.hideAlternativesCharMenu.calledOnce);
+      assert.isTrue(viewManager.hideAlternativesCharMenu.calledOnce);
     });
 
     suite('isMenuTarget', function() {
-      test('true', function() {
-        var target = {
-          parentNode: container
-        };
+      var dummyTarget = {
+        dummy: null
+      };
 
-        assert.isTrue(manager.isMenuTarget(target));
+      setup(function() {
+        manager.isMenuTarget(dummyTarget);
       });
 
-      test('false', function() {
-        var target = {
-          parentNode: {}
-        };
-
-        assert.isFalse(manager.isMenuTarget(target));
+      test('will invoke MenuView\'s isMenuTarget', function() {
+        assert.isTrue(fakeMenuView.isMenuTarget.calledOnce);
+        assert.isTrue(fakeMenuView.isMenuTarget.calledWith(dummyTarget));
       });
     });
 
@@ -288,57 +311,18 @@ suite('AlternativesCharMenuManager', function() {
     });
 
     suite('getMenuTarget', function() {
-      test('on top of the key', function() {
-        var press = {
-          target: target,
-          clientX: 15,
-          clientY: 55
-        };
-
-        assert.equal(manager.getMenuTarget(press),
-          container.children[0]);
-      });
-
-      test('under 2nd key', function() {
+      test('will invoke menuView.getMenuTarget', function() {
         var press = {
           target: {},
           clientX: 35,
           clientY: 55
         };
 
-        assert.equal(manager.getMenuTarget(press),
-          container.children[1]);
-      });
+        manager.getMenuTarget(press);
 
-      test('under 2nd key but haven\'t moved away from target', function() {
-        var press = {
-          target: target,
-          clientX: 35,
-          clientY: 55
-        };
-
-        assert.equal(manager.getMenuTarget(press),
-          container.children[0]);
-      });
-
-      test('under 2nd key, had moved away from target', function() {
-        var press = {
-          target: {},
-          clientX: 45,
-          clientY: 55
-        };
-
-        assert.equal(manager.getMenuTarget(press),
-          container.children[1]);
-
-        var press2 = {
-          target: target,
-          clientX: 35,
-          clientY: 55
-        };
-
-        assert.equal(manager.getMenuTarget(press2),
-          container.children[1]);
+        assert.isTrue(fakeMenuView.getMenuTarget.calledOnce);
+        assert.isTrue(fakeMenuView.getMenuTarget.calledWith(press.clientX,
+                                                            press.clientY));
       });
     });
   });
@@ -356,10 +340,6 @@ suite('AlternativesCharMenuManager', function() {
     });
 
     test('isMenuTarget should be false', function() {
-      var target = {
-        parentNode: container
-      };
-
       assert.isFalse(manager.isMenuTarget(target));
     });
 

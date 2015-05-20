@@ -4,20 +4,47 @@
 
 import json
 import os
+import posixpath
 import shutil
 import tempfile
 import time
 
-from marionette import MarionetteTestCase, EnduranceTestCaseMixin, \
-    B2GTestCaseMixin, MemoryEnduranceTestCaseMixin
-from marionette.by import By
-from marionette import expected
-from marionette.errors import NoSuchElementException
-from marionette.errors import StaleElementException
-from marionette.errors import InvalidResponseException
-from marionette.wait import Wait
+from marionette import MarionetteTestCase, B2GTestCaseMixin
+from marionette_driver import expected, By, Wait
+from marionette_driver.errors import NoSuchElementException, StaleElementException
+import mozfile
 
+from environment import GaiaTestEnvironment
 from file_manager import GaiaDeviceFileManager, GaiaLocalFileManager
+
+DEFAULT_SETTINGS = {
+    'airplaneMode.enabled': False,  # disable airplane mode
+    'audio.volume.alarm': 0,  # mute alarm audio
+    'audio.volume.content': 0,  # mute content audio
+    'audio.volume.notification': 0,  # mute audio notifications
+    'camera.sound.enabled': False,  # mute camera sounds
+    'edgesgesture.enabled': False,  # disable edge gestures
+    'ftu.manifestURL': None,  # disable the first time usage app
+    'keyboard.autocorrect': False,  # disable auto-correction of keyboard
+    'keyboard.clicksound': False,  # mute keyboard click sound
+    'keyboard.enabled-layouts': str({
+        'app://keyboard.gaiamobile.org/manifest.webapp': {
+            'en': True, 'number': True}}),  # reset keyboard layouts
+    'keyboard.vibration': False,  # disable keyboard vibration
+    'language.current': 'en-US',  # reset language to en-US
+    'lockscreen.enabled': False,  # disable lockscreen
+    'lockscreen.passcode-lock.code': '1111',
+    'lockscreen.passcode-lock.enabled': False,  # disable lockscreen passcode
+    'lockscreen.unlock-sound.enabled': False,  # mute unlock sound
+    'message.sent-sound.enabled': False,  # mute message sent sound
+    'phone.ring.keypad': False,  # mute dial pad sounds
+    'privacy.donottrackheader.value': -1,  # reset do not track
+    'ril.data.roaming_enabled': False,  # disable roaming
+    'search.suggestions.enabled': False,  # disable search suggestions
+    'screen.brightness': 0.1,  # reduce screen brightness
+    'screen.timeout': 0,  # disable screen timeout
+    'vibration.enabled': False,  # disable vibration
+}
 
 
 class GaiaApp(object):
@@ -62,7 +89,9 @@ class GaiaApps(object):
                                                           % (manifest_url, json.dumps(entry_point)), script_timeout=launch_timeout)
             assert result, "Failed to launch app with manifest_url '%s'" % manifest_url
         else:
-            result = self.marionette.execute_async_script("GaiaApps.launchWithName('%s')" % name, script_timeout=launch_timeout)
+            result = self.marionette.execute_async_script(
+                "GaiaApps.launchWithName('%s')" % name,
+                script_timeout=launch_timeout)
             assert result, "Failed to launch app with name '%s'" % name
         app = GaiaApp(frame=result.get('frame'),
                       src=result.get('src'),
@@ -91,10 +120,6 @@ class GaiaApps(object):
         self.marionette.switch_to_frame()
         return self.marionette.execute_async_script("GaiaApps.locateWithName('%s')" % app_name)
 
-    def uninstall(self, name):
-        self.marionette.switch_to_frame()
-        self.marionette.execute_async_script("GaiaApps.uninstallWithName('%s')" % name)
-
     def kill(self, app):
         self.marionette.switch_to_frame()
         result = self.marionette.execute_async_script("GaiaApps.kill('%s');" % app.origin)
@@ -110,6 +135,14 @@ class GaiaApps(object):
         # Now kill the user apps
         self.marionette.switch_to_frame()
         self.marionette.execute_async_script("GaiaApps.killAll();")
+
+    def uninstall(self, name):
+        self.marionette.switch_to_frame()
+        data_layer = GaiaData(self.marionette)
+        data_layer.set_bool_pref('dom.mozApps.auto_confirm_uninstall', True)
+        result = self.marionette.execute_async_script('GaiaApps.uninstallWithName("%s")' % name)
+        assert (result is True), 'Failed to uninstall app: %s' % result
+        data_layer.set_bool_pref('dom.mozApps.auto_confirm_uninstall', False)
 
     @property
     def installed_apps(self):
@@ -169,67 +202,88 @@ class GaiaData(object):
     @property
     def all_contacts(self):
         # TODO Bug 1049489 - In future, simplify executing scripts from the chrome context
+        self.marionette.push_permission('contacts-read', True)
         self.marionette.set_context(self.marionette.CONTEXT_CHROME)
-        result = self.marionette.execute_async_script('return GaiaDataLayer.getAllContacts();', special_powers=True)
+        result = self.marionette.execute_async_script('return GaiaDataLayer.getAllContacts();')
         self.marionette.set_context(self.marionette.CONTEXT_CONTENT)
+        self.marionette.push_permission('contacts-read', False)
         return result
 
     @property
     def sim_contacts(self):
-        # TODO Bug 1049489 - In future, simplify executing scripts from the chrome context
-        self.marionette.set_context(self.marionette.CONTEXT_CHROME)
-        adn_contacts = self.marionette.execute_async_script('return GaiaDataLayer.getSIMContacts("adn");', special_powers=True)
-        sdn_contacts = self.marionette.execute_async_script('return GaiaDataLayer.getSIMContacts("sdn");', special_powers=True)
-        self.marionette.set_context(self.marionette.CONTEXT_CONTENT)
+        self.marionette.switch_to_frame()
+        adn_contacts = self.marionette.execute_async_script('return GaiaDataLayer.getSIMContacts("adn");')
+        sdn_contacts = self.marionette.execute_async_script('return GaiaDataLayer.getSIMContacts("sdn");')
         return adn_contacts + sdn_contacts
 
     def insert_contact(self, contact):
         # TODO Bug 1049489 - In future, simplify executing scripts from the chrome context
+        self.marionette.push_permission('contacts-create', True)
         self.marionette.set_context(self.marionette.CONTEXT_CHROME)
         mozcontact = contact.create_mozcontact()
-        result = self.marionette.execute_async_script('return GaiaDataLayer.insertContact(%s);' % json.dumps(mozcontact), special_powers=True)
+        result = self.marionette.execute_async_script('return GaiaDataLayer.insertContact(%s);' % json.dumps(mozcontact))
         assert result, 'Unable to insert contact %s' % contact
         self.marionette.set_context(self.marionette.CONTEXT_CONTENT)
+        self.marionette.push_permission('contacts-create', False)
 
     def insert_sim_contact(self, contact, contact_type='adn'):
-        # TODO Bug 1049489 - In future, simplify executing scripts from the chrome context
-        self.marionette.set_context(self.marionette.CONTEXT_CHROME)
         mozcontact = contact.create_mozcontact()
         result = self.marionette.execute_async_script('return GaiaDataLayer.insertSIMContact("%s", %s);'
-                                                      % (contact_type, json.dumps(mozcontact)), special_powers=True)
+                                                      % (contact_type, json.dumps(mozcontact)))
         assert result, 'Unable to insert SIM contact %s' % contact
-        self.marionette.set_context(self.marionette.CONTEXT_CONTENT)
+        return result
+
+    def delete_sim_contact(self, moz_contact_id, contact_type='adn'):
+        result = self.marionette.execute_async_script('return GaiaDataLayer.deleteSIMContact("%s", "%s");'
+                                                      % (contact_type, moz_contact_id))
+        assert result, 'Unable to insert SIM contact %s' % moz_contact_id
 
     def remove_all_contacts(self):
         # TODO Bug 1049489 - In future, simplify executing scripts from the chrome context
+        self.marionette.push_permission('contacts-write', True)
         self.marionette.set_context(self.marionette.CONTEXT_CHROME)
         timeout = max(self.marionette.timeout or 60000, 1000 * len(self.all_contacts))
-        result = self.marionette.execute_async_script('return GaiaDataLayer.removeAllContacts();', special_powers=True, script_timeout=timeout)
+        self.marionette.push_permission('contacts-read', True)
+        result = self.marionette.execute_async_script('return GaiaDataLayer.removeAllContacts();', script_timeout=timeout)
         assert result, 'Unable to remove all contacts'
         self.marionette.set_context(self.marionette.CONTEXT_CONTENT)
 
     def get_setting(self, name):
-        return self.marionette.execute_async_script('return GaiaDataLayer.getSetting("%s")' % name, special_powers=True)
+        self.marionette.push_permission('settings-read', True)
+        self.marionette.push_permission('settings-api-read', True)
+        return self.marionette.execute_async_script(
+            'return GaiaDataLayer.getSetting("%s")' % name)
 
     @property
     def all_settings(self):
         return self.get_setting('*')
 
     def set_setting(self, name, value):
+        self.marionette.push_permission('settings-write', True)
+        self.marionette.push_permission('settings-api-write', True)
         import json
         value = json.dumps(value)
-        result = self.marionette.execute_async_script('return GaiaDataLayer.setSetting("%s", %s)' % (name, value), special_powers=True)
+        result = self.marionette.execute_async_script('return GaiaDataLayer.setSetting("%s", %s)' % (name, value))
         assert result, "Unable to change setting with name '%s' to '%s'" % (name, value)
 
     def _get_pref(self, datatype, name):
         self.marionette.switch_to_frame()
-        pref = self.marionette.execute_script("return SpecialPowers.get%sPref('%s');" % (datatype, name), special_powers=True)
+        with self.marionette.using_context('chrome'):
+            pref = self.marionette.execute_script("return Services.prefs.get%sPref('%s');" % (datatype, name))
         return pref
 
     def _set_pref(self, datatype, name, value):
         value = json.dumps(value)
         self.marionette.switch_to_frame()
-        self.marionette.execute_script("SpecialPowers.set%sPref('%s', %s);" % (datatype, name, value), special_powers=True)
+        with self.marionette.using_context('chrome'):
+            self.marionette.execute_script(
+                "Services.prefs.set%sPref('%s', %s);" % (datatype, name, value))
+
+    def clear_user_pref(self, name):
+        self.marionette.switch_to_frame()
+        with self.marionette.using_context('chrome'):
+            self.marionette.execute_script(
+                "Services.prefs.clearUserPref('%s');" % name)
 
     def get_bool_pref(self, name):
         """Returns the value of a Gecko boolean pref, which is different from a Gaia setting."""
@@ -273,17 +327,27 @@ class GaiaData(object):
         return self.marionette.execute_script("return window.navigator.mozBluetooth.enabled")
 
     @property
+    def bluetooth_is_discoverable(self):
+        self.marionette.switch_to_frame()
+        return self.marionette.execute_script("return window.wrappedJSObject.Bluetooth.defaultAdapter.discoverable")
+
+    @property
+    def bluetooth_name(self):
+        self.marionette.switch_to_frame()
+        return self.marionette.execute_script("return window.wrappedJSObject.Bluetooth.defaultAdapter.name")
+
+    @property
     def is_cell_data_enabled(self):
         return self.get_setting('ril.data.enabled')
 
     def connect_to_cell_data(self):
         self.marionette.switch_to_frame()
-        result = self.marionette.execute_async_script("return GaiaDataLayer.connectToCellData()", special_powers=True)
+        result = self.marionette.execute_async_script("return GaiaDataLayer.connectToCellData()")
         assert result, 'Unable to connect to cell data'
 
     def disable_cell_data(self):
         self.marionette.switch_to_frame()
-        result = self.marionette.execute_async_script("return GaiaDataLayer.disableCellData()", special_powers=True)
+        result = self.marionette.execute_async_script("return GaiaDataLayer.disableCellData()")
         assert result, 'Unable to disable cell data'
 
     @property
@@ -304,12 +368,12 @@ class GaiaData(object):
 
     def enable_wifi(self):
         self.marionette.switch_to_frame()
-        result = self.marionette.execute_async_script("return GaiaDataLayer.enableWiFi()", special_powers=True)
+        result = self.marionette.execute_async_script("return GaiaDataLayer.enableWiFi()")
         assert result, 'Unable to enable WiFi'
 
     def disable_wifi(self):
         self.marionette.switch_to_frame()
-        result = self.marionette.execute_async_script("return GaiaDataLayer.disableWiFi()", special_powers=True)
+        result = self.marionette.execute_async_script("return GaiaDataLayer.disableWiFi()")
         assert result, 'Unable to disable WiFi'
 
     def connect_to_wifi(self, network=None):
@@ -318,7 +382,7 @@ class GaiaData(object):
         self.enable_wifi()
         self.marionette.switch_to_frame()
         result = self.marionette.execute_async_script("return GaiaDataLayer.connectToWiFi(%s)" % json.dumps(network),
-                script_timeout = max(self.marionette.timeout, 60000))
+                                                      script_timeout=max(self.marionette.timeout, 60000))
         assert result, 'Unable to connect to WiFi network'
 
     def forget_all_networks(self):
@@ -363,19 +427,46 @@ class GaiaData(object):
 
     def delete_all_sms(self):
         self.marionette.switch_to_frame()
-        return self.marionette.execute_async_script("return GaiaDataLayer.deleteAllSms();", special_powers=True)
+        self.marionette.push_permission('sms', True)
+        self.set_bool_pref('dom.sms.enabled', True)
+        result = self.marionette.execute_async_script("return GaiaDataLayer.deleteAllSms();")
+        self.marionette.push_permission('sms', False)
+        self.clear_user_pref('dom.sms.enabled')
+        return result
 
     def get_all_sms(self):
         self.marionette.switch_to_frame()
-        return self.marionette.execute_async_script("return GaiaDataLayer.getAllSms();", special_powers=True)
+        self.marionette.push_permission('sms', True)
+        self.set_bool_pref('dom.sms.enabled', True)
+        result = self.marionette.execute_async_script("return GaiaDataLayer.getAllSms();")
+        self.marionette.push_permission('sms', False)
+        self.clear_user_pref('dom.sms.enabled')
+        return result
 
     def delete_all_call_log_entries(self):
         """The call log needs to be open and focused in order for this to work."""
         self.marionette.execute_script('window.wrappedJSObject.RecentsDBManager.deleteAll();')
 
+    def insert_call_entry(self, call):
+        """The call log needs to be open and focused in order for this to work."""
+        self.marionette.execute_script('window.wrappedJSObject.CallLogDBManager.add(%s);' % (json.dumps(call)))
+
+        # TODO Replace with proper wait when possible
+        import time
+        time.sleep(1)
+
     def kill_active_call(self):
         self.marionette.execute_script("var telephony = window.navigator.mozTelephony; " +
                                        "if(telephony.active) telephony.active.hangUp();")
+
+    def kill_conference_call(self):
+        self.marionette.execute_script("""
+        var callsToEnd = window.navigator.mozTelephony.conferenceGroup.calls;
+        for (var i = (callsToEnd.length - 1); i >= 0; i--) {
+            var call = callsToEnd[i];
+            call.hangUp();
+        }
+        """)
 
     @property
     def music_files(self):
@@ -396,7 +487,7 @@ class GaiaData(object):
         files = self.marionette.execute_async_script(
             'return GaiaDataLayer.getAllSDCardFiles();')
         if len(extension):
-            return [filename for filename in files if filename.endswith(extension)]
+            return [file for file in files if file['name'].endswith(extension)]
         return files
 
     def send_sms(self, number, message):
@@ -404,31 +495,31 @@ class GaiaData(object):
         import json
         number = json.dumps(number)
         message = json.dumps(message)
-        result = self.marionette.execute_async_script('return GaiaDataLayer.sendSMS(%s, %s)' % (number, message), special_powers=True)
+
+        self.marionette.push_permission('sms', True)
+        self.set_bool_pref('dom.sms.enabled', True)
+        result = self.marionette.execute_async_script('return GaiaDataLayer.sendSMS(%s, %s)' % (number, message))
+        self.marionette.push_permission('sms', False)
+        self.clear_user_pref('dom.sms.enabled')
+
         assert result, 'Unable to send SMS to recipient %s with text %s' % (number, message)
 
-    # FIXME: Bug 1011000: will make use of SoundManager instead
-    def wait_for_audio_channel_changed(self):
-        self.marionette.switch_to_frame()
-        result = self.marionette.execute_async_script("return GaiaDataLayer.waitForAudioChannelChanged();")
-        assert result, "Failed to get a mozChromeEvent audio-channel-changed"
-        return result
+    def add_notification(self, title, options=None):
+        self.marionette.execute_script('new Notification("%s", %s);' % (title, json.dumps(options)))
 
-    # FIXME: Bug 1011000: will make use of SoundManager instead
-    def wait_for_visible_audio_channel_changed(self):
+    def clear_notifications(self):
+        self.marionette.execute_script('window.wrappedJSObject.NotificationScreen.clearAll();')
+
+    @property
+    def current_audio_channel(self):
         self.marionette.switch_to_frame()
-        result = self.marionette.execute_async_script("return GaiaDataLayer.waitForVisibleAudioChannelChanged();")
-        assert result, "Failed to get a mozChromeEvent visible-audio-channel-changed"
-        return result
+        return self.marionette.execute_script("return window.wrappedJSObject.soundManager.currentChannel;")
 
 
 class Accessibility(object):
 
     def __init__(self, marionette):
         self.marionette = marionette
-        js = os.path.abspath(os.path.join(__file__, os.path.pardir,
-                                          'atoms', "accessibility.js"))
-        self.marionette.import_script(js)
 
     def is_hidden(self, element):
         return self._run_async_script('isHidden', [element])
@@ -443,8 +534,20 @@ class Accessibility(object):
         self._run_async_script('click', [element])
 
     def wheel(self, element, direction):
-        self.marionette.execute_script('Accessibility.wheel.apply(Accessibility, arguments)', [
-            element, direction])
+        self.marionette.execute_script("""
+        let element = arguments[0];
+        let direction = arguments[1];
+        let horizontal = direction === 'left' || direction === 'right';
+        let page = (direction === 'left' || direction === 'up') ? 1 : -1;
+        let event = new window.wrappedJSObject.WheelEvent('wheel', {
+          bubbles: true,
+          cancelable: true,
+          deltaX: horizontal ? page : 0,
+          deltaY: horizontal ? 0 : page,
+          deltaMode: window.wrappedJSObject.WheelEvent.DOM_DELTA_PAGE,
+        });
+        element.wrappedJSObject.dispatchEvent(event);
+        """, [element, direction], sandbox='default')
 
     def get_name(self, element):
         return self._run_async_script('getName', [element])
@@ -453,13 +556,19 @@ class Accessibility(object):
         return self._run_async_script('getRole', [element])
 
     def dispatchEvent(self):
-        self.marionette.execute_script("window.wrappedJSObject.dispatchEvent(new CustomEvent(" +
-                                       "'accessibility-action'));")
+        self.marionette.switch_to_frame()
+        self.marionette.execute_script(
+            "window.dispatchEvent(new CustomEvent('accessibility-action'));")
 
-    def _run_async_script(self, func, args):
+    def execute_async_script(self, script, args, **kwargs):
+        js = os.path.abspath(os.path.join(__file__, os.path.pardir,
+                                          'atoms', "accessibility.js"))
+        with open(js, 'r') as f:
+            content = f.read()
+
+        kwargs['sandbox'] = 'system'
         result = self.marionette.execute_async_script(
-            'return Accessibility.%s.apply(Accessibility, arguments)' % func,
-            args, special_powers=True)
+            '%s\n%s' % (content, script), args, **kwargs)
 
         if not result:
             return
@@ -469,6 +578,12 @@ class Accessibility(object):
             raise Exception(message)
 
         return result.get('result', None)
+
+    def _run_async_script(self, func, args):
+        return self.execute_async_script(
+            'return Accessibility.%s.apply(Accessibility, arguments)' % func,
+            args)
+
 
 class FakeUpdateChecker(object):
 
@@ -550,7 +665,7 @@ class GaiaDevice(object):
         time.sleep(2)
         self.start_b2g()
 
-    def start_b2g(self, timeout=60):
+    def start_b2g(self, timeout=120):
         if self.marionette.instance:
             # launch the gecko instance attached to marionette
             self.marionette.instance.start()
@@ -566,7 +681,7 @@ class GaiaDevice(object):
         # Reset the storage path for desktop B2G
         self._set_storage_path()
 
-    def wait_for_b2g_ready(self, timeout=60):
+    def wait_for_b2g_ready(self, timeout=120):
         # Wait for the homescreen to finish loading
         Wait(self.marionette, timeout).until(expected.element_present(
             By.CSS_SELECTOR, '#homescreen[loading-state=false]'))
@@ -601,37 +716,46 @@ class GaiaDevice(object):
 
     def press_sleep_button(self):
         self.marionette.execute_script("""
-            window.wrappedJSObject.dispatchEvent(new CustomEvent('mozChromeEvent', {
-              detail: {
-                type: 'sleep-button-press'
-              }
+            window.wrappedJSObject.dispatchEvent(new KeyboardEvent('mozbrowserbeforekeydown', {
+              key: 'Power'
             }));""")
 
     def press_release_volume_up_then_down_n_times(self, n_times):
         self.marionette.execute_script("""
-            function sendEvent(aName, aType) {
-              window.wrappedJSObject.dispatchEvent(new CustomEvent('mozChromeEvent', {
-                detail: {
-                  type: aName + '-button-' + aType
-                }
+            function sendEvent(key, aType) {
+              var type = aType === 'press' ? 'mozbrowserafterkeydown' : 'mozbrowserafterkeyup';
+              window.wrappedJSObject.dispatchEvent(new KeyboardEvent(type, {
+                key: key
               }));
             }
             for (var i = 0; i < arguments[0]; ++i) {
-              sendEvent('volume-up', 'press');
-              sendEvent('volume-up', 'release');
-              sendEvent('volume-down', 'press');
-              sendEvent('volume-down', 'release');
+              sendEvent('VolumeUp', 'press');
+              sendEvent('VolumeUp', 'release');
+              sendEvent('VolumeDown', 'press');
+              sendEvent('VolumeDown', 'release');
             };""", script_args=[n_times])
 
     def turn_screen_off(self):
-        self.marionette.execute_script("window.wrappedJSObject.ScreenManager.turnScreenOff(true)")
+        apps = GaiaApps(self.marionette)
+        self.marionette.switch_to_frame()
+        ret = self.marionette.execute_script("window.wrappedJSObject.ScreenManager.turnScreenOff(true)")
+        apps.switch_to_displayed_app()
+        return ret
 
     def turn_screen_on(self):
-        self.marionette.execute_script("window.wrappedJSObject.ScreenManager.turnScreenOn(true)")
+        apps = GaiaApps(self.marionette)
+        self.marionette.switch_to_frame()
+        ret = self.marionette.execute_script("window.wrappedJSObject.ScreenManager.turnScreenOn(true)")
+        apps.switch_to_displayed_app()
+        return ret
 
     @property
     def is_screen_enabled(self):
-        return self.marionette.execute_script('return window.wrappedJSObject.ScreenManager.screenEnabled')
+        apps = GaiaApps(self.marionette)
+        self.marionette.switch_to_frame()
+        ret = self.marionette.execute_script('return window.wrappedJSObject.ScreenManager.screenEnabled')
+        apps.switch_to_displayed_app()
+        return ret
 
     def touch_home_button(self):
         apps = GaiaApps(self.marionette)
@@ -646,7 +770,7 @@ class GaiaDevice(object):
             mode = self.marionette.find_element(By.TAG_NAME, 'body').get_attribute('class')
             self._dispatch_home_button_event()
             apps.switch_to_displayed_app()
-            if mode == 'edit-mode':
+            if 'edit-mode' in mode:
                 # touching home button will exit edit mode
                 Wait(self.marionette).until(lambda m: m.find_element(
                     By.TAG_NAME, 'body').get_attribute('class') != mode)
@@ -670,19 +794,22 @@ class GaiaDevice(object):
     @property
     def is_locked(self):
         self.marionette.switch_to_frame()
-        return self.marionette.execute_script('return window.wrappedJSObject.System.locked')
+        return self.marionette.execute_script('return window.wrappedJSObject.Service.locked')
 
     def lock(self):
+        GaiaData(self.marionette).set_setting('lockscreen.enabled', True)
         self.turn_screen_off()
         self.turn_screen_on()
         assert self.is_locked, 'The screen is not locked'
         Wait(self.marionette).until(lambda m: m.find_element(By.CSS_SELECTOR, 'div.lockScreenWindow.active'))
 
     def unlock(self):
-        self.marionette.import_script(self.lockscreen_atom)
-        self.marionette.switch_to_frame()
-        result = self.marionette.execute_async_script('GaiaLockScreen.unlock()')
-        assert result, 'Unable to unlock screen'
+        if self.is_locked:
+            self.marionette.import_script(self.lockscreen_atom)
+            self.marionette.switch_to_frame()
+            result = self.marionette.execute_async_script("GaiaLockScreen.unlock();", sandbox='default')
+            GaiaData(self.marionette).set_setting('lockscreen.enabled', False)
+            assert result, 'Unable to unlock screen'
 
     def change_orientation(self, orientation):
         """  There are 4 orientation states which the phone can be passed in:
@@ -718,6 +845,7 @@ class GaiaDevice(object):
     def screen_orientation(self):
         return self.marionette.execute_script('return window.screen.mozOrientation')
 
+
 class GaiaTestCase(MarionetteTestCase, B2GTestCaseMixin):
     def __init__(self, *args, **kwargs):
         self.restart = kwargs.pop('restart', False)
@@ -727,10 +855,11 @@ class GaiaTestCase(MarionetteTestCase, B2GTestCaseMixin):
     def setUp(self):
         try:
             MarionetteTestCase.setUp(self)
-        except (InvalidResponseException, IOError):
+        except IOError:
             if self.restart:
                 pass
 
+        self.environment = GaiaTestEnvironment(self.testvars)
         self.device = GaiaDevice(self.marionette,
                                  manager=self.device_manager,
                                  testvars=self.testvars)
@@ -738,9 +867,13 @@ class GaiaTestCase(MarionetteTestCase, B2GTestCaseMixin):
         if self.restart and (self.device.is_android_build or self.marionette.instance):
             # Restart if it's a device, or we have passed a binary instance with --binary command arg
             self.device.stop_b2g()
-            if self.device.is_android_build:
-                self.cleanup_data()
-            self.device.start_b2g()
+            try:
+                if self.device.is_android_build:
+                    self.cleanup_data()
+                self.set_defaults()
+            finally:
+                # make sure we restart to avoid leaving us in a bad state
+                self.device.start_b2g()
 
         # Run the fake update checker
         FakeUpdateChecker(self.marionette).check_updates()
@@ -793,7 +926,10 @@ class GaiaTestCase(MarionetteTestCase, B2GTestCaseMixin):
         self.device.file_manager.remove('/data/local/indexedDB')
         self.device.file_manager.remove('/data/local/OfflineCache')
         self.device.file_manager.remove('/data/local/permissions.sqlite')
+        self.device.file_manager.remove('/data/local/storage/permanent')
         self.device.file_manager.remove('/data/local/storage/persistent')
+        self.device.file_manager.remove('/data/local/storage/default')
+        self.device.file_manager.remove('/data/local/webapps')
         # remove remembered networks
         self.device.file_manager.remove('/data/misc/wifi/wpa_supplicant.conf')
 
@@ -813,40 +949,27 @@ class GaiaTestCase(MarionetteTestCase, B2GTestCaseMixin):
                     self.device.file_manager.remove('/'.join([path, item]))
 
     def cleanup_gaia(self, full_reset=True):
+
+        self.device.turn_screen_off()
+        self.device.turn_screen_on()
+        
+        # kill the FTU and any open, user-killable apps
+        self.apps.kill_all()
+
         # unlock
         if self.data_layer.get_setting('lockscreen.enabled'):
             self.device.unlock()
 
-        # kill the FTU and any open, user-killable apps
-        self.apps.kill_all()
-
         if full_reset:
-            # disable passcode
-            self.data_layer.set_setting('lockscreen.passcode-lock.code', '1111')
-            self.data_layer.set_setting('lockscreen.passcode-lock.enabled', False)
-
-            # change language back to english
-            self.data_layer.set_setting("language.current", "en-US")
-
-            # reset keyboard to default values
-            self.data_layer.set_setting("keyboard.enabled-layouts",
-                                        "{'app://keyboard.gaiamobile.org/manifest.webapp': {'en': True, 'number': True}}")
-
-            # reset do not track
-            self.data_layer.set_setting('privacy.donottrackheader.enabled', False)
-
-            if self.data_layer.get_setting('airplaneMode.enabled'):
-                # enable the device radio, disable airplane mode
-                self.data_layer.set_setting('airplaneMode.enabled', False)
-
-            # Re-set edge gestures pref to False
-            self.data_layer.set_setting('edgesgesture.enabled', False)
+            defaults = DEFAULT_SETTINGS.copy()
+            defaults.update(self.testvars.get('settings', {}))
+            defaults = self.modify_settings(defaults)
+            for name, value in defaults.items():
+                self.data_layer.set_setting(name, value)
 
             # disable carrier data connection
             if self.device.has_mobile_connection:
                 self.data_layer.disable_cell_data()
-
-            self.data_layer.disable_cell_roaming()
 
             if self.device.has_wifi:
                 # Bug 908553 - B2G Emulator: support wifi emulation
@@ -861,15 +984,6 @@ class GaiaTestCase(MarionetteTestCase, B2GTestCaseMixin):
             # reset to home screen
             self.device.touch_home_button()
 
-        # disable sound completely
-        self.data_layer.set_volume(0)
-
-        # disable auto-correction of keyboard
-        self.data_layer.set_setting('keyboard.autocorrect', False)
-
-        # restore settings from testvars
-        [self.data_layer.set_setting(name, value) for name, value in self.testvars.get('settings', {}).items()]
-
         # restore prefs from testvars
         for name, value in self.testvars.get('prefs', {}).items():
             if type(value) is int:
@@ -879,18 +993,6 @@ class GaiaTestCase(MarionetteTestCase, B2GTestCaseMixin):
             else:
                 self.data_layer.set_char_pref(name, value)
 
-    def connect_to_network(self):
-        if not self.device.is_online:
-            try:
-                self.connect_to_local_area_network()
-            except:
-                self.marionette.log('Failed to connect to wifi, trying cell data instead.')
-                if self.device.has_mobile_connection:
-                    self.data_layer.connect_to_cell_data()
-                else:
-                    raise Exception('Unable to connect to network')
-        assert self.device.is_online
-
     def connect_to_local_area_network(self):
         if not self.device.is_online:
             if self.testvars.get('wifi') and self.device.has_wifi:
@@ -899,6 +1001,15 @@ class GaiaTestCase(MarionetteTestCase, B2GTestCaseMixin):
             else:
                 raise Exception('Unable to connect to local area network')
 
+    def disable_all_network_connections(self):
+        if self.device.has_wifi:
+            self.data_layer.enable_wifi()
+            self.data_layer.forget_all_networks()
+            self.data_layer.disable_wifi()
+
+        if self.device.has_mobile_connection:
+            self.data_layer.disable_cell_data()
+
     def push_resource(self, filename, remote_path=None, count=1):
         # push to the test storage space defined by device root
         self.device.file_manager.push_file(
@@ -906,6 +1017,58 @@ class GaiaTestCase(MarionetteTestCase, B2GTestCaseMixin):
 
     def resource(self, filename):
         return os.path.abspath(os.path.join(os.path.dirname(__file__), 'resources', filename))
+
+    def modify_settings(self, settings):
+        """Hook to modify the default settings before they're applied.
+
+        :param settings: dictionary of the settings that would be applied.
+        :returns: modified dictionary of the settings to be applied.
+
+        This method provides tha ability for test cases to override the default
+        settings before they're applied. To use it, define the method in your
+        test class and return a modified dictionary of settings:
+
+        .. code-block:: python
+
+            class TestModifySettings(GaiaTestCase):
+
+                def modify_settings(self, settings):
+                    settings['foo'] = 'bar'
+                    return settings
+
+                def test_modify_settings(self):
+                    self.assertEqual('bar', self.data_layer.get_setting('foo'))
+
+        """
+        return settings
+
+    def set_defaults(self):
+        filename = 'settings.json'
+        defaults = DEFAULT_SETTINGS.copy()
+        defaults.update(self.testvars.get('settings', {}))
+        defaults = self.modify_settings(defaults)
+
+        if self.device.is_desktop_b2g:
+            directory = self.marionette.instance.profile_path
+            path = os.path.join(directory, filename)
+        else:
+            directory = '/system/b2g/defaults'
+            path = posixpath.join(directory, filename)
+
+        settings = json.loads(self.device.file_manager.pull_file(path))
+        for name, value in defaults.items():
+            self.logger.debug('Setting %s to %s' % (name, value))
+            settings[name] = value
+        td = tempfile.mkdtemp()
+        try:
+            tf = os.path.join(td, filename)
+            with open(tf, 'w') as f:
+                json.dump(settings, f)
+            if not self.device.is_desktop_b2g:
+                self.device.manager.remount()
+            self.device.file_manager.push_file(tf, directory)
+        finally:
+            mozfile.remove(td)
 
     def wait_for_element_present(self, by, locator, timeout=None):
         return Wait(self.marionette, timeout, ignored_exceptions=NoSuchElementException).until(
@@ -961,31 +1124,3 @@ class GaiaTestCase(MarionetteTestCase, B2GTestCaseMixin):
         self.apps = None
         self.data_layer = None
         MarionetteTestCase.tearDown(self)
-
-
-class GaiaEnduranceTestCase(GaiaTestCase, EnduranceTestCaseMixin, MemoryEnduranceTestCaseMixin):
-
-    def __init__(self, *args, **kwargs):
-        GaiaTestCase.__init__(self, *args, **kwargs)
-        EnduranceTestCaseMixin.__init__(self, *args, **kwargs)
-        MemoryEnduranceTestCaseMixin.__init__(self, *args, **kwargs)
-        kwargs.pop('iterations', None)
-        kwargs.pop('checkpoint_interval', None)
-
-    def close_app(self):
-        # Close the current app (self.app) by using the home button
-        self.device.touch_home_button()
-
-        # Bring up the cards view
-        _cards_view_locator = ('id', 'cards-view')
-        self.device.hold_home_button()
-        self.wait_for_element_displayed(*_cards_view_locator)
-
-        # Sleep a bit
-        time.sleep(5)
-
-        # Tap the close icon for the current app
-        locator_part_two = '#cards-view li.card[data-origin*="%s"] .close-card' % self.app_under_test.lower()
-        _close_button_locator = ('css selector', locator_part_two)
-        close_card_app_button = self.marionette.find_element(*_close_button_locator)
-        close_card_app_button.tap()

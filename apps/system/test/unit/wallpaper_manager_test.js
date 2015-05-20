@@ -1,7 +1,9 @@
 'use strict';
 
-/* global WallpaperManager, LazyLoader, ImageUtils, MockNavigatorSettings */
+/* global WallpaperManager, LazyLoader, ImageUtils,
+   MockNavigatorSettings, MockOrientationManager */
 
+requireApp('system/test/unit/mock_orientation_manager.js');
 require('/shared/test/unit/mocks/mock_navigator_moz_settings.js');
 require('/shared/js/image_utils.js');
 require('/apps/system/js/wallpaper_manager.js');
@@ -10,12 +12,13 @@ suite('WallpaperManager', function() {
 
   var subject;  // The WallpaperManager instance we're testing.
   var wallpaperBlob, bigWallpaperBlob, smallWallpaperBlob;
-  var dataURL, bigDataURL, smallDataURL;
+  var dataURL, bigDataURL, smallDataURL, mockPublish;
 
   const DEFAULT_WALLPAPER = 'resources/images/backgrounds/default.png';
 
   suiteSetup(function(done) {
     var self = this;
+    var sw, sh;
 
     // Don't display debug output
     WallpaperManager.DEBUG = false;
@@ -42,10 +45,20 @@ suite('WallpaperManager', function() {
       });
     };
 
-    // Create some image blobs
-    this.screenWidth = screen.width * window.devicePixelRatio;
-    this.screenHeight = screen.height * window.devicePixelRatio;
+    // How big (in device pixels) is the screen in its default orientation?
+    if (MockOrientationManager && !MockOrientationManager.isDefaultPortrait()) {
+      sw = Math.max(screen.width, screen.height);
+      sh = Math.min(screen.width, screen.height);
+    } else {
+      // Otherwise, the width is the smaller dimension
+      sw = Math.min(screen.width, screen.height);
+      sh = Math.max(screen.width, screen.height);
+    }
 
+    this.screenWidth = sw * window.devicePixelRatio;
+    this.screenHeight = sh * window.devicePixelRatio;
+
+    // Create some image blobs
     var canvas = document.createElement('canvas');
     canvas.width = this.screenWidth;
     canvas.height = this.screenHeight;
@@ -78,23 +91,26 @@ suite('WallpaperManager', function() {
     this.xhr.restore();
   });
 
-
   setup(function() {
     var self = this;
     // Mock settings
     this.realMozSettings = navigator.mozSettings;
     navigator.mozSettings = MockNavigatorSettings;
 
-    // Mock System.publish function
-    window.System = {
-      publish: function(type, data) {
-        if (self.onWallpaperChange) {
-          setTimeout(function() {
-            self.onWallpaperChange(type, data);
-          });
-        }
+    this.realOrientationManager = window.OrientationManager;
+    window.OrientationManager = MockOrientationManager;
+
+    mockPublish = function(e) {
+      if (self.onWallpaperChange) {
+        setTimeout(function() {
+          if (self.onWallpaperChange) {
+            self.onWallpaperChange('wallpaperchange', e.detail);
+          }
+        });
       }
     };
+
+    window.addEventListener('wallpaperchange', mockPublish);
 
     // Mock LazyLoader
     window.LazyLoader = { };
@@ -121,10 +137,14 @@ suite('WallpaperManager', function() {
     this.validateSpy.restore();
     this.publishSpy.restore();
 
+    window.removeEventListener('wallpaperchange', mockPublish);
+
     navigator.mozSettings = this.realMozSettings;
     MockNavigatorSettings.mTeardown();
 
-    delete window.System;
+    window.OrientationManager = this.realOrientationManager;
+    MockOrientationManager.defaultOrientation = 'portrait-primary';
+
     this.onWallpaperChange = null;
   });
 
@@ -147,19 +167,20 @@ suite('WallpaperManager', function() {
 
     // We do our assertions once we see a wallpaperchange event published.
     this.onWallpaperChange = function(type, data) {
-      // Check event type
-      assert.equal(type, 'wallpaperchange');
-      // Check that we get a blob url
-      assert.equal(data.url.substring(0, 5), 'blob:');
+      done(() => {
+        // Check event type
+        assert.equal(type, 'wallpaperchange');
+        // Check that we get a blob url
+        assert.equal(data.url.substring(0, 5), 'blob:');
 
-      // Check that the methods were called the expected number of times
-      assert.ok(self.setWallpaperSpy.calledOnce);
-      assert.ok(self.toBlobSpy.notCalled);
-      assert.ok(LazyLoader.load.notCalled);
-      assert.ok(self.checkSizeSpy.notCalled);
-      assert.ok(self.saveSpy.notCalled);
-      assert.ok(self.publishSpy.calledOnce);
-      done();
+        // Check that the methods were called the expected number of times
+        sinon.assert.calledOnce(self.setWallpaperSpy);
+        sinon.assert.notCalled(self.toBlobSpy);
+        sinon.assert.notCalled(LazyLoader.load);
+        sinon.assert.notCalled(self.checkSizeSpy);
+        sinon.assert.notCalled(self.saveSpy);
+        sinon.assert.calledOnce(self.publishSpy);
+      });
     };
 
     subject.start();
@@ -335,6 +356,60 @@ suite('WallpaperManager', function() {
         assert.equal(data.width, self.screenWidth);
         assert.equal(data.height, self.screenHeight);
         done();
+      });
+    };
+
+    subject.start();
+  });
+
+  //
+  // Test changed wallpaper in landscape orientation. Verify that
+  // the wallpaper is resized and that the resulting wallpaper has
+  // the expected size.
+  //
+  test('start and change wallpaper in landscape mode', function(done) {
+    var self = this;
+    MockOrientationManager.defaultOrientation = 'landscape-primary';
+    // Start with a validated blob in the settings db
+    MockNavigatorSettings.mSettings['wallpaper.image'] = wallpaperBlob;
+    MockNavigatorSettings.mSettings['wallpaper.image.valid'] = true;
+
+    // Wait 'till the initial wallpaper is published
+    this.onWallpaperChange = function(type, data) {
+      // Test assertions when we get the changed wallpaper
+      self.onWallpaperChange = function(type, data) {
+        // Check event type
+        assert.equal(type, 'wallpaperchange');
+        // Check that we get a blob url
+        assert.equal(data.url.substring(0, 5), 'blob:');
+        // Check that the methods were called the expected number of times
+
+        // 3 times: initial, changed, and saved wallpapers
+        assert.equal(self.setWallpaperSpy.callCount, 3);
+        assert.ok(self.toBlobSpy.notCalled, '_toBlob not called');
+        assert.ok(LazyLoader.load.calledOnce);
+        assert.ok(self.checkSizeSpy.calledOnce, 'checkSize called');
+        assert.ok(self.saveSpy.calledOnce, 'save called');
+        assert.ok(self.validateSpy.notCalled,
+                  'validate not called');
+        assert.equal(self.publishSpy.callCount, 2, 'publish called');
+        assert.notEqual(MockNavigatorSettings.mSettings['wallpaper.image'],
+                        wallpaperBlob);
+        assert.equal(MockNavigatorSettings.mSettings['wallpaper.image.valid'],
+                     true);
+
+        var blob = MockNavigatorSettings.mSettings['wallpaper.image'];
+        ImageUtils.getSizeAndType(blob).then(function resolve(data) {
+          // Check the resized wallpaper in landscape orientation to have
+          // width as bigger dimension that equals screenHeight.
+          assert.equal(data.width, self.screenHeight);
+          assert.equal(data.height, self.screenWidth);
+          done();
+        });
+      };
+
+      navigator.mozSettings.createLock().set({
+        'wallpaper.image': wallpaperBlob
       });
     };
 

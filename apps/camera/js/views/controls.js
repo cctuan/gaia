@@ -21,6 +21,7 @@ module.exports = View.extend({
 
   initialize: function(options) {
     this.drag = options && options.drag; // test hook
+    this.once('inserted', this.setupSwitch);
     this.render();
   },
 
@@ -29,6 +30,13 @@ module.exports = View.extend({
     right: 'video',
     picture: 'left',
     video: 'right'
+  },
+
+  // {node}: {data-l10n-id} pairs used for localization.
+  elsL10n: {
+    cancel: 'controls-button-close',
+    thumbnail: 'preview-button',
+    capture: 'capture-button'
   },
 
   render: function() {
@@ -82,10 +90,18 @@ module.exports = View.extend({
   setupSwitch: function() {
     debug('setup dragger');
 
+    // Wait until the document is complete
+    // to avoid any forced sync reflows.
+    if (document.readyState !== 'complete') {
+      window.addEventListener('load', this.setupSwitch);
+      debug('deferred switch setup till after load');
+      return;
+    }
+
     // Prefer existing drag (test hook)
     this.drag = this.drag || new Drag({
       handle: this.els.switchHandle,
-      container: this.els.switch,
+      container: this.els.switch
     });
 
     this.drag.on('tapped', debounce(this.onSwitchTapped, 300, true));
@@ -95,6 +111,14 @@ module.exports = View.extend({
 
     this.drag.updateDimensions();
     this.updateSwitchPosition();
+
+    // Tidy up
+    window.removeEventListener('load', this.setupSwitch);
+  },
+
+  setCaptureLabel: function(recording) {
+    this.els.capture.setAttribute('data-l10n-id',
+      recording ? 'stop-capture-button' : 'capture-button');
   },
 
   onSwitchSnapped: function(edges) {
@@ -125,7 +149,16 @@ module.exports = View.extend({
     var video = Math.max(0, -1 + ratioSkewed);
     this.els.icons.camera.style.opacity = camera;
     this.els.icons.video.style.opacity = video;
-    debug('opacity camera: %s, video: %s', camera, video);
+    debug('set switch icon camera: %s, video: %s', camera, video);
+  },
+
+  /**
+   * Set view screen reader visibility. In some cases, though the view is behind
+   * an overlay and not hidden off screen, it still needs to be
+   * hidden/inaccessible from the screen reader.
+   */
+  setScreenReaderVisible: function(visible) {
+    this.el.setAttribute('aria-hidden', !visible);
   },
 
   onButtonClick: function(e) {
@@ -136,16 +169,22 @@ module.exports = View.extend({
   },
 
   setMode: function(mode) {
+    debug('set mode: %s', mode);
     this.set('mode', mode);
     this.switchPosition = this.switchPositions[mode];
+    var ratio = { left: 0, right: 1 }[this.switchPosition];
     this.updateSwitchPosition();
-    this.setSwitchIcon({ left: 0, right: 1 }[this.switchPosition]);
-    debug('setMode mode: %s, pos: %s', mode);
+    this.setSwitchIcon(ratio);
+    // Set appropriate mode switch label for screen reader.
+    this.els.switch.setAttribute('data-l10n-id', mode + '-mode-button');
+    debug('mode set pos: %s', this.switchPosition);
   },
 
   updateSwitchPosition: function() {
+    debug('updateSwitchPosition');
     if (!this.drag) { return; }
     this.drag.set({ x: this.switchPosition });
+    debug('updated switch position: %s', this.switchPosition);
   },
 
   setThumbnail: function(blob) {
@@ -220,14 +259,32 @@ module.exports = View.extend({
     this.unset(key ? key + '-enabled' : 'enabled');
   },
 
+  /**
+   * Localize the template based on a list of localizable elements - elsL10n. In
+   * case the template is loaded before l10n is ready, localize will peform the
+   * initial localization.
+   */
+  localize: function() {
+    for (var el in this.elsL10n) {
+      // Resetting data-l10n-id will trigger localization for the el.
+      this.els[el].setAttribute('data-l10n-id', this.elsL10n[el]);
+    }
+    // Switch mode label depends on the mode that is currently set.
+    var mode = this.get('mode') || 'picture';
+    this.els.switch.setAttribute('data-l10n-id', mode + '-mode-button');
+  },
+
   template: function() {
     /*jshint maxlen:false*/
     return '<div class="controls-left">' +
-      '<div class="controls-button controls-thumbnail-button test-thumbnail js-thumbnail rotates" name="thumbnail"></div>' +
-      '<div class="controls-button controls-cancel-pick-button test-cancel-pick rotates js-cancel" name="cancel" data-icon="close"></div>' +
+      '<div class="controls-button controls-thumbnail-button test-thumbnail js-thumbnail rotates" ' +
+        'name="thumbnail" role="button" data-l10n-id="preview-button"></div>' +
+      '<div class="controls-button controls-cancel-pick-button test-cancel-pick rotates js-cancel" ' +
+        'name="cancel" data-icon="close" role="button" data-l10n-id="controls-button-close"></div>' +
     '</div>' +
     '<div class="controls-middle">' +
-      '<div class="capture-button test-capture rotates js-capture" name="capture">' +
+      '<div class="capture-button test-capture rotates js-capture" name="capture" ' +
+        'data-l10n-id="capture-button" role="button">' +
         '<div class="circle outer-circle"></div>' +
         '<div class="circle inner-circle"></div>' +
         '<div class="center" data-icon="camera"></div>' +
@@ -235,10 +292,10 @@ module.exports = View.extend({
     '</div>' +
     '<div class="controls-right">' +
       '<div class="mode-switch test-switch" name="switch">' +
-        '<div class="inner js-switch">' +
-          '<div class="mode-switch_bg-icon rotates" data-icon="camera"></div>' +
-          '<div class="mode-switch_bg-icon rotates" data-icon="video"></div>' +
-          '<div class="mode-switch_handle js-switch-handle">' +
+        '<div class="inner js-switch" role="button">' +
+          '<div class="mode-switch_bg-icon rotates" data-icon="camera" aria-hidden="true"></div>' +
+          '<div class="mode-switch_bg-icon rotates" data-icon="video" aria-hidden="true"></div>' +
+          '<div class="mode-switch_handle js-switch-handle" aria-hidden="true">' +
             '<div class="mode-switch_current-icon camera rotates js-icon-camera" data-icon="camera"></div>' +
             '<div class="mode-switch_current-icon video rotates js-icon-video" data-icon="video"></div>' +
           '</div>' +

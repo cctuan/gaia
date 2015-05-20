@@ -30,6 +30,14 @@ suite('browser class > ', function() {
       assert.equal(b.element.getAttribute('mozapptype'), 'critical');
     });
 
+    test('mozapptype: inputmethod', function() {
+      var b = new BrowserFrame({
+        url: window.location.protocol + '//' + 'keyboard.gaiamobile.org',
+        isInputMethod: true
+      });
+      assert.equal(b.element.getAttribute('mozapptype'), 'inputmethod');
+    });
+
     test('mozapptype: other app', function() {
       var b = new BrowserFrame({
         url: window.location.protocol + '//' + 'other.gaiamobile.org'
@@ -71,5 +79,21 @@ suite('browser class > ', function() {
     });
     assert.isNull(b3.element.getAttribute('expecting-system-message'));
   });
-});
 
+  test('inputmethod app attributes', function() {
+    var b = new BrowserFrame({
+      url: window.location.protocol + '//' + 'keyboard.gaiamobile.org',
+      isInputMethod: true
+    });
+    assert.equal(b.element.getAttribute('mozpasspointerevents'), 'true');
+    assert.equal(b.element.getAttribute('ignoreuserfocus'), 'true');
+  });
+
+  test('private browsing attribute', function() {
+    var b = new BrowserFrame({
+      url: 'http://mozilla.org',
+      isPrivate: true
+    });
+    assert.equal(b.element.getAttribute('mozprivatebrowsing'), 'true');
+  });
+});

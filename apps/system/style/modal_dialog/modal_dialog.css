@@ -51,9 +51,7 @@
 }
 
 #modal-dialog-error {
-  background-color: black;
-  background-image: url(images/error_bk.png);
-  background-size: 32rem;
+  background-color: #2d2d2d;
 }
 
 #modal-dialog-sad-face {
@@ -64,7 +62,7 @@
 
 /* Confirm dialog */
 .modal-dialog-message-container p {
-  display: inline-block;
+  display: block;
   word-wrap: break-word;
   padding: 0 1.5rem;
   margin: 0;
@@ -81,7 +79,7 @@
 }
 
 #modal-dialog-select-one h3 {
-  font-size: 1.8rem;
+  line-height: 1.8rem;
 }
 
 #modal-dialog-select-one ul {
@@ -112,6 +110,8 @@
   margin: 0;
   background: #4E4E4E padding-box;
   border: solid 1px rgba(0, 0, 0, 0.25);
+  padding-left: 1.5rem;
+  line-height: 2rem;
 }
 
 #modal-dialog-select-one ul > li > button:active {

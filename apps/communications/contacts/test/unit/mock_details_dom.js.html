@@ -2,7 +2,7 @@
 
 var MockDetailsDom = '<section id="view-contact-details" role="region" class="view view-right view-contact-profile">' +
         '<gaia-header id="details-view-header" action="back">' +
-          '<h1 id="contact-name-title"></h1>' +
+          '<h1 id="contact-name-title"><bdi></bdi></h1>' +
           '<button id="edit-contact-button" data-icon="edit-contact" data-l10n-id="editButton"></button>' +
         '</gaia-header>' +
         '<article id="contact-detail-wrapper" class="view-body">' +
@@ -59,6 +59,9 @@ var MockDetailsDom = '<section id="view-contact-details" role="region" class="vi
                   '<button id="link_button" class="activity icon icon-link">' +
                     '#action#' +
                   '</button>' +
+                  '<button id="share_button" class="activity icon icon-share">' +
+                    'Share' +
+                  '</button>' +
               '</li>' +
               '<li class="duplicate-actions" id="duplicate-contacts-template" data-template>' +
                 '<h2 data-l10n-id="duplicate-contacts">Organise Contacts</h2>' +
@@ -72,7 +75,7 @@ var MockDetailsDom = '<section id="view-contact-details" role="region" class="vi
                 '<div class="item">' +
                   '<div class="item-body-exp">' +
                     '<a href="#" class="action action-block">' +
-                      '<span role="button" class="icon-address" data-l10n-id="legendAddress">Address</span>' +
+                      '<span role="button" class="icon-address bb-button" data-l10n-id="legendAddress">Address</span>' +
                       '<b>' +
                       '<span>#streetAddress#</span>' +
                         '#postalCode#' +
@@ -101,5 +104,4 @@ var MockDetailsDom = '<section id="view-contact-details" role="region" class="vi
             '</section>' +
         '</article>' +
       '</section>' +
-      '<form is="sim-picker" id="sim-picker" role="dialog" data-type="action" hidden>' +
-      '</form>';
+      '<gaia-sim-picker id="sim-picker" tabindex="-1"></gaia-sim-picker>';

@@ -1,3 +1,11 @@
+/*
+ * By default do not allow any user text selection, only enable
+ * for certain parts on a per-element/region area.
+*/
+* {
+  -moz-user-select: none;
+}
+
 html {
   height: 100%;
   width: 100%;
@@ -122,6 +130,12 @@ body {
   color: #fff;
 }
 
+/* Never show the scan progress when the title bar has a back button, since the
+   progress display would make it impossible to go back! */
+#title[action="back"] ~ #scan-progress {
+  display: none;
+}
+
 #scan-spinner {
   position: absolute;
   top: 1rem;
@@ -185,6 +199,15 @@ body.tiles-mode #views {
   transform: translateX(0%);
 }
 
+body.tiles-mode #views-tiles,
+body.search-from-tiles-mode #views-tiles {
+  visibility: visible;
+}
+
+body.search-from-tiles-mode #views-tiles-anchor {
+  visibility: hidden;
+}
+
 body.search-from-tiles-mode #views {
   transform: translateX(0%) translateY(-5rem);
 }
@@ -198,9 +221,20 @@ body.search-from-list-mode #views {
   transform: translateX(-100%) translateY(-5rem);
 }
 
+body.list-mode #views-list,
+body.picker-mode #views-list,
+body.search-from-list-mode #views-list {
+  visibility: visible;
+}
+
+body.search-from-list-mode #views-list-anchor {
+  visibility: hidden;
+}
+
 body.search-from-tiles-mode #search,
 body.search-from-list-mode #search {
   transform: translateY( calc(-100%) );
+  visibility: visible;
 }
 
 body.search-from-tiles-mode #views-tiles,
@@ -208,10 +242,10 @@ body.search-from-list-mode #views-list {
   overflow-y: hidden;
 }
 
-body.search-from-tiles-mode #tabs,
-body.search-from-list-mode #tabs,
-body.picker-mode #tabs {
-  display: none;
+body.tiles-mode #tabs,
+body.list-mode #tabs,
+body.sublist-mode #tabs {
+  display: inherit;
 }
 
 body.sublist-mode #views {
@@ -219,13 +253,25 @@ body.sublist-mode #views {
   z-index: 20;
 }
 
+body.sublist-mode #views-sublist {
+  visibility: visible;
+}
+
 body.player-mode #views {
   transform: translateX(-300%);
   z-index: 30;
 }
 
+body.player-mode #views-player {
+  visibility: visible;
+}
+
 body.picker-mode #views {
   transition: transform 0ms ease;
+}
+
+body.picker-mode .view {
+  transition: visibility 0ms;
 }
 
 body.player-mode #title-player,
@@ -258,12 +304,32 @@ body.picker-mode #title-player {
   overflow-y: auto;
   background: -moz-linear-gradient(center top, #303030 0%, #000000 100%) repeat scroll 0 0 transparent;
   z-index: 10;
-  transition: transform 300ms ease;
+  transition: transform 300ms ease, visibility 300ms;
+  visibility: hidden;
+}
+
+#views-search-no-result {
+  position: absolute;
+  top: 3.7rem;
+  left: 0;
+  right: 0;
+  height: calc(100% - 3.7rem);
+}
+
+#search-no-result {
+  margin: 9.5rem 1.5rem 0;
+  padding-top: 1.5rem;
+  font-size: 2.4rem;
+  font-weight: 300;
+  text-align: left;
+  border-top: 0.1rem solid #bdbdbd;
 }
 
 .view {
   width: 100%;
   height: auto;
+  visibility: hidden;
+  transition: visibility 300ms;
 }
 
 #views-tiles,
@@ -304,6 +370,7 @@ body.picker-mode #title-player {
 
 #views-player.open-mode {
   transform: translateX(0);
+  visibility: visible;
 }
 
 /* Make sure the tiles and list views are tall enough that we can scroll the
@@ -311,6 +378,15 @@ body.picker-mode #title-player {
 #views-tiles-anchor,
 #views-list-anchor {
   min-height: 100%;
+  transition: visibility 300ms;
+}
+
+/*
+ * Enable the text selection in the tiles and list search inputs.
+ */
+#views-tiles-search-input,
+#views-list-search-input {
+  -moz-user-select: text;
 }
 
 /*
@@ -355,6 +431,13 @@ body.picker-mode #title-player {
   border-bottom: solid 0.1rem rgba(255, 255, 255, 0.1);
 }
 
+html[dir="rtl"] #views-sublist-header-image,
+html[dir="rtl"] #views-sublist-header-controls {
+  float: right;
+  left: auto;
+  right: 3rem;
+}
+
 #views-sublist-header-image {
   width: 8rem;
   height: 8rem;
@@ -367,6 +450,7 @@ body.picker-mode #title-player {
 
 #views-sublist-header-name {
   position:relative;
+  display: block;
   font-size: 1.9rem;
   padding: 0 1rem;
   width: calc(100% - 2rem);
@@ -375,6 +459,10 @@ body.picker-mode #title-player {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+html[dir="rtl"] #views-sublist-header-name {
+  text-align: right;
 }
 
 #views-sublist-header-controls {
@@ -395,6 +483,11 @@ body.picker-mode #title-player {
   background-repeat: no-repeat;
   background-size: 3rem;
   color: #fff;
+}
+
+html[dir="rtl"] #views-sublist-controls-play,
+html[dir="rtl"] #views-sublist-controls-shuffle {
+  float: right;
 }
 
 .album-controls-button {
@@ -428,11 +521,38 @@ body.picker-mode #title-player {
   /* We set a background URL here when the thumbnail loads */
 }
 
-/* Favor scrolling performance over quality while scrolling */
-#views.scroll li.list-item,
-#views.scrolling .tile {
-  image-rendering: -moz-crisp-edges;
-  text-rendering: optimizeSpeed;
+/* Tiles are grouped in 6. Left and right groups. */
+html[dir="ltr"] .tile:nth-child(12n+1),
+html[dir="ltr"] .tile:nth-child(12n+2),
+html[dir="ltr"] .tile:nth-child(12n+3),
+html[dir="ltr"] .tile:nth-child(12n+4),
+html[dir="ltr"] .tile:nth-child(12n+5),
+html[dir="ltr"] .tile:nth-child(12n+6),
+html[dir="rtl"] .tile:nth-child(12n+7),
+html[dir="rtl"] .tile:nth-child(12n+8),
+html[dir="rtl"] .tile:nth-child(12n+9),
+html[dir="rtl"] .tile:nth-child(12n+10),
+html[dir="rtl"] .tile:nth-child(12n+11),
+html[dir="rtl"] .tile:nth-child(12n+12) {
+  float: left;
+  left: 0.5%;
+}
+
+/* right groups */
+html[dir="ltr"] .tile:nth-child(12n+7),
+html[dir="ltr"] .tile:nth-child(12n+8),
+html[dir="ltr"] .tile:nth-child(12n+9),
+html[dir="ltr"] .tile:nth-child(12n+10),
+html[dir="ltr"] .tile:nth-child(12n+11),
+html[dir="ltr"] .tile:nth-child(12n+12),
+html[dir="rtl"] .tile:nth-child(12n+1),
+html[dir="rtl"] .tile:nth-child(12n+2),
+html[dir="rtl"] .tile:nth-child(12n+3),
+html[dir="rtl"] .tile:nth-child(12n+4),
+html[dir="rtl"] .tile:nth-child(12n+5),
+html[dir="rtl"] .tile:nth-child(12n+6) {
+  float: right;
+  right: 0.5%;
 }
 
 .main-tile {
@@ -511,6 +631,11 @@ body.picker-mode #title-player {
   font-size: 1.4rem;
 }
 
+html[dir="rtl"] .tile-title-artist,
+html[dir="rtl"] .tile-title-album {
+  text-align: right;
+}
+
 .main-tile-title {
   font-size: 1.9rem;
 }
@@ -519,18 +644,6 @@ body.picker-mode #title-player {
   padding: 0.15rem 0.5rem;
   width: calc(100% - 1rem);
   color: rgba(255, 255, 255, 0.8);
-}
-
-.float-left {
-  position: relative;
-  float: left;
-  left: 0.5%;
-}
-
-.float-right {
-  position: relative;
-  float: right;
-  right: 0.5%;
 }
 
 #player-cover {
@@ -569,10 +682,12 @@ body.picker-mode #title-player {
 
 #player-cover.slideOut #player-cover-caption {
   transform: translateY(100%);
+  visibility: visible;
 }
 
 #player-cover.slideOut #player-cover-buttons {
   transform: translateY(-100%);
+  visibility: visible;
 }
 
 #player-cover-caption,
@@ -581,7 +696,8 @@ body.picker-mode #title-player {
   width: 100%;
   height: 5rem;
   background-color: rgba(0, 0, 0, 0.5);
-  transition: transform 700ms ease-in-out;
+  transition: transform 700ms ease-in-out, visibility 700ms ease-in-out;
+  visibility: hidden;
 }
 
 #player-cover-caption {
@@ -595,23 +711,25 @@ body.picker-mode #title-player {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  text-align: left;
   text-indent: 3rem;
   text-shadow: black 0.1rem 0.1rem;
   line-height: 2.5rem;
+  width: 75%;
+  height: auto;
 }
 
 #player-cover-artist {
-  width: 75%;
-  height: auto;
-  text-align: left;
   font-size: 1.9rem;
 }
 
 #player-cover-album {
-  width: 75%;
-  height: auto;
-  text-align: left;
   font-size: 1.7rem;
+}
+
+html[dir="rtl"] #player-cover-artist,
+html[dir="rtl"] #player-cover-album {
+  text-align: right;
 }
 
 #player-cover-artist.hidden-cover-share,
@@ -631,6 +749,12 @@ body.picker-mode #title-player {
   right: -2%;
   z-index: 1;
   color: #fff;
+}
+
+html[dir="rtl"] #player-cover-share {
+  right: unset;
+  left: -2%;
+  margin: 0 0 0 1rem;
 }
 
 #player-cover-buttons {
@@ -702,6 +826,10 @@ button::-moz-focus-inner {
   background-repeat: no-repeat;
   background-color: transparent;
   background-size: 2.2rem;
+}
+
+html[dir="rtl"] .rating-star {
+  float: right;
 }
 
 .star-on {
@@ -866,6 +994,7 @@ button::-moz-focus-inner {
   bottom: 0;
   width: 100%;
   z-index: 20;
+  display: none;
 }
 
 #tabs li:last-child {
@@ -916,6 +1045,10 @@ li.list-header {
   pointer-events: none;
 }
 
+html[dir="rtl"] li.list-header {
+  margin: 0 3rem 0 8rem;
+}
+
 li.list-item {
   list-style-type: none;
   position: relative;
@@ -925,16 +1058,14 @@ li.list-item {
   background-repeat: no-repeat;
 }
 
+html[dir="rtl"] li.list-item {
+  background-position: calc(0% + 2.5rem) -0.1rem;
+}
+
 li.list-item a {
   display: block;
-  color: #fff;
   text-decoration: none;
-  outline: none;
   margin: 0;
-  text-shadow: black 0.1rem 0.1rem;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
   width: 100%;
   height: 6rem;
   background-color: transparent;
@@ -942,8 +1073,6 @@ li.list-item a {
 }
 
 li.list-item a:active {
-  color: black;
-  text-shadow: rgba(255, 255, 255, 0.5) 0.1rem 0.1rem;
   background-color: rgba(52,140,158, .6);
 }
 
@@ -969,12 +1098,22 @@ li.list-item a:active {
   color: white;
 }
 
+html[dir="rtl"] .list-main-title {
+  text-align: right;
+  padding: 0 3rem 0 0.5rem;
+}
+
 .list-sub-title {
   top: 3rem;
   width: calc(100% - 12rem);
   padding: 0 0.5rem 0 3rem;
   font-size: 1.7rem;
   color: #8a9699;
+}
+
+html[dir="rtl"] .list-sub-title {
+  text-align: right;
+  padding: 0 3rem 0 0.5rem;
 }
 
 .list-single-title {
@@ -984,6 +1123,11 @@ li.list-item a:active {
   padding: 0 0.5rem 0 3rem;
   font-size: 1.9rem;
   color: white;
+}
+
+html[dir="rtl"] .list-single-title {
+  text-align: right;
+  padding: 0 3rem 0 0.5rem;
 }
 
 .list-playlist-title {
@@ -997,6 +1141,12 @@ li.list-item a:active {
   border-bottom: solid 0.1rem rgba(255, 255, 255, 0.1);
 }
 
+html[dir="rtl"] .list-playlist-title {
+  text-align: right;
+  padding-left: 0.5rem;
+  padding-right: 3rem;
+}
+
 .list-playlist-icon {
   position: absolute;
   top: 0;
@@ -1005,6 +1155,11 @@ li.list-item a:active {
   height: 6rem;
   line-height: 6rem;
   pointer-events: none;
+}
+
+html[dir="rtl"] .list-playlist-icon {
+  right: unset;
+  left: 2rem;
 }
 
 .list-song-index,
@@ -1035,11 +1190,26 @@ li.list-item a:active {
   border-bottom: solid 0.1rem rgba(255, 255, 255, 0.1);
 }
 
+html[dir="rtl"] .list-song-title {
+  text-align: right;
+  right: 3rem;
+  padding-left: 0.5rem;
+  padding-right: 0;
+}
+
 .list-song-length {
   right: 0;
   width: 5rem;
   padding-right: 0.5rem;
   border-bottom: solid 0.1rem rgba(255, 255, 255, 0.1);
+}
+
+html[dir="rtl"] .list-song-length {
+  text-align: right;
+  left: 0;
+  right: auto;
+  padding-left: 0.5rem;
+  padding-right: 0;
 }
 
 .search-highlight {
@@ -1057,3 +1227,11 @@ li.list-item a:active {
   opacity: 1;
   transition: all 600ms ease;
 }
+
+/* See bug 1158043 */
+#title-text bdi {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+

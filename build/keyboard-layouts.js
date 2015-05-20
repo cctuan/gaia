@@ -1,9 +1,11 @@
-// Generate the default keyboard layout config
-// (shared/resources/keyboard_layouts.json), which is used to setup which
-// layouts we should enable for each language
-
-/* global require, exports */
 'use strict';
+
+/**
+ * Generate the default keyboard layout config
+ * (shared/resources/keyboard_layouts.json)
+ * which is used to setup which layouts we should enable for each language
+ */
+
 var utils = require('./utils');
 
 // To get the manifestURL of an app from webapps collection.
@@ -11,9 +13,9 @@ var utils = require('./utils');
 // For now, we would not allow multiple apps with the same appName.
 function getManifestURL(webappsMapping, appName) {
   if (!webappsMapping[appName]) {
-    throw new Error(
-      'Can not find application ' + appName + 'in webappsMapping'
-    );
+    utils.log('keyboard-layouts', 'Can not find application ' + appName +
+      ' in webappsMapping');
+    return '';
   }
 
   return webappsMapping[appName].manifestURL;
@@ -28,10 +30,11 @@ function getLayoutEntry(layout, webappsMapping) {
   };
 }
 
-// Generate the default layout mapping from language-> keyboard layouts
-// config:  the build config
+// Generate the default layout mapping from language -> keyboard layouts
+// config: build config
 // webappsMapping: all the webapps mapping
-function genDefaultLayouts(config, webappsMapping) {
+// allLayouts: all the preloaded keyboard layouts
+function genDefaultLayouts(config, webappsMapping, allLayouts) {
   let layoutDefFile = utils.resolve(config.KEYBOARD_LAYOUTS_PATH,
     config.GAIA_DIR);
 
@@ -46,33 +49,47 @@ function genDefaultLayouts(config, webappsMapping) {
     langIndependentLayouts: []
   };
 
-  // handle language -> layouts mapping
+  // Handle language -> layouts mapping
   let mapping = defaultKeyboards.layout;
 
-  function parseLayout(layout) {
-    return getLayoutEntry(layout, webappsMapping);
-  }
+  Object.keys(defaultKeyboards.layout).forEach(function(lang) {
+    // Remove those mappings without the layouts preloaded
+    var filteredLayouts = mapping[lang].filter(function(layoutEntry) {
+      return (allLayouts.indexOf(layoutEntry.layoutId) != -1);
+    });
 
-  for (var key in mapping) {
-    result.layout[key] = mapping[key].map(parseLayout);
-  }
+    // Put a fallback layout to avoid an empty layout set
+    if (filteredLayouts.length === 0) {
+      filteredLayouts = defaultKeyboards.fallbackLayouts;
+    }
 
-  // handle language-independent layouts
+    result.layout[lang] = filteredLayouts.map(function parseLayout(layout) {
+      return getLayoutEntry(layout, webappsMapping);
+    });
+  });
+
+  // Handle language-independent layouts
   let langIndLayouts = defaultKeyboards.langIndependentLayouts;
   langIndLayouts.forEach(function parseLayout(layout) {
     result.langIndependentLayouts.push(getLayoutEntry(layout, webappsMapping));
   });
 
   // Write the result to file
-  let resultFile = utils.resolve(
-    utils.joinPath('shared', 'resources', 'keyboard_layouts.json'),
-    config.GAIA_DIR);
-  utils.writeContent(resultFile, JSON.stringify(result));
+  let content = JSON.stringify(result, null, 2);
+  let resultFile = utils.resolve(utils.joinPath('shared', 'resources',
+    'keyboard_layouts.json'), config.GAIA_DIR);
+  if (resultFile.exists()) {
+    let prev = utils.getFileContent(resultFile);
+    if (prev === content) {
+      return;
+    }
+  }
+  utils.writeContent(resultFile, content);
 }
 
 function execute(options) {
   // Get web apps mapping file
-  let stageFolder = utils.getEnv('STAGE_DIR');
+  let stageFolder = options.STAGE_DIR;
   let webappsMappingFile = utils.resolve(
     utils.joinPath(stageFolder, 'webapps_stage.json'),
     options.GAIA_DIR);
@@ -84,8 +101,9 @@ function execute(options) {
   }
 
   let webappsMapping = utils.getJSON(webappsMappingFile);
+  let allLayouts = options.GAIA_KEYBOARD_LAYOUTS.split(',');
 
-  genDefaultLayouts(options, webappsMapping);
+  genDefaultLayouts(options, webappsMapping, allLayouts);
 }
 
 exports.execute = execute;

@@ -68,12 +68,18 @@ var LazyLoader = (function() {
      * Retrieves content of JSON file.
      *
      * @param {String} file Path to JSON file
+     * @param {Boolean} mozSystem If xhr should use mozSystem permissions
      * @return {Promise} A promise that resolves to the JSON content
      * or null in case of invalid path. Rejects if an error occurs.
      */
-    getJSON: function(file) {
+    getJSON: function(file, mozSystem) {
       return new Promise(function(resolve, reject) {
-        var xhr = new XMLHttpRequest();
+        var xhr;
+        if (mozSystem) {
+          xhr = new XMLHttpRequest({mozSystem: true});
+        } else {
+          xhr = new XMLHttpRequest();
+        }
         xhr.open('GET', file, true);
         xhr.responseType = 'json';
 
@@ -81,7 +87,12 @@ var LazyLoader = (function() {
           reject(error);
         };
         xhr.onload = function() {
-          resolve(xhr.response);
+          if (xhr.response !== null) {
+            resolve(xhr.response);
+          } else {
+            reject(new Error('No valid JSON object was found (' + 
+			     xhr.status + ' ' + xhr.statusText + ')'));
+          }
         };
 
         xhr.send();
@@ -89,6 +100,11 @@ var LazyLoader = (function() {
     },
 
     load: function(files, callback) {
+      var deferred = {};
+      deferred.promise = new Promise(resolve => {
+        deferred.resolve = resolve;
+      });
+
       if (!Array.isArray(files)) {
         files = [files];
       }
@@ -101,6 +117,7 @@ var LazyLoader = (function() {
         self._loaded[file] = true;
 
         if (--loadsRemaining === 0) {
+          deferred.resolve();
           if (callback) {
             callback();
           }
@@ -128,6 +145,8 @@ var LazyLoader = (function() {
           this['_' + method](file, perFileCallback.bind(null, idx));
         }
       }
+
+      return deferred.promise;
     }
   };
 

@@ -63,7 +63,7 @@ form[role="dialog"][data-type="edit"] gaia-header {
 }
 
 #call-log-container[data-type="list"] li a p {
-  line-height: 2rem;
+  line-height: 2.4rem;
 }
 
 #call-log-container[data-type="list"] li a p:nth-last-of-type(3) {
@@ -71,11 +71,11 @@ form[role="dialog"][data-type="edit"] gaia-header {
 }
 
 button[disabled], input[type="text"][disabled],
-a[disabled][role="button"], a[disabled][role="button"] * {
+a.bb-button[disabled], a.bb-button[disabled] * {
   pointer-events: none;
 }
 
-input[type="text"][disabled], a[disabled][role="button"] {
+input[type="text"][disabled], a.bb-button[disabled] {
   opacity: 0.3;
 }
 
@@ -163,7 +163,12 @@ ol, ul {
 }
 
 .log-item .primary-info {
-  text-overflow: ellipsis;
+  display: flex;
+}
+
+/* Decrease padding defined by BB styles to compensate increased line-height */
+.log-item .primary-info:first-of-type {
+  padding-top: 0.8rem;
 }
 
 .log-item a > p {
@@ -175,17 +180,24 @@ ol, ul {
 }
 
 .log-item .primary-info-main {
+  min-width: 0;
+}
+
+.log-item .primary-info-main bdi {
+  display: block;
   overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .log-item .retry-count {
-  margin-left: 0.5rem;
+  -moz-margin-start: 0.5rem;
 }
 
 .log-item .additional-info {
   display: inline-flex;
   justify-content: space-between;
+  margin-top: -0.4rem;
 }
 
 .log-item .type-carrier {
@@ -194,7 +206,7 @@ ol, ul {
 }
 
 .log-item .call-time {
-  margin-left: 0.5rem;
+  -moz-margin-start: 0.5rem;
 }
 
 .log-item .pack-checkbox {
@@ -248,7 +260,7 @@ ol, ul {
 }
 
 #no-result-message > p {
-  text-align: left;
+  text-align: start;
   line-height: 3rem;
   font-size: 2.2rem;
   font-weight: 300;
@@ -274,4 +286,21 @@ ol, ul {
 
 .filter .groupFiltered {
   display: none;
+}
+
+/* RTL View */
+html[dir="rtl"] .icon-container {
+  float: right;
+}
+
+html[dir="rtl"] .recents-edit .pack-checkbox.call-log-selection {
+  transform: translateX(-4rem);
+}
+
+html[dir="rtl"] .recents-edit .log-item a {
+  transform: translateX(-3rem);
+}
+
+html[dir="rtl"] #sticky {
+  background-position: calc(100% - 1.5rem) 0;
 }

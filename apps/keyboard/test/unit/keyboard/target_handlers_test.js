@@ -7,8 +7,10 @@
           PageSwitchingTargetHandler, CapsLockTargetHandler,
           SwitchKeyboardTargetHandler, ToggleCandidatePanelTargetHandler,
           DismissSuggestionsTargetHandler, BackspaceTargetHandler,
-          KeyboardConsole */
+          KeyboardConsole, HandwritingPadsManager,
+          HandwritingPadTargetHandler */
 
+require('/js/keyboard/handwriting_pads_manager.js');
 require('/js/keyboard/target_handlers.js');
 require('/js/keyboard/feedback_manager.js');
 require('/js/keyboard/visual_highlight_manager.js');
@@ -39,6 +41,7 @@ suite('target handlers', function() {
       feedbackManager: this.sinon.stub(FeedbackManager.prototype),
       visualHighlightManager: this.sinon.stub(VisualHighlightManager.prototype),
       candidatePanelManager: this.sinon.stub(CandidatePanelManager.prototype),
+      handwritingPadsManager: this.sinon.stub(HandwritingPadsManager.prototype),
       setLayoutPage: this.sinon.stub(),
       layoutManager: this.sinon.stub(LayoutManager.prototype),
       upperCaseStateManager: {
@@ -75,12 +78,10 @@ suite('target handlers', function() {
     var target;
     setup(function() {
       target = {
-        dataset: {
-          keycode: '99',
-          keycodeUpper: '999',
-          longPressValue: '$$',
-          longPressKeyCode: '9999'
-        }
+        keyCode: 99,
+        keyCodeUpper: 999,
+        longPressValue: '$$',
+        longPressKeyCode: 9999
       };
 
       handler = new DefaultTargetHandler(target, app);
@@ -108,6 +109,10 @@ suite('target handlers', function() {
         assert.isTrue(app.visualHighlightManager.hide.calledOnce);
       });
 
+      test('move', function() {
+        handler.move();
+      });
+
       test('moveOut', function() {
         handler.moveOut();
 
@@ -133,6 +138,21 @@ suite('target handlers', function() {
         assert.isTrue(app.visualHighlightManager.hide.calledOnce);
       });
 
+      test('new target activated', function() {
+        handler.newTargetActivate();
+
+        assert.isTrue(
+          app.inputMethodManager.currentIMEngine.click.calledWith(99));
+        assert.isTrue(app.inputMethodManager.currentIMEngine.click.calledOnce);
+
+        assert.isTrue(app.visualHighlightManager.hide.calledWith(target));
+        assert.isTrue(app.visualHighlightManager.hide.calledOnce);
+
+        handler.commit();
+        // Won't commit again
+        assert.isTrue(app.inputMethodManager.currentIMEngine.click.calledOnce);
+      });
+
       suite('longPress', function() {
         setup(function() {
           handler.longPress();
@@ -152,6 +172,10 @@ suite('target handlers', function() {
           assert.isTrue(
             app.inputMethodManager.currentIMEngine.click.calledOnce,
             'Do nothing');
+        });
+
+        test('move', function() {
+          handler.move();
         });
 
         test('moveOut', function() {
@@ -197,6 +221,10 @@ suite('target handlers', function() {
         assert.isTrue(app.visualHighlightManager.hide.calledOnce);
       });
 
+      test('move', function() {
+        handler.move();
+      });
+
       test('moveOut', function() {
         handler.moveOut();
 
@@ -243,6 +271,10 @@ suite('target handlers', function() {
             'Do nothing');
         });
 
+        test('move', function() {
+          handler.move();
+        });
+
         test('moveOut', function() {
           handler.moveOut();
 
@@ -272,10 +304,7 @@ suite('target handlers', function() {
     var handler;
     var target;
     setup(function() {
-      target = {
-        dataset: {
-        }
-      };
+      target = {};
 
       handler = new NullTargetHandler(target, app);
     });
@@ -290,6 +319,10 @@ suite('target handlers', function() {
 
     test('moveIn', function() {
       handler.activate();
+    });
+
+    test('move', function() {
+      handler.move();
     });
 
     test('moveOut', function() {
@@ -313,10 +346,7 @@ suite('target handlers', function() {
     var handler;
     var target;
     setup(function() {
-      target = {
-        dataset: {
-        }
-      };
+      target = {};
 
       handler = new SpaceKeyTargetHandler(target, app);
     });
@@ -341,6 +371,10 @@ suite('target handlers', function() {
     test('moveIn', function() {
       assert.equal(handler.moveIn, DefaultTargetHandler.prototype.moveIn,
         'function not overwritten');
+    });
+
+    test('move', function() {
+      handler.move();
     });
 
     test('moveOut', function() {
@@ -369,10 +403,8 @@ suite('target handlers', function() {
     var target;
     setup(function() {
       target = {
-        dataset: {
-          data: 'data'
-        },
-        textContent: 'text'
+        data: 'data',
+        text: 'text'
       };
 
       handler = new CandidateSelectionTargetHandler(target, app);
@@ -391,6 +423,10 @@ suite('target handlers', function() {
     test('moveIn', function() {
       assert.equal(handler.moveIn, DefaultTargetHandler.prototype.moveIn,
         'function not overwritten');
+    });
+
+    test('move', function() {
+      handler.move();
     });
 
     test('moveOut', function() {
@@ -428,8 +464,6 @@ suite('target handlers', function() {
     var target;
     setup(function() {
       target = {
-        dataset: {
-        }
       };
 
       handler = new BackspaceTargetHandler(target, app);
@@ -468,6 +502,10 @@ suite('target handlers', function() {
 
         assert.isTrue(app.visualHighlightManager.hide.calledWith(target));
         assert.isTrue(app.visualHighlightManager.hide.calledOnce);
+      });
+
+      test('move', function() {
+        handler.move();
       });
 
       test('moveOut', function() {
@@ -534,6 +572,10 @@ suite('target handlers', function() {
 
           assert.isTrue(app.visualHighlightManager.hide.calledWith(target));
           assert.isTrue(app.visualHighlightManager.hide.calledOnce);
+        });
+
+        test('move', function() {
+          handler.move();
         });
 
         test('moveOut', function() {
@@ -603,6 +645,10 @@ suite('target handlers', function() {
             assert.isTrue(app.visualHighlightManager.hide.calledOnce);
           });
 
+          test('move', function() {
+            handler.move();
+          });
+
           test('moveOut', function() {
             handler.moveOut();
 
@@ -661,6 +707,10 @@ suite('target handlers', function() {
         handler.commit();
       });
 
+      test('move', function() {
+        handler.move();
+      });
+
       test('moveOut', function() {
         handler.moveOut();
       });
@@ -680,9 +730,7 @@ suite('target handlers', function() {
     var target;
     setup(function() {
       target = {
-        dataset: {
-          compositeKey: 'lol'
-        }
+        compositeKey: 'lol'
       };
 
       handler = new CompositeTargetHandler(target, app);
@@ -700,6 +748,11 @@ suite('target handlers', function() {
 
     test('moveIn', function() {
       assert.equal(handler.moveIn, DefaultTargetHandler.prototype.moveIn,
+        'function not overwritten');
+    });
+
+    test('move', function() {
+      assert.equal(handler.move, DefaultTargetHandler.prototype.move,
         'function not overwritten');
     });
 
@@ -735,17 +788,23 @@ suite('target handlers', function() {
     var handler;
     var target;
     setup(function() {
-      target = {
-        dataset: {
-        }
-      };
-
+      target = {};
       handler = new CapsLockTargetHandler(target, app);
     });
 
     test('activate', function() {
-      assert.equal(handler.activate, DefaultTargetHandler.prototype.activate,
-        'function not overwritten');
+      handler.activate();
+
+      assert.isTrue(app.upperCaseStateManager.switchUpperCaseState
+                    .calledWith({
+        isUpperCaseLocked: true
+      }));
+
+      assert.isTrue(app.feedbackManager.triggerFeedback.calledWith(target));
+      assert.isTrue(app.feedbackManager.triggerFeedback.calledOnce);
+
+      assert.isTrue(app.visualHighlightManager.show.calledWith(target));
+      assert.isTrue(app.visualHighlightManager.show.calledOnce);
     });
 
     test('longPress', function() {
@@ -755,6 +814,11 @@ suite('target handlers', function() {
 
     test('moveIn', function() {
       assert.equal(handler.moveIn, DefaultTargetHandler.prototype.moveIn,
+        'function not overwritten');
+    });
+
+    test('move', function() {
+      assert.equal(handler.move, DefaultTargetHandler.prototype.move,
         'function not overwritten');
     });
 
@@ -768,6 +832,20 @@ suite('target handlers', function() {
 
       assert.isTrue(app.upperCaseStateManager.switchUpperCaseState.calledWith({
         isUpperCase: true,
+        isUpperCaseLocked: false
+      }));
+
+      assert.isTrue(app.visualHighlightManager.hide.calledWith(target));
+      assert.isTrue(app.visualHighlightManager.hide.calledOnce);
+    });
+
+    test('combo key - activate and then with new arget activated', function() {
+      handler.newTargetActivate();
+      handler.commit();
+
+      assert.isTrue(app.upperCaseStateManager.switchUpperCaseState
+                    .calledWith({
+        isUpperCase: false,
         isUpperCaseLocked: false
       }));
 
@@ -797,10 +875,8 @@ suite('target handlers', function() {
     var target;
     setup(function() {
       target = {
-        dataset: {
-          keycode: KeyEvent.DOM_VK_ALT,
-          targetPage: '99'
-        }
+        keyCode: KeyEvent.DOM_VK_ALT,
+        targetPage: 99
       };
 
       handler = new PageSwitchingTargetHandler(target, app);
@@ -818,6 +894,11 @@ suite('target handlers', function() {
 
     test('moveIn', function() {
       assert.equal(handler.moveIn, DefaultTargetHandler.prototype.moveIn,
+        'function not overwritten');
+    });
+
+    test('move', function() {
+      assert.equal(handler.move, DefaultTargetHandler.prototype.move,
         'function not overwritten');
     });
 
@@ -853,10 +934,7 @@ suite('target handlers', function() {
     var handler;
     var target;
     setup(function() {
-      target = {
-        dataset: {
-        }
-      };
+      target = {};
 
       handler = new SwitchKeyboardTargetHandler(target, app);
     });
@@ -880,6 +958,11 @@ suite('target handlers', function() {
 
     test('moveIn', function() {
       assert.equal(handler.moveIn, DefaultTargetHandler.prototype.moveIn,
+        'function not overwritten');
+    });
+
+    test('move', function() {
+      assert.equal(handler.move, DefaultTargetHandler.prototype.move,
         'function not overwritten');
     });
 
@@ -915,10 +998,7 @@ suite('target handlers', function() {
     var handler;
     var target;
     setup(function() {
-      target = {
-        dataset: {
-        }
-      };
+      target = {};
 
       handler = new ToggleCandidatePanelTargetHandler(target, app);
     });
@@ -935,6 +1015,11 @@ suite('target handlers', function() {
 
     test('moveIn', function() {
       assert.equal(handler.moveIn, DefaultTargetHandler.prototype.moveIn,
+        'function not overwritten');
+    });
+
+    test('move', function() {
+      assert.equal(handler.move, DefaultTargetHandler.prototype.move,
         'function not overwritten');
     });
 
@@ -967,10 +1052,7 @@ suite('target handlers', function() {
     var handler;
     var target;
     setup(function() {
-      target = {
-        dataset: {
-        }
-      };
+      target = {};
 
       handler = new DismissSuggestionsTargetHandler(target, app);
     });
@@ -990,6 +1072,11 @@ suite('target handlers', function() {
         'function not overwritten');
     });
 
+    test('move', function() {
+      assert.equal(handler.move, DefaultTargetHandler.prototype.move,
+        'function not overwritten');
+    });
+
     test('moveOut', function() {
       assert.equal(handler.moveOut, DefaultTargetHandler.prototype.moveOut,
         'function not overwritten');
@@ -1003,6 +1090,66 @@ suite('target handlers', function() {
 
       assert.isTrue(app.visualHighlightManager.hide.calledWith(target));
       assert.isTrue(app.visualHighlightManager.hide.calledOnce);
+    });
+
+    test('cancel', function() {
+      assert.equal(handler.cancel, DefaultTargetHandler.prototype.cancel,
+        'function not overwritten');
+    });
+
+    test('doubleTap', function() {
+      assert.equal(handler.doubleTap, DefaultTargetHandler.prototype.doubleTap,
+        'function not overwritten');
+    });
+  });
+
+  suite('HandwritingPadTargetHandler', function() {
+    var handler;
+    var target;
+    var press;
+    setup(function() {
+      target = {isHandwritingPad: true};
+      press = {
+        target: target
+      };
+
+      handler = new HandwritingPadTargetHandler(target, app);
+    });
+
+    test('activate', function() {
+      handler.activate(press);
+      assert.isTrue(
+        app.handwritingPadsManager.handlePressStart.calledWith(press));
+      assert.isTrue(app.handwritingPadsManager.handlePressStart.calledOnce);
+    });
+
+    test('longPress', function() {
+      assert.equal(handler.longPress, DefaultTargetHandler.prototype.longPress,
+        'function not overwritten');
+    });
+
+    test('move', function() {
+      handler.move(press);
+      assert.isTrue(
+        app.handwritingPadsManager.handlePressMove.calledWith(press));
+      assert.isTrue(app.handwritingPadsManager.handlePressMove.calledOnce);
+    });
+
+    test('moveIn', function() {
+      handler.moveIn(press);
+      assert.isTrue(
+        app.handwritingPadsManager.handlePressStart.calledWith(press));
+      assert.isTrue(app.handwritingPadsManager.handlePressStart.calledOnce);
+    });
+
+    test('moveOut', function() {
+      handler.moveOut();
+    });
+
+    test('commit', function() {
+      handler.commit();
+
+      assert.isTrue(app.handwritingPadsManager.handlePressEnd.calledOnce);
     });
 
     test('cancel', function() {

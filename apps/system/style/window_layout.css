@@ -48,18 +48,17 @@
 
   background-repeat: no-repeat;
   background-position: center center;
-}
 
-.homescreen {
   overflow: hidden;
 }
 
-#screen.software-button-enabled #windows > .appWindow:not(.lockScreenWindow) {
+#screen.software-button-enabled #windows > .appWindow:not(.lockScreenWindow):not(.lockScreenInputWindow),
+#screen.software-button-enabled.fullscreen-layout-app .activityWindow.inline-activity {
   height: calc(100% - var(--software-home-button-height));
 }
 
 @media not all and (-moz-physical-home-button) {
-  #screen:not(.software-button-disabled) #windows > .appWindow:not(.lockScreenWindow) {
+  #screen:not(.software-button-disabled) #windows > .appWindow:not(.lockScreenWindow):not(.lockScreenInputWindow) {
     height: calc(100% - var(--software-home-button-height));
   }
 }
@@ -73,23 +72,23 @@
 }
 
 @media (orientation: landscape) {
-  #screen.software-button-enabled:not(.fullscreen-layout-app) #windows > .appWindow:not(.lockScreenWindow) {
+  #screen.software-button-enabled:not(.fullscreen-layout-app) #windows > .appWindow:not(.lockScreenWindow):not(.lockScreenInputWindow) {
     height: 100%;
     width: calc(100% - var(--software-home-button-height));
   }
 
-  #screen.software-button-enabled.active-statusbar:not(.fullscreen-layout-app) #windows > .appWindow:not(.lockScreenWindow) {
+  #screen.software-button-enabled.active-statusbar:not(.fullscreen-layout-app) #windows > .appWindow:not(.lockScreenWindow):not(.lockScreenInputWindow) {
     height: calc(100% - 4rem);
     width: calc(100% - var(--software-home-button-height));
   }
 
   @media not all and (-moz-physical-home-button) {
-    #screen:not(.software-button-disabled):not(.fullscreen-layout-app) #windows > .appWindow:not(.lockScreenWindow) {
+    #screen:not(.software-button-disabled):not(.fullscreen-layout-app) #windows > .appWindow:not(.lockScreenWindow):not(.lockScreenInputWindow) {
       height: 100%;
       width: calc(100% - var(--software-home-button-height));
     }
 
-    #screen:not(.software-button-disabled).active-statusbar:not(.fullscreen-layout-app) #windows > .appWindow:not(.lockScreenWindow) {
+    #screen:not(.software-button-disabled).active-statusbar:not(.fullscreen-layout-app) #windows > .appWindow:not(.lockScreenWindow):not(.lockScreenInputWindow) {
       height: calc(100% - 4rem);
       width: calc(100% - var(--software-home-button-height));
     }
@@ -108,6 +107,11 @@
   left: 0;
   width: 100%;
   height: calc(100% - var(--statusbar-height));
+}
+
+/* The loading indicator is part of .chrome and needs to animate with it
+ so do not apply overflow: hidden to it */
+.appWindow > div:not(.chrome) {
   overflow: hidden;
 }
 
@@ -121,12 +125,17 @@
 }
 
 .appWindow.collapsible:not(.scrollable) > div > iframe {
-  height: calc(100% - 4.6rem);
+  height: calc(100% - var(--rocketbar-urlbar-height));
 }
 
 .appWindow.searchWindow > div {
   top: 0;
   height: 100%;
+}
+
+.appWindow.searchWindow > .value-selector {
+  top: calc(-1 * (var(--rocketbar-urlbar-height) + var(--statusbar-height)));
+  height: calc(100% + var(--rocketbar-urlbar-height) + var(--statusbar-height));
 }
 
 .appWindow > .fade-overlay,
@@ -173,12 +182,14 @@
   height: 100%;
 }
 
-/* The popup window does not collapse the rocketbar and has a static header. */
-.popupWindow .browser-container {
+/* The popup and trusted window does not collapse the rocketbar and has a static header. */
+.popupWindow .browser-container,
+.trustedwindow .browser-container {
   /* 5rem header + statusbar height */
   top: calc(5rem + var(--statusbar-height));
   height: calc(100% - 5rem - var(--statusbar-height));
 }
+
 
 /*****************************************************************************\
 | Scrollable Layout
@@ -190,7 +201,7 @@
 }
 
 .appWindow.collapsible > div.browser-container > iframe {
-  top: 4.6rem;
+  top: var(--rocketbar-urlbar-height);
 }
 
 /*****************************************************************************\

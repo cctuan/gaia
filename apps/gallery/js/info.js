@@ -1,8 +1,19 @@
+'use strict';
+/* exported showFileInformation */
+/* global
+  $,
+  getCurrentFile,
+  MediaUtils,
+  NFC,
+  videostorage
+*/
+
 // Hide the information view again, when clicking on cancel
 $('info-close-button').onclick = function hideFileInformation() {
   // Enable NFC sharing when user closes info and returns to fullscreen view
-  setNFCSharing(true);
+  NFC.share(getCurrentFile);
   $('info-view').classList.add('hidden');
+  document.body.classList.remove('showing-dialog');
 };
 
 function showFileInformation(fileinfo) {
@@ -17,8 +28,9 @@ function showFileInformation(fileinfo) {
     populateMediaInfo(fileinfo);
   }
   // We need to disable NFC sharing when showing file info view
-  setNFCSharing(false);
+  NFC.unshare();
   $('info-view').classList.remove('hidden');
+  document.body.classList.add('showing-dialog');
 
   function populateMediaInfo(fileinfo) {
     var data = {

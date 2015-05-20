@@ -45,7 +45,7 @@ marionette('Ringtone management', function() {
     soundPanel = settingsApp.soundPanel;
   });
 
-  suite('Manage ringtones', function() {
+  suite('Initial load', function() {
 
     test('Load list of sounds', function() {
       app.inManager(soundPanel, function(container) {
@@ -153,6 +153,10 @@ marionette('Ringtone management', function() {
       });
     });
 
+  });
+
+  suite('Creation', function() {
+
     test('Create new ringtone', function() {
       var musicApp = new Music(client);
 
@@ -180,6 +184,52 @@ marionette('Ringtone management', function() {
       });
     });
 
+  });
+
+  suite('Previewing', function() {
+
+    test('Previewing shows play icon', function() {
+      app.inManager(soundPanel, function(container) {
+        // Pick an alert tone, since they're short.
+        var tone = container.soundLists[2].sounds[0];
+
+        tone.tap();
+        client.waitFor(function() { return tone.playing; });
+
+        // The play icon should go away on its own once the tone ends.
+        client.waitFor(function() { return !tone.playing; });
+      });
+    });
+
+    test('Tapping twice hides play icon', function() {
+      app.inManager(soundPanel, function(container) {
+        var tone = container.soundLists[0].sounds[0];
+
+        tone.tap();
+        client.waitFor(function() { return tone.playing; });
+
+        tone.tap();
+        client.waitFor(function() { return !tone.playing; });
+      });
+    });
+
+    test('Tapping another tone hides first play icon', function() {
+      app.inManager(soundPanel, function(container) {
+        var tone1 = container.soundLists[0].sounds[0];
+        var tone2 = container.soundLists[0].sounds[1];
+
+        tone1.tap();
+        client.waitFor(function() { return tone1.playing; });
+
+        tone2.tap();
+        client.waitFor(function() { return tone2.playing; });
+        client.waitFor(function() { return !tone1.playing; });
+      });
+    });
+
+  });
+
+  suite('Actions', function() {
     var toneInfos = [
       {location: 'built-in', type: 'ringtone', deletable: false,
        listIndex: 0, setup: function() {}},
@@ -289,6 +339,6 @@ marionette('Ringtone management', function() {
 
       });
     });
-
   });
+
 });

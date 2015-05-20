@@ -15,7 +15,6 @@ require('/shared/test/unit/mocks/mock_settings_helper.js');
 require('/shared/test/unit/mocks/mock_geolocation.js');
 require('/shared/test/unit/mocks/mock_navigator_moz_set_message_handler.js');
 require('/shared/js/findmydevice_iac_api.js');
-require('/shared/test/unit/mocks/mock_l10n.js');
 require('/shared/test/unit/mocks/mock_moz_alarms.js');
 
 var mocksForFindMyDevice = new MocksHelper([
@@ -23,31 +22,24 @@ var mocksForFindMyDevice = new MocksHelper([
 ]).init();
 
 suite('FindMyDevice >', function() {
-  var realL10n;
   var realMozId;
   var realMozSettings;
   var realMozSetMessageHandler;
   var realMozAlarms;
+  var realNavigatorOnLine;
   var realCommands;
 
   mocksForFindMyDevice.attachTestHelpers();
 
   suiteSetup(function(done) {
-    realL10n = navigator.mozL10n;
-    navigator.mozL10n = window.MockL10n;
-    sinon.stub(navigator.mozL10n, 'once', function(callback) {
-      // we don't need to actually initialize FMD
-      // for these unit tests, and it saves us from
-      // mocking many objects
-    });
-
     realMozId = navigator.mozId;
     // attempting to stub only the request method of mozId,
     // as in |sinon.stub(navigator.mozId, 'request', ...)|,
     // causes an exception to be raised, so we replace the
     // entire mozId object.
     navigator.mozId = {
-      request: sinon.stub()
+      request: sinon.stub(),
+      watch: sinon.stub()
     };
 
     realMozSettings = navigator.mozSettings;
@@ -61,10 +53,26 @@ suite('FindMyDevice >', function() {
     realMozAlarms = navigator.mozAlarms;
     navigator.mozAlarms = MockMozAlarms;
 
+    realNavigatorOnLine = Object.getOwnPropertyDescriptor(navigator, 'onLine');
+    Object.defineProperty(navigator, 'onLine', {
+      fakeOnLine: true,
+      configurable: true,
+      get: function() { return this.fakeOnLine; },
+      set: function(status) { this.fakeOnLine = !!status; }
+    });
+
+    window.Config = {
+      api_url: 'https://find.firefox.com',
+      api_version: 'v0'
+    };
+
     // We require findmydevice.js here and not above because
     // we want to make sure all of our dependencies have already
     // been loaded.
     require('/js/findmydevice.js', function() {
+      // We stub navigator.mozId.watch above, so FindMyDevice.init()
+      // is effectively a no-op. We don't need to fully initialize FMD for
+      // these tests, so just register for the events we care about below.
       FindMyDevice._observeSettings();
       FindMyDevice._initMessageHandlers();
       done();
@@ -72,8 +80,7 @@ suite('FindMyDevice >', function() {
   });
 
   suiteTeardown(function() {
-    navigator.mozL10n.once.restore();
-    navigator.mozL10n = realL10n;
+    delete window.Config;
 
     navigator.mozId = realMozId;
 
@@ -84,6 +91,10 @@ suite('FindMyDevice >', function() {
     MockNavigatormozSetMessageHandler.mTeardown();
 
     navigator.mozAlarms = realMozAlarms;
+
+    if (realNavigatorOnLine) {
+      Object.defineProperty(navigator, 'onLine', realNavigatorOnLine);
+    }
   });
 
   setup(function(done) {
@@ -100,6 +111,8 @@ suite('FindMyDevice >', function() {
     // used by FMD, since MockSettingsHelper invalidates all objects
     // in its mTeardown.
     FindMyDevice._initSettings(done);
+
+    navigator.onLine = true;
   });
 
   teardown(function() {
@@ -162,6 +175,25 @@ suite('FindMyDevice >', function() {
       });
   });
 
+  test('retryCount is not incremented when offline', function() {
+    FindMyDevice._registered = false;
+    sendWakeUpMessage(IAC_API_WAKEUP_REASON_ENABLED_CHANGED);
+
+    this.sinon.stub(FindMyDevice, 'beginHighPriority');
+    this.sinon.stub(FindMyDevice, 'endHighPriority');
+    navigator.onLine = false;
+
+    // Simulate 3 failed requests
+    FindMyDevice._handleServerError({status: 401});
+    FindMyDevice._handleServerError({status: 401});
+    FindMyDevice._handleServerError({status: 401});
+
+    MockSettingsHelper('findmydevice.retry-count').get(
+      function(val) {
+        assert.equal(val, 0, 'retry count should be 0');
+      });
+  });
+
   test('fields from coordinates are included in server response', function() {
     FindMyDevice._registered = true;
     FindMyDevice._enabled = true;
@@ -201,6 +233,15 @@ suite('FindMyDevice >', function() {
     test('invalidate client id when logged out', function() {
       sendWakeUpMessage(IAC_API_WAKEUP_REASON_LOGOUT);
       assert.isFalse(FindMyDevice._loggedIn, 'logged in after logout event');
+      sinon.assert.calledWith(FindMyDevice._currentClientIDHelper.set, '');
+    });
+
+    test('refresh the current clientid after (re-)registering',
+    function() {
+      FindMyDevice._enabled = true;
+      FindMyDevice._registered = true;
+      this.sinon.stub(FindMyDevice, '_loadState', function(cb) { cb(); });
+      FindMyDevice._onRegisteredChanged({settingValue: true});
       sinon.assert.calledWith(FindMyDevice._currentClientIDHelper.set, '');
     });
   });

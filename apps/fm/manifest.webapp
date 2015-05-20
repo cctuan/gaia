@@ -8,10 +8,11 @@
     "url": "https://github.com/mozilla-b2g/gaia"
   },
   "permissions": {
-    "storage":{},
+    "themeable":{},
     "fmradio":{},
     "settings":{ "access": "readonly" },
-    "speaker-control":{}
+    "speaker-control":{},
+    "audio-channel-content":{}
   },
   "locales": {
     "ar": {

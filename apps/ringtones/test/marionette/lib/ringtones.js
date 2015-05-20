@@ -113,8 +113,13 @@ ManageSound.prototype = Object.create(BaseSound.prototype);
 ManageSound.prototype.constructor = ManageSound;
 
 ManageSound.Selectors = Object.freeze({
+  description: 'div.desc',
   actionsButton: 'a.actions-button'
 });
+
+ManageSound.prototype.tap = function() {
+  this.element.findElement(ManageSound.Selectors.description).tap(20, 20);
+};
 
 ManageSound.prototype.openActions = function() {
   this.element.findElement(ManageSound.Selectors.actionsButton).tap();
@@ -122,6 +127,12 @@ ManageSound.prototype.openActions = function() {
   actionsMenu.waitUntilOpened();
   return actionsMenu;
 };
+
+Object.defineProperty(ManageSound.prototype, 'playing', {
+  get: function() {
+    return this.element.getAttribute('data-playing') === 'true';
+  }
+});
 
 function PickSound(client, element) {
   BaseSound.call(this, client, element);
@@ -168,9 +179,17 @@ BaseSoundList.prototype = {
   },
 
   get sounds() {
-    return this.element.findElements(
+    // hack to find quicker that we have no elements
+    var quickly = this.client.scope({ searchTimeout: 50 });
+    this.element.client = quickly;
+
+    var elts = this.element.findElements(
       BaseSoundList.Selectors.sound
-    ).map(function(element) {
+    );
+
+    this.element.client = this.client;
+
+    return elts.map(function(element) {
       return new this.Sound(this.client, element);
     }.bind(this));
   }
@@ -334,8 +353,8 @@ NewRingtoneContainer.Selectors = Object.freeze({
   cancelButton: '#header',
   saveButton: 'button#save',
 
-  songTitle: 'p#songtitle',
-  artist: 'p#artist'
+  songTitle: '#songtitle',
+  artist: '#artist'
 });
 
 NewRingtoneContainer.prototype = {

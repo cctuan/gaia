@@ -7,16 +7,17 @@
 /* global MockOrientationManager */
 /* global ScreenLayout */
 /* global SoftwareButtonManager */
+/* global Service */
 
 requireApp('system/test/unit/mock_applications.js');
 requireApp('system/shared/test/unit/mocks/mock_settings_listener.js');
 requireApp('system/shared/test/unit/mocks/mock_navigator_moz_settings.js');
 requireApp('system/test/unit/mock_screen_layout.js');
-requireApp('system/test/unit/mock_app_window_manager.js');
+requireApp('system/shared/test/unit/mocks/mock_service.js');
 requireApp('system/test/unit/mock_orientation_manager.js');
 
 var mocksForSftButtonManager = new MocksHelper([
-  'AppWindowManager',
+  'Service',
   'SettingsListener',
   'ScreenLayout',
   'OrientationManager'
@@ -221,6 +222,11 @@ suite('enable/disable software home button', function() {
     subject.homeButtons.forEach(function(b) {
       assert.isTrue(b.classList.contains('active'));
     });
+
+    var mousedownEvt =
+      { type: 'mousedown', preventDefault: this.sinon.stub() };
+    subject.handleEvent(mousedownEvt);
+    assert.isTrue(mousedownEvt.preventDefault.calledOnce);
   });
 
   test('release home button', function() {
@@ -467,6 +473,49 @@ suite('enable/disable software home button', function() {
       redispatch(this.sinon.clock, 'touchend', 460, 240);
 
       sinon.assert.callOrder(pressSpy, releaseSpy);
+    });
+  });
+
+  suite('handle attention window when locked', function() {
+    setup(function() {
+      subject.element.classList.remove('attention-lockscreen');
+    });
+
+    test('should hide the software button', function() {
+      this.sinon.stub(Service, 'query', function() {
+        return {
+          CLASS_NAME: 'LockScreenWindow'
+        };
+      });
+      subject.handleEvent({type: 'hierachychanged'});
+      assert.isTrue(subject.element.classList.contains('attention-lockscreen'));
+    });
+
+    test('should show the software button', function() {
+      this.sinon.stub(Service, 'query', function() {
+        return {
+          CLASS_NAME: 'CallScreenWindow'
+        };
+      });
+      subject.handleEvent({type: 'hierachychanged'});
+      assert.isFalse(subject.element.classList.
+        contains('attention-lockscreen'));
+    });
+  });
+
+  suite('general event handling', function() {
+    test('should listen when enabled', function() {
+      this.sinon.stub(MockOrientationManager, 'fetchCurrentOrientation');
+      subject.enabled = true;
+      window.dispatchEvent(new CustomEvent('mozorientationchange'));
+      sinon.assert.calledOnce(MockOrientationManager.fetchCurrentOrientation);
+    });
+
+    test('should not listen when disabled', function() {
+      this.sinon.stub(MockOrientationManager, 'fetchCurrentOrientation');
+      subject.enabled = false;
+      window.dispatchEvent(new CustomEvent('mozorientationchange'));
+      sinon.assert.notCalled(MockOrientationManager.fetchCurrentOrientation);
     });
   });
 });

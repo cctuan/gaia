@@ -2,7 +2,8 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-from marionette.by import By
+from marionette_driver import expected, By, Wait
+
 from gaiatest.apps.base import Base
 
 
@@ -14,7 +15,9 @@ class PermissionDialog(Base):
     _permission_dismiss_button_locator = (By.ID, 'permission-no')
 
     def wait_for_permission_dialog_displayed(self):
-        self.wait_for_element_displayed(*self._permission_dialog_locator)
+        Wait(self.marionette).until(expected.element_displayed(
+            Wait(self.marionette).until(expected.element_present(
+                *self._permission_dialog_locator))))
 
     @property
     def permission_dialog_message(self):

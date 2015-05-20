@@ -1,5 +1,5 @@
 'use strict';
-/*global applications, AppWindowManager, AppWindow */
+/*global applications, Service, appWindowManager, AppWindow */
 
 (function(window) {
   /**
@@ -11,8 +11,29 @@
     init: function wf_init() {
       window.addEventListener('mozbrowseropenwindow', this, true);
     },
+    uninit: function() {
+      window.removeEventListener('mozbrowseropenwindow', this, true);
+    },
+
+    isLaunchingWindow: function() {
+      return !!this._launchingApp;
+    },
+
+    forgetLastLaunchingWindow: function() {
+      if (this._launchingApp && this._launchingApp.element) {
+        this._launchingApp.element.removeEventListener('_opened', this);
+        this._launchingApp.element.removeEventListener('_terminated', this);
+      }
+      this._launchingApp = null;
+    },
 
     handleEvent: function wf_handleEvent(evt) {
+      if (evt.type === '_opened' || evt.type === '_terminated') {
+        if (this._launchingApp === evt.detail) {
+          this.forgetLastLaunchingWindow();
+        }
+        return;
+      }
       var detail = evt.detail;
 
       // If it's a normal window.open request, ignore.
@@ -73,14 +94,16 @@
 
         // If we already have a browser and we receive an open request,
         // display it in the current browser frame.
-        var activeApp = AppWindowManager.getActiveApp();
-        if (activeApp && activeApp.isBrowser()) {
+        var activeApp = Service.currentApp;
+        var isSearchApp = (activeApp.manifest &&
+          activeApp.manifest.role === 'search');
+        if (activeApp && (activeApp.isBrowser() || isSearchApp)) {
           activeApp.navigate(url);
           return;
         }
 
         origin = url;
-        app = AppWindowManager.getApp(origin);
+        app = appWindowManager.getApp(origin);
         // Just bring on top if a wrapper window is
         // already running with this url.
         if (app && app.windowName == '_blank') {
@@ -88,7 +111,7 @@
         }
       } else {
         origin = 'window:' + name + ',source:' + callerOrigin;
-        app = AppWindowManager.getApp(origin);
+        app = appWindowManager.getApp(origin);
         if (app && app.windowName === name) {
           if (app.iframe.src === url) {
             // If the url is already loaded, just display the app
@@ -116,17 +139,24 @@
     },
 
     launchWrapper: function wf_launchWrapper(config) {
-      var app = AppWindowManager.getApp(config.origin);
+      var app = appWindowManager.getApp(config.origin);
       if (!app) {
         config.chrome = {
           scrollable: true
         };
-        app = new AppWindow(config);
+        this.forgetLastLaunchingWindow();
+        this.trackLauchingWindow(config);
       } else {
         app.updateName(config.title);
       }
 
       this.publish('launchapp', { origin: config.origin });
+    },
+
+    trackLauchingWindow: function(config) {
+      this._launchingApp = new AppWindow(config);
+      this._launchingApp.element.addEventListener('_opened', this);
+      this._launchingApp.element.addEventListener('_terminated', this);
     },
 
     hasPermission: function wf_hasPermission(app, permission) {
@@ -153,13 +183,6 @@
       if ('searchName' in features) {
         config.searchName = features.searchName;
         config.searchURL = features.searchUrl;
-      }
-
-      if ('useAsyncPanZoom' in features &&
-          features.useAsyncPanZoom === 'true') {
-        config.useAsyncPanZoom = true;
-      } else {
-        config.useAsyncPanZoom = false;
       }
 
       if ('remote' in features) {

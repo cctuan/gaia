@@ -17,14 +17,6 @@ define(function(require) {
   var _currentNetwork =
     wifiManager && wifiManager.connection && wifiManager.connection.network;
 
-  var _wpsOptions = {
-    selectedAp: '',
-    selectedMethod: '',
-    pin: ''
-  };
-
-  var _authOptions = {};
-
   var WifiContext = {
     /**
      * These listeners would be called when wifi is enabled
@@ -61,6 +53,15 @@ define(function(require) {
      * @type {Array}
      */
     _wifiStatusTextChangeListeners: [],
+
+    /**
+     * These listeners would be called when the current wifi
+     * information is updated
+     *
+     * @memberOf WifiContext
+     * @type {Array}
+     */
+    _wifiConnectionInfoUpdateListeners: [],
 
     /**
      * These listeners would be called when
@@ -126,13 +127,13 @@ define(function(require) {
 
       // Now register callbacks to track the state of the wifi hardware
       if (wifiManager) {
-        wifiManager.onenabled = function() {
-          self._wifiEnabled();
+        wifiManager.onenabled = function(event) {
+          self._wifiEnabled(event);
           self._wifiStatusTextChange();
         };
 
-        wifiManager.ondisabled = function() {
-          self._wifiDisabled();
+        wifiManager.ondisabled = function(event) {
+          self._wifiDisabled(event);
           self._wifiStatusTextChange();
         };
 
@@ -140,6 +141,9 @@ define(function(require) {
           self._wifiStatusChange.call(self, event);
           self._wifiStatusTextChange();
         };
+
+        wifiManager.onconnectioninfoupdate =
+          self._wifiConnectionInfoUpdate.bind(self);
       }
     },
 
@@ -148,7 +152,7 @@ define(function(require) {
      *
      * @memberOf WifiContext
      */
-    _updateWifi: function() {
+    _updateWifi: function(event) {
       var self = this;
 
       if (!wifiManager) {
@@ -169,7 +173,7 @@ define(function(require) {
       }
 
       // reflect latest value of wifiStatus
-      this._updateWifiStatusText();
+      this._updateWifiStatusText(event);
     },
 
     /**
@@ -177,12 +181,15 @@ define(function(require) {
      *
      * @memberOf WifiContext
      */
-    _updateWifiStatusText: function() {
+    _updateWifiStatusText: function(event) {
       if (wifiManager.enabled) {
-        var networkProp = wifiManager.connection.network ?
-          { ssid: wifiManager.connection.network.ssid } : null;
+        var network = (event && event.network) ? event.network :
+          wifiManager.connection.network;
+        var status = event ? event.status : wifiManager.connection.status;
+
+        var networkProp = network ? {ssid: network.ssid} : null;
         this._wifiStatusText =
-          { id: 'fullStatus-' + wifiManager.connection.status,
+          { id: 'fullStatus-' + status,
             args: networkProp };
       } else {
         this._wifiStatusText =
@@ -215,9 +222,18 @@ define(function(require) {
      *
      * @memberOf WifiContext
      */
-    _updateNetworkStatus: function() {
-      var networkStatus = wifiManager.connection.status;
-      if (networkStatus === 'connectingfailed' && _currentNetwork) {
+    _updateNetworkStatus: function(event) {
+      if (!_currentNetwork) {
+        return;
+      }
+
+      if (event && event.network &&
+        _currentNetwork.ssid != event.network.ssid) {
+        return;
+      }
+
+      var networkStatus = event ? event.status : wifiManager.connection.status;
+      if (networkStatus === 'connectingfailed') {
         if (_currentNetwork.known === false) {
           // Connection fail on user-activated unknown network, should be wrong
           // password, delete network and force a new authentication dialog.
@@ -234,11 +250,11 @@ define(function(require) {
      *
      * @memberOf WifiContext
      */
-    _wifiEnabled: function() {
+    _wifiEnabled: function(event) {
       var self = this;
       this._syncWifiEnabled(true, function() {
         self._wifiEnabledListeners.forEach(function(listener) {
-          listener();
+          listener(event);
         });
       });
     },
@@ -249,11 +265,11 @@ define(function(require) {
      *
      * @memberOf WifiContext
      */
-    _wifiDisabled: function() {
+    _wifiDisabled: function(event) {
       var self = this;
       this._syncWifiEnabled(false, function() {
         self._wifiDisabledListeners.forEach(function(listener) {
-          listener();
+          listener(event);
         });
       });
     },
@@ -290,6 +306,17 @@ define(function(require) {
     _wifiWrongPassword: function() {
       this._wifiWrongPasswordListeners.forEach(function(listener) {
         listener();
+      });
+    },
+
+    /**
+     * When wifi's connection is updated, we will call all registered listeners.
+     *
+     * @memberOf WifiContext
+     */
+    _wifiConnectionInfoUpdate: function(event) {
+      this._wifiConnectionInfoUpdateListeners.forEach(function(listener) {
+        listener(event);
       });
     },
 
@@ -399,6 +426,8 @@ define(function(require) {
         WifiContext._wifiStatusTextChangeListeners.push(callback);
       } else if (eventName === 'wifiWrongPassword') {
         WifiContext._wifiWrongPasswordListeners.push(callback);
+      } else if (eventName === 'wifiConnectionInfoUpdate') {
+        WifiContext._wifiConnectionInfoUpdateListeners.push(callback);
       }
     },
     removeEventListener: function(eventName, callback) {
@@ -417,6 +446,9 @@ define(function(require) {
       } else if (eventName === 'wifiWrongPassword') {
         WifiContext._removeEventListener(
           WifiContext._wifiWrongPasswordListeners, callback);
+      } else if (eventName === 'wifiConnectionInfoUpdate') {
+        WifiContext._removeEventListener(
+          WifiContext._wifiConnectionInfoUpdateListeners, callback);
       }
     },
     get wifiStatusText() {
@@ -426,17 +458,6 @@ define(function(require) {
       return _currentNetwork;
     },
     forgetNetwork: WifiContext.forgetNetwork,
-    associateNetwork: WifiContext.associateNetwork,
-    wpsOptions: _wpsOptions,
-    set authOptions(object) {
-      _authOptions = {};
-      var keys = ['password', 'identity', 'eap', 'authPhase2', 'certificate'];
-      keys.forEach(function(key) {
-        _authOptions[key] = object[key];
-      });
-    },
-    get authOptions() {
-      return _authOptions;
-    }
+    associateNetwork: WifiContext.associateNetwork
   };
 });

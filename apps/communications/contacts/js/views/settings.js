@@ -1,5 +1,6 @@
 'use strict';
 /* global _ */
+/* global Cache */
 /* global ConfirmDialog */
 /* global Contacts */
 /* global ContactsBTExport */
@@ -103,8 +104,7 @@ contacts.Settings = (function() {
   };
 
   var updateImportTitle = function updateImportTitle(l10nString) {
-    importSettingsTitle.dataset.l10nId = l10nString;
-    importSettingsTitle.innerHTML = _(l10nString);
+    importSettingsTitle.setAttribute('data-l10n-id', l10nString);
   };
 
   // Initialises variables and listener for the UI
@@ -238,7 +238,7 @@ contacts.Settings = (function() {
       '/contacts/js/utilities/ice_data.js',
       '/contacts/js/views/ice_settings.js',
       '/shared/js/contacts/utilities/ice_store.js'], function(){
-      contacts.ICE.init();
+      contacts.ICE.refresh();
       navigationHandler.go('ice-settings', 'right-left');
       if (typeof cb === 'function') {
         cb();
@@ -294,7 +294,6 @@ contacts.Settings = (function() {
             null,
             navigationHandler,
             {
-              isDanger: true,
               transitionLevel: DELETE_TRANSITION_LEVEL
             }
           );
@@ -348,36 +347,59 @@ contacts.Settings = (function() {
   function doExport(strategy) {
     // Launch the selection mode in the list, and then invoke
     // the export with the selected strategy.
-    contacts.List.selectFromList(_('exportContactsAction'),
-      function onSelectedContacts(promise) {
-        // Resolve the promise, meanwhile show an overlay to
-        // warn the user of the ongoin operation, dismiss it
-        // once we have the result
-        requireOverlay(function _loaded() {
-          utils.overlay.show(_('preparing-contacts'), null, 'spinner');
-          promise.onsuccess = function onSuccess(ids) {
-            // Once we start the export process we can exit from select mode
-            // This will have to evolve once export errors can be captured
-            contacts.List.exitSelectMode();
-            var exporter = new ContactsExporter(strategy);
-            exporter.init(ids, function onExporterReady() {
-              // Leave the contact exporter to deal with the overlay
-              exporter.start();
-            });
-          };
-          promise.onerror = function onError() {
-            contacts.List.exitSelectMode();
-            utils.overlay.hide();
-          };
-        });
-      },
-      null,
-      navigationHandler,
-      {
-        isDanger: false,
-        transitionLevel: EXPORT_TRANSITION_LEVEL
-      }
-    );
+
+    // We need to know the number of FB contacts in the device to filter them
+    // out properly.
+    var numFbContactsReq = fb.utils.getNumFbContacts();
+
+    numFbContactsReq.onsuccess = function() {
+      openSelectList(numFbContactsReq.result);
+    };
+
+    numFbContactsReq.onerror = function() {
+      openSelectList(0);
+      console.error('Number of fb contacts in device could not be retrieved',
+        numFbContactsReq.error && numFbContactsReq.error.name);
+    };
+
+    function openSelectList(numFilteredContacts) {
+      contacts.List.selectFromList(_('exportContactsAction'),
+        function onSelectedContacts(promise) {
+          // Resolve the promise, meanwhile show an overlay to
+          // warn the user of the ongoin operation, dismiss it
+          // once we have the result
+          requireOverlay(function _loaded() {
+            utils.overlay.show('preparing-contacts', null, 'spinner');
+            promise.onsuccess = function onSuccess(ids) {
+              // Once we start the export process we can exit from select mode
+              // This will have to evolve once export errors can be captured
+              contacts.List.exitSelectMode();
+              var exporter = new ContactsExporter(strategy);
+              exporter.init(ids, function onExporterReady() {
+                // Leave the contact exporter to deal with the overlay
+                exporter.start();
+              });
+            };
+            promise.onerror = function onError() {
+              contacts.List.exitSelectMode();
+              utils.overlay.hide();
+            };
+          });
+        },
+        null,
+        navigationHandler,
+        {
+          isDanger: false,
+          transitionLevel: EXPORT_TRANSITION_LEVEL,
+          filterList: [
+            {
+              'containerClass': 'disable-fb-items',
+              'numFilteredContacts': numFilteredContacts
+            }
+          ]
+        }
+      );
+    }
   }
 
   // Options checking & updating
@@ -427,23 +449,35 @@ contacts.Settings = (function() {
     updateOptionStatus(importSDOption, !cardAvailable, true);
     updateOptionStatus(exportSDOption, !cardAvailable, true);
 
-    var importSDErrorMessage = '';
-    var exportSDErrorMessage = '';
+    var importSDErrorL10nId = null;
+    var exportSDErrorL10nId = null;
 
     var cardShared = utils.sdcard.status === utils.sdcard.SHARED;
     if (!cardAvailable) {
-      importSDErrorMessage = _('noMemoryCardMsg');
-      exportSDErrorMessage = _('noMemoryCardMsgExport');
+      importSDErrorL10nId = 'noMemoryCardMsg';
+      exportSDErrorL10nId = 'noMemoryCardMsgExport';
 
       if (cardShared) {
-        importSDErrorMessage = exportSDErrorMessage = _('memoryCardUMSEnabled');
+        importSDErrorL10nId = exportSDErrorL10nId = 'memoryCardUMSEnabled';
       }
     }
 
     // update the message
-    importSDOption.querySelector('p.error-message').textContent =
-      importSDErrorMessage;
-    exportSDOption.querySelector('p').textContent = exportSDErrorMessage;
+    var importSDErrorNode = importSDOption.querySelector('p.error-message');
+    if (importSDErrorL10nId) {
+      importSDErrorNode.setAttribute('data-l10n-id', importSDErrorL10nId);
+    } else {
+      importSDErrorNode.removeAttribute('data-l10n-id');
+      importSDErrorNode.textContent = '';
+    }
+
+    var exportSDErrorNode = exportSDOption.querySelector('p');
+    if (exportSDErrorL10nId) {
+      exportSDErrorNode.setAttribute('data-l10n-id', exportSDErrorL10nId);
+    } else {
+      exportSDErrorNode.removeAttribute('data-l10n-id');
+      exportSDErrorNode.textContent = '';
+    }
 
   };
 
@@ -476,11 +510,13 @@ contacts.Settings = (function() {
     fbImportCheck.checked = true;
     fbImportCheckContainer.setAttribute('aria-checked', true);
     document.dispatchEvent(new CustomEvent('facebookEnabled'));
+    Cache.evict();
   }
 
   function fbSetDisabledState() {
     fbImportCheck.checked = false;
     fbImportCheckContainer.setAttribute('aria-checked', false);
+    Cache.evict();
   }
 
   // Get total number of contacts imported from fb
@@ -541,29 +577,10 @@ contacts.Settings = (function() {
     // If the total is not available then an empty string is showed
     var theTotal = total || '';
 
-    var totalsMsgContent = _('facebook-import-msg', {
+    navigator.mozL10n.setAttributes(fbTotalsMsg, 'facebook-import-msg2', {
       'imported': imported,
       'total': theTotal
     });
-
-    // This is to support the case of a long literal, particularly
-    // when 0 or 1 friends are imported
-    var msgPart1 = totalsMsgContent;
-    var msgPart2 = null;
-    if (imported <= 1) {
-      var position = totalsMsgContent.indexOf('(');
-      if (position != -1) {
-        msgPart1 = totalsMsgContent.substring(0, position - 1);
-        msgPart2 = totalsMsgContent.substring(position);
-      }
-    }
-    fbTotalsMsg.innerHTML = '';
-    fbTotalsMsg.appendChild(document.createTextNode(msgPart1));
-    if (msgPart2) {
-      var span = document.createElement('span');
-      span.textContent = msgPart2;
-      fbTotalsMsg.appendChild(span);
-    }
   };
 
   var onFbImport = function onFbImportClick(evt) {
@@ -632,19 +649,22 @@ contacts.Settings = (function() {
     }
   }
 
+
   function doFbUnlink() {
-    var progressBar = Contacts.showOverlay(_('cleaningFbData'), 'progressBar');
+    var progressBar = Contacts.showOverlay('cleaningFbData', 'progressBar');
     var wakeLock = navigator.requestWakeLock('cpu');
 
+    fb.markFbCleaningInProgress(1);
     var req = fb.utils.clearFbData();
 
     req.onsuccess = function() {
       var cleaner = req.result;
       progressBar.setTotal(cleaner.lcontacts.length);
       cleaner.onsuccess = function() {
+        fb.markFbCleaningInProgress(0);
         document.dispatchEvent(new CustomEvent('fb_cleaned'));
 
-        Contacts.showOverlay(_('loggingOutFb'), 'activityBar');
+        Contacts.showOverlay('loggingOutFb', 'activityBar');
         var logoutReq = fb.utils.logout();
 
         logoutReq.onsuccess = function() {
@@ -665,6 +685,9 @@ contacts.Settings = (function() {
 
         logoutReq.onerror = function(e) {
           resetWait(wakeLock);
+          // We need to restore the check on settings in order to show
+          // consistent information to the user
+          fb.utils.getImportChecked(checkFbImported);
           window.console.error('Contacts: Error while FB logout: ',
             e.target.error);
         };
@@ -693,6 +716,7 @@ contacts.Settings = (function() {
     newOrderByLastName = !orderCheckBox.checked;
     utils.cookie.update({order: newOrderByLastName});
     updateOrderingUI();
+    Cache.evict();
   };
 
   // Import contacts from SIM card and updates ui
@@ -701,7 +725,7 @@ contacts.Settings = (function() {
     if (icc === null) {
       return;
     }
-    var progress = Contacts.showOverlay(_('simContacts-reading'),
+    var progress = Contacts.showOverlay('simContacts-reading',
       'activityBar');
 
     var wakeLock = navigator.requestWakeLock('cpu');
@@ -717,7 +741,7 @@ contacts.Settings = (function() {
         // is being cooked
         progress.setClass('activityBar');
         utils.overlay.hideMenu();
-        progress.setHeaderMsg(_('messageCanceling'));
+        progress.setHeaderMsg('messageCanceling');
       } else {
         importer.onfinish(); // Early return while reading contacts
       }
@@ -732,7 +756,7 @@ contacts.Settings = (function() {
       totalContactsToImport = n;
       if (totalContactsToImport > 0) {
         progress.setClass('progressBar');
-        progress.setHeaderMsg(_('simContacts-importing'));
+        progress.setHeaderMsg('simContacts-importing');
         progress.setTotal(totalContactsToImport);
       }
     };
@@ -749,12 +773,18 @@ contacts.Settings = (function() {
           });
         }
         if (!cancelled) {
-          Contacts.showStatus(_('simContacts-imported3', {
-            n: importedContacts
-          }),
-          !numDupsMerged ? null : _('contactsMerged', {
-            numDups: numDupsMerged
-          }));
+          Contacts.showStatus({
+            id: 'simContacts-imported3',
+            args: {
+              n: importedContacts
+            }
+          },
+          !numDupsMerged ? null : {
+            id: 'contactsMerged',
+            args: {
+              numDups: numDupsMerged
+            }
+          });
         }
 
         typeof done === 'function' && done();
@@ -799,7 +829,7 @@ contacts.Settings = (function() {
     var cancelled = false;
     var importer = null;
     var progress = Contacts.showOverlay(
-      _('memoryCardContacts-reading'), 'activityBar');
+      'memoryCardContacts-reading', 'activityBar');
     utils.overlay.showMenu();
     utils.overlay.oncancel = function() {
       cancelled = true;
@@ -813,6 +843,7 @@ contacts.Settings = (function() {
 
     utils.sdcard.retrieveFiles([
       'text/vcard',
+      'text/x-vcard',
       'text/directory;profile=vCard',
       'text/directory'
     ], ['vcf', 'vcard'], function(err, fileArray) {
@@ -858,12 +889,18 @@ contacts.Settings = (function() {
             resetWait(wakeLock);
 
             if (!cancelled) {
-              var msg1 = _('memoryCardContacts-imported3', {
-                n: importedContacts
-              });
-              var msg2 = !numDupsMerged ? null : _('contactsMerged', {
-                numDups: numDupsMerged
-              });
+              var msg1 = {
+                id: 'memoryCardContacts-imported3',
+                args: {
+                  n: importedContacts
+                }
+              };
+              var msg2 = !numDupsMerged ? null : {
+                id: 'contactsMerged',
+                args: {
+                  numDups: numDupsMerged
+                }
+              };
 
               Contacts.showStatus(msg1, msg2);
 
@@ -878,7 +915,7 @@ contacts.Settings = (function() {
 
     function import_read(n) {
       progress.setClass('progressBar');
-      progress.setHeaderMsg(_('memoryCardContacts-importing'));
+      progress.setHeaderMsg('memoryCardContacts-importing');
       progress.setTotal(n);
     }
 
@@ -916,7 +953,7 @@ contacts.Settings = (function() {
   // Dismiss settings window and execute operations if values got modified
   var close = function close() {
     if (newOrderByLastName != null &&
-      newOrderByLastName != orderByLastName && contacts.List) {
+        newOrderByLastName != orderByLastName && contacts.List) {
       contacts.List.setOrderByLastName(newOrderByLastName);
       // Force the reset of the dom, we know that we changed the order
       contacts.List.load(null, true);
@@ -956,10 +993,12 @@ contacts.Settings = (function() {
       if (req.result === 0) {
         exportButton.setAttribute('disabled', 'disabled');
         bulkDeleteButton.setAttribute('disabled', 'disabled');
+        setICEButton.setAttribute('disabled', 'disabled');
       }
       else {
          exportButton.removeAttribute('disabled');
          bulkDeleteButton.removeAttribute('disabled');
+         setICEButton.removeAttribute('disabled');
       }
     };
 
@@ -1036,7 +1075,7 @@ contacts.Settings = (function() {
                                              (new Date(time)).toLocaleString());
           timeElement.textContent = utils.time.pretty(time);
         }
-        node.querySelector('p > span').textContent = _(spanID);
+        node.querySelector('p > span').setAttribute('data-l10n-id', spanID);
       });
     });
   };

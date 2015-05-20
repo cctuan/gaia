@@ -24,6 +24,30 @@
       });
 
       return parsed;
+    },
+
+    /**
+     * Generate message title according from message sender and the
+     * serviceId if there are multiple SIMs.
+     *
+     * @param {Object} The message from which the title will be generated.
+     */
+    prepareMessageTitle: function ut_prepareMessageTitle(message) {
+      if (navigator.mozIccManager &&
+          navigator.mozIccManager.iccIds.length > 1) {
+        return {
+          id: 'message-title-with-sim',
+          args: {
+            id: +message.serviceId + 1,
+            title: message.sender
+          }
+        };
+      } else {
+        return {
+          id: 'message-title',
+          args: { title: message.sender }
+        };
+      }
     }
   };
 

@@ -1,11 +1,12 @@
-/* global Tutorial, FinishScreen,
-          MocksHelper, MockL10n
+/* global Tutorial, FinishScreen, LazyLoader,
+          MocksHelper, MockL10n, MockNavigatormozApps,
           MockNavigatorSettings */
 'use strict';
 
+require('/shared/js/lazy_loader.js');
 require('/shared/test/unit/mocks/mock_navigator_moz_apps.js');
 require('/shared/test/unit/mocks/mock_navigator_moz_settings.js');
-requireApp('ftu/test/unit/mock_l10n.js');
+require('/shared/test/unit/mocks/mock_l10n.js');
 requireApp('ftu/test/unit/mock_screenlayout.js');
 requireApp('ftu/test/unit/mock_finish_screen.js');
 
@@ -20,19 +21,6 @@ suite('Tutorial >', function() {
 
   mocksHelperForFTU.attachTestHelpers();
 
-  function MockXMLHttpRequest() {
-    var mResponse = MockXMLHttpRequest.mResponse;
-    this.open = function() {};
-    this.send = function() {
-      this.response = mResponse;
-      this.timeout = setTimeout(this.onload.bind(this));
-    };
-    this.abort = function() {
-      if (this.timeout) {
-        clearTimeout(this.clearTimeout);
-      }
-    };
-  }
   function mockConfig(stepCount) {
     var steps = [];
     for (; stepCount; stepCount--) {
@@ -52,7 +40,6 @@ suite('Tutorial >', function() {
   var realL10n;
   var realMozApps;
   var realMozSettings;
-  var realXHR;
 
   suiteSetup(function(done) {
     realL10n = navigator.mozL10n;
@@ -66,9 +53,6 @@ suite('Tutorial >', function() {
 
     loadBodyHTML('/index.html');
 
-    realXHR = window.XMLHttpRequest;
-    window.XMLHttpRequest = MockXMLHttpRequest;
-
     requireApp('ftu/js/tutorial.js', done);
   });
 
@@ -77,8 +61,6 @@ suite('Tutorial >', function() {
     navigator.mozApps = realMozApps;
     navigator.mozSettings = realMozSettings;
     realL10n = null;
-    window.XMLHttpRequest = realXHR;
-    realXHR = null;
     document.body.innerHTML = '';
   });
 
@@ -94,12 +76,13 @@ suite('Tutorial >', function() {
   });
 
   test(' sanity test mocks', function(done) {
-    MockXMLHttpRequest.mResponse = mockConfig(2);
+    this.sinon.stub(LazyLoader, 'getJSON')
+              .returns(Promise.resolve(mockConfig(2)));
     Tutorial.loadConfig().then(onOutcome, onOutcome)
                          .then(done, done);
     function onOutcome() {
       assert.equal(Tutorial.config['default'].steps.length, 2);
-    };
+    }
   });
 
   suite(' lifecycle', function() {
@@ -170,7 +153,7 @@ suite('Tutorial >', function() {
 
     test('start despite failure to load media', function(done) {
       var tutorialWasInitialized = false;
-      MockXMLHttpRequest.mResponse = {
+      var jsonMock = {
         'default': {
           steps: [{
             video: '/style/images/tutorial/NotThere.mp4',
@@ -178,6 +161,7 @@ suite('Tutorial >', function() {
           }]
         }
       };
+      this.sinon.stub(LazyLoader, 'getJSON').returns(Promise.resolve(jsonMock));
       window.addEventListener('tutorialinitialized', function() {
         tutorialWasInitialized = true;
       });
@@ -192,15 +176,21 @@ suite('Tutorial >', function() {
   });
 
   suite(' post-init', function() {
+    var getJSONStub;
     suiteSetup(function(done) {
       Tutorial.reset();
 
-      MockXMLHttpRequest.mResponse = mockConfig(3);
+      getJSONStub = sinon.stub(LazyLoader, 'getJSON')
+                         .returns(Promise.resolve(mockConfig(3)));
 
       Tutorial.init();
       Tutorial.start(function() {
         done();
       });
+    });
+
+    suiteTeardown(function() {
+     getJSONStub.restore();
     });
 
     test(' is shown properly after Tutorial.start', function() {
@@ -239,7 +229,7 @@ suite('Tutorial >', function() {
     test(' text & src are the right ones for the current step (2)',
       function(done) {
       // Spy the l10n
-      this.sinon.spy(navigator.mozL10n, 'localize');
+      this.sinon.spy(navigator.mozL10n, 'setAttributes');
       // Move forwad again
       function onNextLoaded() {
          // Are we in Step 2?
@@ -248,7 +238,7 @@ suite('Tutorial >', function() {
           2
         );
         // We are in step 2 and taking into account the current layout
-        assert.equal(navigator.mozL10n.localize.args[0][1],
+        assert.equal(navigator.mozL10n.setAttributes.args[0][1],
                     Tutorial.config['default'].steps[1].l10nKey);
         // Now we check the element src.
         // As we are in 'tiny' (default layout in the mock)
@@ -276,40 +266,5 @@ suite('Tutorial >', function() {
       FinishScreen.init.reset();
     });
 
-  });
-
-  suite('IAC Message >', function() {
-    setup(function() {
-      Tutorial.reset();
-    });
-
-    teardown(function() {
-      MockNavigatormozApps.mTeardown();
-    });
-
-    function setHomescreenManifest(url) {
-      var obj = {'homescreen.manifestURL': url};
-      MockNavigatorSettings.createLock().set(obj);
-    }
-
-    test('will send message', function(done) {
-      var url = 'app://verticalhome.gaiamobile.org/manifest.webapp';
-      setHomescreenManifest(url);
-      Tutorial.init(null, function() {
-        MockNavigatormozApps.mTriggerLastRequestSuccess();
-        assert.equal(MockNavigatormozApps.mLastConnectionKeyword,
-                     'migrate');
-        done();
-      });
-    });
-
-    test('will not send message', function(done) {
-      var url = 'app://homescreen.gaiamobile.org/manifest.webapp';
-      setHomescreenManifest(url);
-      Tutorial.init(null, function() {
-        assert.isNull(MockNavigatormozApps.mLastRequest);
-        done();
-      });
-    });
   });
 });

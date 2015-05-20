@@ -16,7 +16,6 @@
 var FxaModuleEnterEmail = (function() {
 
   var _ = null;
-  var localize = null;
   var termsUrl = 'https://accounts.firefox.com/legal/terms';
   var privacyUrl = 'https://accounts.firefox.com/legal/privacy';
 
@@ -47,7 +46,6 @@ var FxaModuleEnterEmail = (function() {
   var Module = Object.create(FxaModule);
   Module.init = function init(options) {
     _ = navigator.mozL10n.get;
-    localize = navigator.mozL10n.localize;
 
     // Cache static HTML elements
     this.importElements(
@@ -64,22 +62,25 @@ var FxaModuleEnterEmail = (function() {
     }
 
     // dynamically construct and localize ToS/PN notice
+    // XXX This relies on the current l10n fallback mechanism which will change
+    // in the future;  a real solution involves DOM overlays:
+    // https://bugzil.la/994357
     var noticeText = _('fxa-notice');
     var tosReplaced = noticeText.replace(
-      '{{tos}}',
+      /{{\s*tos\s*}}/,
       '<a id="fxa-terms" href="' + termsUrl + '">Terms of Service</a>'
     );
     var tosPnReplaced = tosReplaced.replace(
-      '{{pn}}',
+      /{{\s*pn\s*}}/,
       '<a id="fxa-privacy" href="' + privacyUrl + '">Privacy Notice</a>'
     );
     this.fxaNotice.innerHTML = tosPnReplaced;
 
     // manually import a few elements after innerHTMLing
     this.fxaPrivacy = document.getElementById('fxa-privacy');
-    localize(this.fxaPrivacy, 'fxa-pn');
+    this.fxaPrivacy.setAttribute('data-l10n-id', 'fxa-pn');
     this.fxaTerms = document.getElementById('fxa-terms');
-    localize(this.fxaTerms, 'fxa-tos');
+    this.fxaTerms.setAttribute('data-l10n-id', 'fxa-tos');
 
     this.isFTU = !!(options && options.isftu);
 
@@ -110,6 +111,9 @@ var FxaModuleEnterEmail = (function() {
       /*jshint validthis:true */
       e.stopPropagation();
       e.preventDefault();
+      if (!navigator.onLine) {
+        return this.showErrorResponse({error: 'OFFLINE'});
+      }
       var url = e.target.href;
       if (this.entrySheet) {
         this.entrySheet.close();
@@ -117,8 +121,14 @@ var FxaModuleEnterEmail = (function() {
       }
       this.entrySheet = new EntrySheet(
         window.top.document.getElementById('screen'),
-        url,
-        new BrowserFrame({url: url})
+        // Prefix url with LRM character
+        // This ensures truncation occurs correctly in an RTL document
+        // We can remove this when bug 1154438 is fixed.
+        '\u200E' + url,
+        new BrowserFrame({
+          url: url,
+          oop: true
+        })
       );
       this.entrySheet.open();
     }
@@ -139,6 +149,21 @@ var FxaModuleEnterEmail = (function() {
       }
     }
 
+    window.addEventListener('holdhome', hideEntrySheet.bind(this));
+    window.addEventListener('home', hideEntrySheet.bind(this));
+    window.addEventListener('activityrequesting', hideEntrySheet.bind(this));
+
+    function hideEntrySheet() {
+      /*jshint validthis:true */
+      if (this.entrySheet) {
+        this.entrySheet.close();
+        this.entrySheet = null;
+      }
+      window.removeEventListener('holdhome', hideEntrySheet);
+      window.removeEventListener('home', hideEntrySheet);
+      window.removeEventListener('activityrequesting', hideEntrySheet);
+    }
+
     // Ensure that pressing 'ENTER' (keycode 13) we send the form
     // as expected
     this.fxaEmailInput.addEventListener(
@@ -156,7 +181,7 @@ var FxaModuleEnterEmail = (function() {
   };
 
   Module.onNext = function onNext(gotoNextStepCallback) {
-    FxaModuleOverlay.show(_('fxa-connecting'));
+    FxaModuleOverlay.show('fxa-connecting');
 
     var email = this.fxaEmailInput.value;
 

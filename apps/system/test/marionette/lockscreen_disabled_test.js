@@ -1,3 +1,5 @@
+'use strict';
+
 marionette('lockscreen disabled test', function() {
   var assert = require('assert');
 
@@ -13,22 +15,18 @@ marionette('lockscreen disabled test', function() {
     return homescreen.join('/');
   }
 
-  var client = marionette.client({
-    settings: {
-      'ftu.manifestURL': null,
-      'lockscreen.enabled': false
-    }
-  });
+  var client = marionette.client();
 
   test.skip('launch test app', function() {
     // XXX: this should be replaced with a region when we have fuller test
     // coverage.
     var lockscreen =
-      client.findElement('#lockscreen');
+      client.findElement('.lockScreenWindow.active');
 
     // this is a race condition so we must wait for the lockscreen to be hidden.
+    // if we disalbe LockScreen, LockScreen window should never be instantiated.
     client.waitFor(function() {
-      return !lockscreen.displayed();
+      return !lockscreen;
     });
 
     var homescreen =

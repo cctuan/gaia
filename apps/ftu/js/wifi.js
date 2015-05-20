@@ -1,14 +1,9 @@
-/* global utils,
-          UIManager,
-          WifiHelper */
+/* global utils, UIManager, WifiHelper, WifiUI:true */
 /* exported WifiManager, WifiUI */
 'use strict';
 
-var _;
-
 var WifiManager = {
   init: function wn_init() {
-    _ = navigator.mozL10n.get;
     this.api = WifiHelper.getWifiManager();
     this.changeStatus();
     // Ensure that wifi is on.
@@ -26,16 +21,20 @@ var WifiManager = {
     }
   },
 
+  getNetworks: function wn_getNetworks(callback) {
+    this.networks ? callback(this.networks) : this.scan(callback);
+  },
+
   scan: function wn_scan(callback) {
     if (this._scanning) {
       return;
     }
     this._scanning = true;
-    utils.overlay.show(_('scanningNetworks'), 'spinner');
-    var scanTimeout;
+    utils.overlay.show('scanningNetworks', 'spinner');
     var SCAN_TIMEOUT = 10000;
 
     var self = this;
+    self.onScan = callback;
 
     var req = this.api ? this.api.getNetworks() : null;
     if (!req) {
@@ -50,27 +49,34 @@ var WifiManager = {
       return;
     }
 
-    req.onsuccess = function onScanSuccess() {
+    var handleRequest = function handleRequest() {
       self._scanning = false;
+      clearTimeout(self.scanTimeout);
+      self.scanTimeout = null;
+      self.onScan(self.networks);
+      self.onScan = null;
+    };
+
+    req.onsuccess = function onScanSuccess() {
       self.networks = req.result;
-      clearTimeout(scanTimeout);
-      callback(self.networks);
+      handleRequest();
     };
 
     req.onerror = function onScanError() {
-      self._scanning = false;
       console.error('Error reading networks: ' + req.error.name);
-      clearTimeout(scanTimeout);
-      callback();
+      self.networks = [];
+      handleRequest();
     };
 
     // Timeout in case of scanning errors not thrown by the API
     // We can't block the user in the screen (bug 889623)
-    scanTimeout = setTimeout(function() {
-      self._scanning = false;
-      console.warn('Timeout while reading networks');
-      callback();
-    }, SCAN_TIMEOUT);
+    if (!self.scanTimeout) {
+      self.scanTimeout = setTimeout(function() {
+        self._scanning = false;
+        console.warn('Timeout while reading networks');
+        self.onScan();
+      }, SCAN_TIMEOUT);
+    }
   },
 
   enable: function wn_enable(lock) {
@@ -96,18 +102,22 @@ var WifiManager = {
   },
 
   getNetwork: function wm_gn(ssid) {
-    var network;
-    for (var i = 0; i < this.networks.length; i++) {
-      if (this.networks[i].ssid == ssid) {
-        network = this.networks[i];
-        break;
+    var list = this.networks;
+    for (var i = 0; i < list.length; i++) {
+      if (list[i].ssid === ssid) {
+        return list[i];
       }
     }
-    return network;
+
+    return null;
   },
 
   connect: function wn_connect(ssid, password, user) {
     var network = this.getNetwork(ssid);
+    if (!network) {
+      console.error('Network not found');
+      return;
+    }
     this.ssid = ssid;
     // TODO: Hardcoded for resolving bug 1019146, replace hardcoded eap
     //       method with user selected eap method after bug 1036829.
@@ -136,11 +146,10 @@ var WifiManager = {
     var self = this;
     if (WifiManager.api) {
       WifiManager.api.onstatuschange = function(event) {
-        WifiUI.updateNetworkStatus(self.ssid, event.status);
-        if (event.status === 'connected') {
-          if (self.networks && self.networks.length) {
-            WifiUI.renderNetworks(self.networks);
-          }
+        if (event.status === 'disconnected' && self.onScan) {
+          self.scan(self.onScan);
+        } else {
+          WifiUI.updateNetworkStatus(event.network.ssid, event.status);
         }
       };
     }
@@ -148,7 +157,6 @@ var WifiManager = {
 };
 
 var WifiUI = {
-
   joinNetwork: function wui_jn() {
     var password = document.getElementById('wifi_password').value;
     var user = document.getElementById('wifi_user').value;
@@ -162,16 +170,20 @@ var WifiUI = {
     var user = UIManager.hiddenWifiIdentity.value;
     var ssid = UIManager.hiddenWifiSsid.value;
     var security = UIManager.hiddenWifiSecurity.value;
+    var network;
+
     if (ssid.length) {
       if (!Array.isArray(WifiManager.networks)) {
         WifiManager.networks = [];
       }
-
-      WifiManager.networks.push({
-          ssid: ssid,
-          capabilities: [security],
-          relSignalStrength: 0
+      network = new window.MozWifiNetwork({
+        ssid: ssid,
+        capabilities: [],
+        security: [security],
+        relSignalStrength: 0,
+        hidden: true
       });
+      WifiManager.networks.push(network);
       this.renderNetworks(WifiManager.networks);
       WifiUI.connect(ssid, password, user);
     }
@@ -182,7 +194,6 @@ var WifiUI = {
   },
 
   connect: function wui_connect(ssid, password, user) {
-
     // First we check if there is a previous selected network
     // and we remove their status
     var networkSelected = document.querySelector('li[data-wifi-selected]');
@@ -197,19 +208,20 @@ var WifiUI = {
       var securityLevelDOM =
         networkSelected.querySelectorAll('p[data-security-level]')[0];
       if (!security || security === '') {
-        securityLevelDOM.textContent = _('securityOpen');
+        securityLevelDOM.setAttribute('data-l10n-id', 'securityOpen');
       } else {
-        securityLevelDOM.textContent = security;
+        securityLevelDOM.setAttribute('data-l10n-id', security);
       }
     }
 
     // And then end we update the selected network
     var newWifi = document.getElementById(ssid);
-    newWifi.dataset.wifiSelected = true;
-    newWifi.querySelector('p[data-security-level]').textContent =
-                                                    _('shortStatus-connecting');
-    newWifi.querySelector('aside').classList.add('connecting');
-
+    // We should update the state to 'connecting' in here to show the change
+    // to the user, instead of waiting for the api (takes longer). But currently
+    // there's no feedback from the api when connecting to a hidden wifi fails
+    // so we skip the visual changes
+    // see https://bugzilla.mozilla.org/show_bug.cgi?id=1107431#c25
+    newWifi.setAttribute('data-wifi-selected', true);
 
     // Finally we try to connect to the network
     WifiManager.connect(ssid, password, user);
@@ -218,9 +230,14 @@ var WifiUI = {
   chooseNetwork: function wui_cn(event) {
     // Retrieve SSID from dataset
     var ssid = event.target.dataset.ssid;
+    var selectedNetwork = WifiManager.getNetwork(ssid);
+    if (!selectedNetwork) {
+      console.error('Network not found');
+      return;
+    }
 
     // Do we need to type password?
-    if (WifiHelper.isOpen(WifiManager.getNetwork(ssid))) {
+    if (WifiHelper.isOpen(selectedNetwork)) {
       WifiUI.connect(ssid);
       return;
     }
@@ -230,18 +247,16 @@ var WifiUI = {
     // Update title
     UIManager.mainTitle.textContent = ssid;
 
-    // Update network
-    var selectedNetwork = WifiManager.getNetwork(ssid);
+    // Update network values
     var ssidHeader = document.getElementById('wifi_ssid');
-    var userLabel = document.getElementById('label_wifi_user');
     var userInput = document.getElementById('wifi_user');
     var passwordInput = document.getElementById('wifi_password');
     var showPassword = document.querySelector('input[name=show_password]');
     var joinButton = UIManager.wifiJoinButton;
 
     joinButton.disabled = true;
-    passwordInput.addEventListener('keyup', function validatePassword() {
-      // disable the "Join" button if the password is too short
+    passwordInput.addEventListener('input', function validatePassword() {
+      // disable the "Join" button if the password is on wrong format
       joinButton.disabled =
         !WifiHelper.isValidInput(WifiHelper.getKeyManagement(selectedNetwork),
           passwordInput.value, userInput.value);
@@ -262,7 +277,7 @@ var WifiUI = {
     // Activate secondary menu
     UIManager.navBar.classList.add('secondary-menu');
     // Update changes in form
-    if (WifiHelper.isEap(WifiManager.getNetwork(ssid))) {
+    if (WifiHelper.isEap(selectedNetwork)) {
       userInput.parentNode.classList.remove('hidden');
     } else {
       userInput.parentNode.classList.add('hidden');
@@ -276,12 +291,26 @@ var WifiUI = {
     // Remove refresh option
     UIManager.activationScreen.classList.add('no-options');
     // Update title
-    UIManager.mainTitle.textContent = _('authentication');
+    UIManager.mainTitle.setAttribute('data-l10n-id', 'authentication');
     UIManager.navBar.classList.add('secondary-menu');
+    // Clean input contents
+    UIManager.hiddenWifiSsid.value = '';
+    UIManager.hiddenWifiPassword.value = '';
+    UIManager.hiddenWifiIdentity.value = '';
+    // Reset join button state
+    UIManager.wifiJoinButton.disabled = true;
     window.location.hash = '#hidden-wifi-authentication';
   },
 
   handleHiddenWifiSecurity: function wui_handleSecurity(securityType) {
+    // no need for password if network is open
+    if (securityType === '') {
+      UIManager.hiddenWifiPasswordBox.classList.add('hidden');
+    } else {
+      UIManager.hiddenWifiPasswordBox.classList.remove('hidden');
+    }
+
+    // need of username is security is WPA-EAP
     if (securityType.indexOf('EAP') !== -1) {
       UIManager.hiddenWifiIdentityBox.classList.remove('hidden');
     } else {
@@ -297,7 +326,7 @@ var WifiUI = {
     if (!networks || networks.length === 0) {
       var noResult = '<div id="no-result-container">' +
                      '  <div id="no-result-message">' +
-                     '    <p>' + _('noWifiFound3') + '</p>' +
+                     '    <p data-l10n-id="noWifiFound3"></p>' +
                      '  </div>' +
                      '</div>';
       networksDOM.innerHTML = noResult;
@@ -305,7 +334,7 @@ var WifiUI = {
       networksList = document.createElement('ul');
       networksList.id = 'networks-list';
       networksList.setAttribute('role', 'listbox');
-      networksList.setAttribute('aria-label', _('networksList'));
+      networksList.setAttribute('data-l10n-id', 'networksList');
       var networksShown = [];
       networks.sort(function(a, b) {
         return b.relSignalStrength - a.relSignalStrength;
@@ -329,7 +358,7 @@ var WifiUI = {
           icon.classList.add('wifi-icon');
           var level = Math.min(Math.floor(network.relSignalStrength / 20), 4);
           icon.classList.add('level-' + level);
-          icon.setAttribute('aria-label', _('wifiLevel', {level: level}));
+          navigator.mozL10n.setAttributes(icon, 'wifiLevel', {level: level});
           icon.setAttribute('role', 'presentation');
           // Set SSID
           ssidp.textContent = network.ssid;
@@ -338,23 +367,20 @@ var WifiUI = {
           var keys = WifiHelper.getSecurity(network);
 
           li.dataset.security = keys;
-
-          if (keys && keys.length) {
+          if (!WifiHelper.isOpen(network)) {
             small.textContent = keys.join(', ');
             icon.classList.add('secured');
           } else {
-            small.textContent = _('securityOpen');
+            small.setAttribute('data-l10n-id', 'securityOpen');
           }
           // Show connection status
           icon.classList.add('wifi-signal');
           if (WifiHelper.isConnected(network)) {
-            small.textContent = _('shortStatus-connected');
+            small.setAttribute('data-l10n-id', 'shortStatus-connected');
             small.removeAttribute('aria-label');
             icon.classList.add('connected');
             li.classList.add('connected');
             li.dataset.wifiSelected = true;
-          } else {
-            small.setAttribute('aria-label', _('security'));
           }
 
           // Update list of shown netwoks
@@ -384,13 +410,20 @@ var WifiUI = {
   updateNetworkStatus: function wui_uns(ssid, status) {
     var element = document.getElementById(ssid);
     // Check if element exists and it's the selected network
-    if (!element || !element.dataset.wifiSelected) {
+    if (!element) {
       return;
     }
-
     // Update the element
-    element.querySelector('p[data-security-level]').textContent =
-                                                    _('shortStatus-' + status);
+    if (status !== 'disconnected') {
+      element.querySelector('p[data-security-level]').setAttribute(
+                          'data-l10n-id', 'shortStatus-' + status);
+    } else {
+      var security = element.dataset.security || 'Open';
+
+      element.querySelector('p[data-security-level]').setAttribute(
+                          'data-l10n-id', 'security' + security);
+      element.classList.remove('connected');
+    }
 
     // Animate icon if connecting, stop animation if
     // failed/connected/disconnected
@@ -399,8 +432,13 @@ var WifiUI = {
       icon.classList.add('connecting');
     } else {
       icon.classList.remove('connecting');
+      if (status === 'connected') {
+        var networksList = document.getElementById('networks-list');
+        icon.classList.add('connected');
+        element.classList.add('connected');
+        networksList.removeChild(element);
+        networksList.insertBefore(element, networksList.firstChild);
+      }
     }
   }
-
 };
-

@@ -9,24 +9,18 @@
   var WINDOW_CALLEE_APP = 'activitycalleewindow.gaiamobile.org';
   marionette('activity chain test', function() {
     var client = marionette.client({
-      settings: {
-        'ftu.manifestURL': null,
-        'lockscreen.enabled': false
-      },
       apps: {
-        'activitycaller.gaiamobile.org': __dirname + '/activitycaller',
-        'activitycallee.gaiamobile.org': __dirname + '/activitycallee',
+        'activitycaller.gaiamobile.org': __dirname + '/../apps/activitycaller',
+        'activitycallee.gaiamobile.org': __dirname + '/../apps/activitycallee',
         'activitycalleewindow.gaiamobile.org':
-          __dirname + '/activitycalleewindow'
+          __dirname + '/../apps/activitycalleewindow'
       }
     });
 
     // Bug 1035048: JSMarionette should be able to know displaying app.
     function getDisplayAppOrigin() {
       return client.executeScript(function() {
-        var manager = window.wrappedJSObject.AppWindowManager;
-        var app = ('getActiveApp' in manager) ? manager.getActiveApp() :
-                  manager.getCurrentDisplayedApp();
+        var app = window.wrappedJSObject.Service.currentApp;
         return app.getTopMostWindow().origin;
       });
     }

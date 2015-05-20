@@ -15,16 +15,12 @@ class TestFtuAccessibility(GaiaTestCase):
         self.ftu.launch()
 
     def test_a11y_ftu(self):
-
         # This test runs on TBPL only (device is covered by test_a11y_ftu.py)
 
         self.wait_for_condition(lambda m: self.ftu.languages_list > 0,
                                 message='No languages listed on screen')
 
         # Select different languages
-        self.assertEqual(self.ftu.selected_language, 'en-US')
-        self.ftu.a11y_click_language('fr')
-        self.assertEqual(self.ftu.selected_language, 'fr')
         self.ftu.a11y_click_language('en-US')
         self.assertEqual(self.ftu.selected_language, 'en-US')
 
@@ -38,11 +34,11 @@ class TestFtuAccessibility(GaiaTestCase):
         # Tap the statistics box and check that it sets a setting
         self.ftu.a11y_click_statistics_checkbox()
         self.wait_for_condition(
-            lambda m: self.data_layer.get_setting('debug.performance_data.shared'),
+            lambda m: not self.data_layer.get_setting('debug.performance_data.shared'),
             message='Share performance data was not set')
         self.ftu.a11y_click_statistics_checkbox()
         self.wait_for_condition(
-            lambda m: not self.data_layer.get_setting('debug.performance_data.shared'),
+            lambda m: self.data_layer.get_setting('debug.performance_data.shared'),
             message='Share performance data was not unset')
 
         self.ftu.a11y_click_next_to_privacy_browser_section()

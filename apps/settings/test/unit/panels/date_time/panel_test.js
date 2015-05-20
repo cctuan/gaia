@@ -6,7 +6,7 @@ requireApp('settings/shared/test/unit/load_body_html_helper.js');
 suite('Date & Time panel > ', function() {
   var realL10n;
   var modules = [
-    'unit/mock_l10n',
+    'shared_mocks/mock_l10n',
     'panels/date_time/panel'
   ];
   var map = {
@@ -77,39 +77,26 @@ suite('Date & Time panel > ', function() {
       this.sinon.stub(this.MockDateTime, 'observe');
       this.sinon.stub(this.MockDateTime, 'setTimezoneAutoEnabled');
       this.panel.beforeShow();
-      assert.ok(this.MockDateTime.observe.calledWith(
-        sinon.match('date')));
-      assert.ok(this.MockDateTime.observe.calledWith(
-        sinon.match('clock')));
-      assert.ok(this.MockDateTime.observe.calledWith(
-        sinon.match('clockAutoEnabled')));
-      assert.ok(this.MockDateTime.observe.calledWith(
-        sinon.match('clockAutoAvailable')));
-      assert.ok(this.MockDateTime.observe.calledWith(
-        sinon.match('timezoneAutoAvailable')));
-      assert.ok(this.MockDateTime.observe.calledWith(
-        sinon.match('timezone')));
-      assert.ok(this.MockDateTime.observe.calledWith(
-        sinon.match('userSelectedTimezone')));
+      assert.ok(this.MockDateTime.observe.calledWith('time'));
+      assert.ok(this.MockDateTime.observe.calledWith('date'));
+      assert.ok(this.MockDateTime.observe.calledWith('timezone'));
+      assert.ok(this.MockDateTime.observe.calledWith('clockAutoEnabled'));
+      assert.ok(this.MockDateTime.observe.calledWith('clockAutoAvailable'));
+      assert.ok(this.MockDateTime.observe.calledWith('timezoneAutoAvailable'));
+      assert.ok(this.MockDateTime.observe.calledWith('userSelectedTimezone'));
     });
 
     test('unobserve DateTime when onHide', function() {
       this.sinon.stub(this.MockDateTime, 'unobserve');
       this.panel.hide();
+      assert.ok(this.MockDateTime.unobserve.calledWith('date'));
+      assert.ok(this.MockDateTime.unobserve.calledWith('time'));
+      assert.ok(this.MockDateTime.unobserve.calledWith('timezone'));
+      assert.ok(this.MockDateTime.unobserve.calledWith('clockAutoEnabled'));
+      assert.ok(this.MockDateTime.unobserve.calledWith('clockAutoAvailable'));
       assert.ok(this.MockDateTime.unobserve.calledWith(
-        sinon.match('date')));
-      assert.ok(this.MockDateTime.unobserve.calledWith(
-        sinon.match('clock')));
-      assert.ok(this.MockDateTime.unobserve.calledWith(
-        sinon.match('clockAutoEnabled')));
-      assert.ok(this.MockDateTime.unobserve.calledWith(
-        sinon.match('clockAutoAvailable')));
-      assert.ok(this.MockDateTime.unobserve.calledWith(
-        sinon.match('timezoneAutoAvailable')));
-      assert.ok(this.MockDateTime.unobserve.calledWith(
-        sinon.match('timezone')));
-      assert.ok(this.MockDateTime.unobserve.calledWith(
-        sinon.match('userSelectedTimezone')));
+        'timezoneAutoAvailable'));
+      assert.ok(this.MockDateTime.unobserve.calledWith('userSelectedTimezone'));
     });
   });
 });

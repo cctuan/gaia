@@ -51,6 +51,17 @@ ol.link-list li:only-child a {
   transform: translateX(-52%);
 }
 
+#time-views {
+  visibility: hidden;
+}
+
+body[data-path="/month/"] #time-views,
+body[data-path="/week/"] #time-views,
+body[data-path="/day/"] #time-views,
+body[data-path="/settings/"] #time-views {
+  visibility: visible;
+}
+
 #view-selector > .today {
   border-right: 0.1rem solid #F2F2F2;
 }
@@ -112,15 +123,11 @@ body[data-path="/day/"] #view-selector > .day > a:active {
 
 #time-header [type="toolbar"] {
   opacity: 1;
-  transition: opacity 0.3s ease;
+  transition: opacity var(--transition-duration) ease;
 }
 
 .settings-drawer-visible #time-header [type="toolbar"] {
   opacity: 0;
-}
-
-.display-hour.is-hidden {
-  visibility: hidden;
 }
 
 /* view loading */
@@ -198,10 +205,11 @@ body[data-path="/day/"] #view-selector > .day > a:active {
   margin-bottom: 0;
   font-size: 1.9rem;
   line-height: 3.3rem;
+  text-align: start;
 }
 
 #advanced-settings-view .settings-list label span:first-child {
-  padding-left: 1.5rem;
+  -moz-padding-start: 1.5rem;
 }
 
 #advanced-settings-view .settings-list label,
@@ -222,13 +230,9 @@ body[data-path="/day/"] #view-selector > .day > a:active {
   border-bottom: 0.1rem solid #C5C5C5;
 }
 
-#advanced-settings-view .account-list a {
-  padding-right: 4rem;
-}
-
 #advanced-settings-view .account-list .error a {
   background: transparent url('icons/accountwarning.png') no-repeat left / 2rem auto;
-  padding-left: 2.7rem;
+  -moz-padding-start: 2.7rem;
 }
 
 #advanced-settings-view .preset:after {
@@ -282,6 +286,7 @@ body[data-path="/day/"] #view-selector > .day > a:active {
 }
 
 section[role="status"] {
+  pointer-events: none;
   display: none;
 }
 
@@ -295,6 +300,10 @@ section[role="status"].active {
 /* Hide on initial render to prevent flashing */
 #settings {
   visibility: hidden;
+}
+
+body[data-path^='/settings'] #settings {
+  visibility: visible;
 }
 
 /* these settings avoid conflicts with the shared icons */
@@ -313,11 +322,26 @@ gaia-header > a > span {
 
 /* these icons uses a 32px base grid so we need to adjust the font size
  * (shared font uses a 3rem base font-size) */
-.icon-calendar-allday:before,
 .icon-calendar-alarm:before,
 .icon-calendar-bullet:before,
 .icon-calendar-dot:before,
 .icon-calendar-today:before,
 .icon-calendar-eventalarm:before {
   font-size: 3.2rem;
+}
+
+/* RTL View */
+
+html[dir="rtl"] #view-selector > .today {
+  border-left: 0.1rem solid #F2F2F2;
+  border-right: unset;
+}
+
+html[dir="rtl"] #advanced-settings-view .account-list li {
+  /* text is always right aligned on RTL even if text direction is still LTR */
+  text-align: right;
+}
+
+html[dir="rtl"] #advanced-settings-view .account-list .error a {
+  background-position: right;
 }

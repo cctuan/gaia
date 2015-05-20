@@ -1,12 +1,11 @@
-/* -*- Mode: js; js-indent-level: 2; indent-tabs-mode: nil -*- */
-/* vim: set shiftwidth=2 tabstop=2 autoindent cindent expandtab: */
-
+/* global DsdsSettings, getSupportedNetworkInfo, IccHandlerForCarrierSettings,
+          SettingsHelper, LazyLoader, IccHandlerForCarrierSettings */
 'use strict';
 
 /**
  * Singleton object that handles some cell and data settings.
  */
-var CarrierSettings = (function(window, document, undefined) {
+var CarrierSettings = (function() {
   var DATA_KEY = 'ril.data.enabled';
   var DATA_ROAMING_KEY = 'ril.data.roaming_enabled';
   var NETWORK_TYPE_SETTING = 'operatorResources.data.icon';
@@ -31,7 +30,6 @@ var CarrierSettings = (function(window, document, undefined) {
     'ehrpd': 'cdma'
   };
 
-  var _;
   var _settings;
   var _mobileConnections;
   var _iccManager;
@@ -42,11 +40,7 @@ var CarrierSettings = (function(window, document, undefined) {
   /** Flag */
   var _restartingDataConnection = false;
 
-  /* Store the states of automatic operator selection */
-  var _opAutoSelectStates = null;
-
-  var dataInput = null;
-  var dataRoamingInput = null;
+  var gOperatorNetworkList = null;
 
   /**
    * Init function.
@@ -71,8 +65,7 @@ var CarrierSettings = (function(window, document, undefined) {
     }
 
     cs_addVoiceTypeChangeListeners();
-    cs_updateNetworkTypeLimitedItemsVisibility(
-      _mobileConnection.voice && _mobileConnection.voice.type);
+    cs_updateNetworkTypeLimitedItemsVisibility(_mobileConnection);
 
     // Show carrier name.
     cs_showCarrierName();
@@ -81,165 +74,125 @@ var CarrierSettings = (function(window, document, undefined) {
     cs_initNetworkTypeText(cs_initNetworkTypeSelector());
 
     // Set the navigation correctly when on a multi ICC card device.
-    if (DsdsSettings.getNumberOfIccSlots() > 1) {
-      var carrierSimPanel = document.getElementById('carrier');
-      var header = carrierSimPanel.querySelector('gaia-header');
-      header.setAttribute('data-href', '#carrier-iccs');
-    }
+    cs_initIccsUI();
 
-    /*
-     * Displaying all GSM and CDMA options by default for CDMA development.
-     * We should remove CDMA options after the development finished.
-     * Bug 881862 is filed for tracking this.
-     */
-    // get network type
-    getSupportedNetworkInfo(_mobileConnection, function(result) {
-      var content =
-        document.getElementById('carrier-operatorSettings-content');
+    cs_initOperatorSelector();
+    cs_initRoamingPreferenceSelector();
+    cs_initDataToggles();
 
-      cs_initOperatorSelector();
-      cs_initRoamingPreferenceSelector();
-      cs_refreshDataUI();
+    window.addEventListener('panelready', function(e) {
+      // Get the mozMobileConnection instace for this ICC card.
+      _mobileConnection = _mobileConnections[
+        DsdsSettings.getIccCardIndexForCellAndDataSettings()
+      ];
+      if (!_mobileConnection) {
+        return;
+      }
 
-      // Init warnings the user sees before enabling data calls and roaming.
-      cs_initWarnings();
+      var currentHash = e.detail.current;
+      if (currentHash === '#carrier') {
+        cs_updateNetworkTypeLimitedItemsVisibility(_mobileConnection);
+        // Show carrier name.
+        cs_showCarrierName();
+        return;
+      } else if (currentHash === '#carrier-detail') {
+        var detailHeader =
+          document.querySelector('#carrier-detail gaia-header h1');
+        navigator.mozL10n.setAttributes(detailHeader, 'simSettingsWithIndex',
+          { index: DsdsSettings.getIccCardIndexForCellAndDataSettings() + 1 });
+      }
 
-      window.addEventListener('panelready', function(e) {
-        // Get the mozMobileConnection instace for this ICC card.
-        _mobileConnection = _mobileConnections[
-          DsdsSettings.getIccCardIndexForCellAndDataSettings()
-        ];
-        if (!_mobileConnection) {
-          return;
-        }
+      if (!currentHash.startsWith('#carrier-')) {
+        return;
+      }
 
-        var currentHash = e.detail.current;
-        if (currentHash === '#carrier') {
-          cs_updateNetworkTypeLimitedItemsVisibility(
-            _mobileConnection.voice && _mobileConnection.voice.type);
-          // Show carrier name.
-          cs_showCarrierName();
-          cs_disabeEnableDataCallCheckbox();
-          return;
-        }
-
-        if (!currentHash.startsWith('#carrier-') ||
-            (currentHash === '#carrier-iccs') ||
-            (currentHash === '#carrier-dc-warning') ||
-            (currentHash === '#carrier-dr-warning')) {
-          return;
-        }
-
-        if (currentHash === '#carrier-operatorSettings') {
+      if (currentHash === '#carrier-operatorSettings') {
+        getSupportedNetworkInfo(_mobileConnection, function(result) {
           cs_updateNetworkTypeSelector(result);
           cs_updateAutomaticOperatorSelectionCheckbox();
-          return;
-        }
-      });
+        });
+        return;
+      }
     });
   }
 
-  function cs_refreshDataUI() {
-    var data = document.getElementById('menuItem-enableDataCall');
-    dataInput = data.querySelector('input');
-    var roaming = document.getElementById('menuItem-enableDataRoaming');
-    dataRoamingInput = roaming.querySelector('input');
+  function cs_initIccsUI() {
+    var isMultiSim = DsdsSettings.getNumberOfIccSlots() > 1;
+    var carrierInfo = document.querySelector('#carrier .carrier-info');
+    var advancedSettings =
+      document.querySelector('#carrier .carrier-advancedSettings');
+    var simSettings = document.querySelector('#carrier .carrier-simSettings');
+    var operatorSettingsHeader =
+      document.querySelector('#carrier-operatorSettings gaia-header');
 
-    dataRoamingInput.addEventListener('change', function() {
-      var state = dataRoamingInput.checked;
-      cs_saveRoamingState(state);
-    }.bind(this));
+    if (isMultiSim) {
+      LazyLoader.load([
+        '/js/carrier_iccs.js'
+      ], function() {
+        IccHandlerForCarrierSettings.init();
+      });
 
-    var dataPromise = cs_getDataCellState();
-    var roamingStatePromise = cs_getDataRoamingState();
+      operatorSettingsHeader.dataset.href = '#carrier-detail';
+    } else {
+      operatorSettingsHeader.dataset.href = '#carrier';
+    }
+    carrierInfo.hidden = isMultiSim;
+    advancedSettings.hidden = isMultiSim;
+    simSettings.hidden = !isMultiSim;
+  }
 
-    Promise.all([dataPromise, roamingStatePromise]).then(function(values) {
-      var dataCell = values[0];
-      var savedState = values[1];
+  function cs_initDataToggles() {
+    var dataToggle = document.querySelector('#menuItem-enableDataCall input');
+    var dataRoamingToggle =
+      document.querySelector('#menuItem-enableDataRoaming input');
 
-      cs_updateRoamingToggle(dataCell, savedState);
+    function updateDataRoamingToggle(dataEnabled) {
+      if (dataEnabled) {
+        dataRoamingToggle.disabled = false;
+      } else {
+        dataRoamingToggle.disabled = true;
+        dataRoamingToggle.checked = false;
+        dataRoamingToggle.dispatchEvent(new Event('change'));
+      }
+    }
+
+    function getDataEnabled() {
+      return new Promise(function(resolve, reject) {
+        var transaction = _settings.createLock();
+        var req = transaction.get(DATA_KEY);
+        req.onsuccess = function() {
+          resolve(req.result[DATA_KEY]);
+        };
+        req.onerror = function() {
+          resolve(false);
+        };
+      });
+    }
+
+    getDataEnabled().then(function(dataEnabled) {
+      updateDataRoamingToggle(dataEnabled);
     });
-
+    // We need to disable data roaming when data connection is disabled.
     _settings.addObserver(DATA_KEY, function observerCb(event) {
+      dataToggle.checked = event.settingValue;
       if (_restartingDataConnection) {
         return;
       }
-
-      if (!event.settingValue) {
-        cs_updateRoamingToggle(event.settingValue, dataRoamingInput.checked);
-        return;
-      }
-
-      cs_getDataRoamingState().then(function(roamingState) {
-        cs_updateRoamingToggle(event.settingValue, roamingState);
-      });
+      updateDataRoamingToggle(event.settingValue);
     });
-  }
 
-  function cs_updateRoamingToggle(dataCell, roamingState) {
-    if (dataCell) {
-      dataRoamingInput.disabled = false;
-      dataRoamingInput.checked = roamingState;
-    } else {
-      dataRoamingInput.disabled = true;
-      dataRoamingInput.checked = false;
-      cs_saveRoamingState(roamingState);
-    }
-  }
-
-  function cs_getDataRoamingState() {
-    return new Promise(function(resolve, reject) {
-      var transaction = _settings.createLock();
-      var req = transaction.get(DATA_ROAMING_KEY);
-      req.onsuccess = function() {
-        var roamingState = req.result[DATA_ROAMING_KEY];
-        if (roamingState === null) {
-          roamingState = dataRoamingInput.checked;
-          cs_saveRoamingState(roamingState);
-        }
-        resolve(roamingState);
-      };
-
-      req.onerror = function() {
-        resolve(false);
-      };
-    }.bind(this));
-  }
-
-  function cs_getDataCellState() {
-    return new Promise(function(resolve, reject) {
-      var transaction = _settings.createLock();
-      var req = transaction.get(DATA_KEY);
-      req.onsuccess = function() {
-        var dataCell = req.result[DATA_KEY];
-        if (dataCell === null) {
-          dataCell = dataInput.checked;
-        }
-        resolve(dataCell);
-      };
-
-      req.onerror = function() {
-        resolve(false);
-      };
-    }.bind(this));
-  }
-
-  function cs_saveRoamingState(state) {
-    var transaction = _settings.createLock();
-    var req = transaction.get(DATA_ROAMING_KEY);
-    var cset = {};
-    cset[DATA_ROAMING_KEY] = state;
-
-    req.onsuccess = function() {
-      var roamingState = req.result[DATA_ROAMING_KEY];
-      if (roamingState === null || roamingState != state) {
-        _settings.createLock().set(cset);
-      }
-    };
-
-    req.onerror = function() {
-      _settings.createLock().set(cset);
-    };
+    // Init warnings the user sees before enabling data calls and roaming.
+    // The function also registers handlers for the changes of the toggles.
+    cs_initWarning(DATA_KEY,
+                   dataToggle,
+                   'dataConnection-warning-head',
+                   'dataConnection-warning-message',
+                   'dataConnection-expl');
+    cs_initWarning(DATA_ROAMING_KEY,
+                   dataRoamingToggle,
+                   'dataRoaming-warning-head',
+                   'dataRoaming-warning-message',
+                   'dataRoaming-expl');
   }
 
   /**
@@ -249,14 +202,13 @@ var CarrierSettings = (function(window, document, undefined) {
     Array.prototype.forEach.call(_mobileConnections, function(conn, index) {
       _voiceTypes[index] = conn.voice.type;
       conn.addEventListener('voicechange', function() {
-        var newType = conn.voice.type;
-        if (index !== DsdsSettings.getIccCardIndexForCellAndDataSettings() ||
-            _voiceTypes[index] === newType) {
-          return;
-        }
-        _voiceTypes[index] = newType;
-        if (newType) {
-          cs_updateNetworkTypeLimitedItemsVisibility(newType);
+        var voiceType = conn.voice && conn.voice.type;
+        var voiceTypeChange = voiceType !== _voiceTypes[index];
+
+        _voiceTypes[index] = voiceType;
+        if (index === DsdsSettings.getIccCardIndexForCellAndDataSettings() &&
+          voiceTypeChange) {
+            cs_updateNetworkTypeLimitedItemsVisibility(conn);
         }
       });
     });
@@ -265,7 +217,7 @@ var CarrierSettings = (function(window, document, undefined) {
   /**
    * Update the network type limited items' visibility based on the voice type.
    */
-  function cs_updateNetworkTypeLimitedItemsVisibility(voiceType) {
+  function cs_updateNetworkTypeLimitedItemsVisibility(conn) {
     // The following features are limited to GSM types.
     var autoSelectOperatorItem = document.getElementById('operator-autoSelect');
     var availableOperatorsHeader =
@@ -275,17 +227,35 @@ var CarrierSettings = (function(window, document, undefined) {
     var roamingPreferenceItem =
       document.getElementById('operator-roaming-preference');
 
-    autoSelectOperatorItem.hidden = availableOperatorsHeader.hidden =
-      availableOperators.hidden = (_networkTypeCategory[voiceType] !== 'gsm');
+    var voiceType = conn.voice && conn.voice.type;
 
-    roamingPreferenceItem.hidden =
-      (_networkTypeCategory[voiceType] !== 'cdma');
+    function doUpdate(mode) {
+      autoSelectOperatorItem.hidden = availableOperatorsHeader.hidden =
+      availableOperators.hidden = (mode !== 'gsm');
+      roamingPreferenceItem.hidden = (mode !== 'cdma');
+    }
+
+    if (!voiceType) {
+      getSupportedNetworkInfo(conn, function(result) {
+        if (result.gsm || result.wcdma || result.lte) {
+          doUpdate('gsm');
+        } else {
+          doUpdate('cdma');
+        }
+      });
+    } else {
+      doUpdate(_networkTypeCategory[voiceType]);
+    }
   }
 
   /**
    * Show the carrier name in the ICC card.
    */
   function cs_showCarrierName() {
+    if (DsdsSettings.getNumberOfIccSlots() > 1) {
+      // We don't do anything here when the device support dsds.
+      return;
+    }
     var desc = document.getElementById('dataNetwork-desc');
     var iccCard = _iccManager.getIccById(_mobileConnection.iccId);
     var network = _mobileConnection.voice.network;
@@ -300,48 +270,6 @@ var CarrierSettings = (function(window, document, undefined) {
       }
     }
     desc.textContent = carrier;
-  }
-
-  /**
-   * Helper function. Get the value for the ril.data.defaultServiceId setting
-   * from the setting database.
-   *
-   * @param {Function} callback Callback function to be called once the work is
-   *                            done.
-   */
-  function cs_getDefaultServiceIdForData(callback) {
-    var request = _settings.createLock().get('ril.data.defaultServiceId');
-    request.onsuccess = function onSuccessHandler() {
-      var defaultServiceId =
-        parseInt(request.result['ril.data.defaultServiceId'], 10);
-      if (callback) {
-        callback(defaultServiceId);
-      }
-    };
-  }
-
-  /**
-   * Disable the checkbox for enabling data calls in case the user has opened
-   * the panel for the settings for the ICC card which is not the active one
-   * for data calls.
-   */
-  function cs_disabeEnableDataCallCheckbox() {
-    var menuItem = document.getElementById('menuItem-enableDataCall');
-    var input = menuItem.querySelector('input');
-
-    cs_getDefaultServiceIdForData(
-      function getDefaultServiceIdForDataCb(defaultServiceId) {
-        var currentServiceId =
-          DsdsSettings.getIccCardIndexForCellAndDataSettings();
-
-        var disable = (defaultServiceId !== currentServiceId);
-        if (disable) {
-          menuItem.setAttribute('aria-disabled', true);
-        } else {
-          menuItem.removeAttribute('aria-disabled');
-        }
-        input.disabled = disable;
-    });
   }
 
   function cs_initNetworkTypeText(aNext) {
@@ -373,8 +301,9 @@ var CarrierSettings = (function(window, document, undefined) {
    * for the network type.
    */
   function cs_initNetworkTypeSelector() {
-    if (!_mobileConnection.setPreferredNetworkType)
+    if (!_mobileConnection.setPreferredNetworkType) {
       return;
+    }
 
     var alertDialog = document.getElementById('preferredNetworkTypeAlert');
     var message = document.getElementById('preferredNetworkTypeAlertMessage');
@@ -462,9 +391,6 @@ var CarrierSettings = (function(window, document, undefined) {
     var opAutoSelectInput = opAutoSelect.querySelector('input');
     var opAutoSelectState = opAutoSelect.querySelector('small');
 
-    _opAutoSelectStates =
-      Array.prototype.map.call(_mobileConnections, function() { return true; });
-
     /**
      * Update selection mode.
      */
@@ -490,17 +416,9 @@ var CarrierSettings = (function(window, document, undefined) {
      */
     opAutoSelectInput.onchange = function() {
       var targetIndex = DsdsSettings.getIccCardIndexForCellAndDataSettings();
-      _opAutoSelectStates[targetIndex] = opAutoSelectInput.checked;
 
-      if (opAutoSelectInput.checked) {
-        gOperatorNetworkList.stop();
-        var req = _mobileConnection.selectNetworkAutomatically();
-        req.onsuccess = function() {
-          updateSelectionMode(false);
-        };
-      } else {
-        gOperatorNetworkList.scan();
-      }
+      gOperatorNetworkList.setAutomaticSelection(targetIndex,
+        this.checked);
     };
 
     /**
@@ -510,13 +428,15 @@ var CarrierSettings = (function(window, document, undefined) {
       /**
        * A network list item has the following HTML structure:
        *   <li>
-       *     <small> Network State </small>
-       *     <a> Network Name </a>
+       *     <a>
+       *       <span>Network Name</span>
+       *       <small>Network State</small>
+       *     </a>
        *   </li>
        */
 
       // name
-      var name = document.createElement('a');
+      var name = document.createElement('span');
       name.textContent = network.shortName || network.longName;
 
       // state
@@ -524,10 +444,13 @@ var CarrierSettings = (function(window, document, undefined) {
       state.setAttribute('data-l10n-id',
         network.state ? ('state-' + network.state) : 'state-unknown');
 
+      var a = document.createElement('a');
+      a.appendChild(name);
+      a.appendChild(state);
+
       // create list item
       var li = document.createElement('li');
-      li.appendChild(state);
-      li.appendChild(name);
+      li.appendChild(a);
 
       li.dataset.cachedState = network.state || 'unknown';
       li.classList.add('operatorItem');
@@ -540,9 +463,8 @@ var CarrierSettings = (function(window, document, undefined) {
     }
 
     // operator network list
-    var gOperatorNetworkList = (function operatorNetworkList(list) {
+    gOperatorNetworkList = (function operatorNetworkList(list) {
       // get the "Searching..." and "Search Again" items, respectively
-      var infoItem = list.querySelector('li[data-state="on"]');
       var scanItem = list.querySelector('li[data-state="ready"]');
       scanItem.onclick = scan;
 
@@ -551,6 +473,9 @@ var CarrierSettings = (function(window, document, undefined) {
       var operatorItemMap = {};
 
       var scanRequest = null;
+
+      var opAutoSelectStates = Array.prototype.map.call(_mobileConnections,
+        function() { return true; });
 
       /**
        * Clear the list.
@@ -615,9 +540,11 @@ var CarrierSettings = (function(window, document, undefined) {
                                       'operator-status-connected');
           updateSelectionMode(false);
           connecting = false;
+          checkAutomaticSelection();
         };
         req.onerror = function onerror() {
           connecting = false;
+          checkAutomaticSelection();
           messageElement.setAttribute('data-l10n-id',
                                       'operator-status-connectingfailed');
           if (currentConnectedNetwork) {
@@ -685,10 +612,49 @@ var CarrierSettings = (function(window, document, undefined) {
         scanRequest = null;
       }
 
+      var pendingAutomaticSelectionRequest = false;
+      function checkAutomaticSelection() {
+        if (pendingAutomaticSelectionRequest) {
+          doEnableAutomaticSelection();
+          pendingAutomaticSelectionRequest = false;
+        }
+      }
+
+      function doEnableAutomaticSelection() {
+        var req = _mobileConnection.selectNetworkAutomatically();
+        req.onsuccess = function() {
+          updateSelectionMode(false);
+        };
+      }
+
+      function setAutomaticSelection(index, enabled) {
+        opAutoSelectStates[index] = enabled;
+        if (enabled) {
+          stop();
+          // When RIL is actively connecting to an operator, we are not able
+          // to set automatic selection. Instead we set a flag indicating that
+          // there is a pending automatic selection request.
+          if (connecting) {
+            pendingAutomaticSelectionRequest = true;
+          } else {
+            doEnableAutomaticSelection();
+          }
+        } else {
+          pendingAutomaticSelectionRequest = false;
+          scan();
+        }
+      }
+
+      function getAutomaticSelection(index) {
+        return opAutoSelectStates[index];
+      }
+
       // API
       return {
         stop: stop,
-        scan: scan
+        scan: scan,
+        setAutomaticSelection: setAutomaticSelection,
+        getAutomaticSelection: getAutomaticSelection
       };
     })(document.getElementById('availableOperators'));
 
@@ -702,7 +668,8 @@ var CarrierSettings = (function(window, document, undefined) {
     var opAutoSelectInput =
       document.querySelector('#operator-autoSelect input');
     var targetIndex = DsdsSettings.getIccCardIndexForCellAndDataSettings();
-    opAutoSelectInput.checked = _opAutoSelectStates[targetIndex];
+    opAutoSelectInput.checked =
+      gOperatorNetworkList.getAutomaticSelection(targetIndex);
     opAutoSelectInput.dispatchEvent(new Event('change'));
   }
 
@@ -763,147 +730,144 @@ var CarrierSettings = (function(window, document, undefined) {
   }
 
   /**
-   * Init some cell and data warning dialogs such as the one related to
-   * enable data calls and the related to enable data calls in roaming.
+   * Init a warning dialog.
+   *
+   * @param {String} settingKey The key of the setting.
+   * @param {String} l10n id of the title.
+   * @param {String} l10n id of the message.
+   * @param {String} explanationItemId The id of the explanation item.
    */
-  function cs_initWarnings() {
+  function cs_initWarning(settingKey,
+                          input,
+                          titleL10nId,
+                          messageL10nId,
+                          explanationItemId) {
+    var warningDialogEnabledKey = settingKey + '.warningDialog.enabled';
+    var explanationItem = document.getElementById(explanationItemId);
+
     /**
-     * Init a warning dialog.
+     * Figure out whether the warning is enabled or not.
      *
-     * @param {String} settingKey The key of the setting.
-     * @param {String} dialogId The id of the warning dialog.
-     * @param {String} explanationItemId The id of the explanation item.
-     * @param {Function} warningDisabledCallback Callback function to be
-     *                                           called once the warning is
-     *                                           disabled.
+     * @param {Function} callback Callback function to be called once the
+     *                            work is done.
      */
-    function initWarning(settingKey,
-                         dialogId,
-                         explanationItemId,
-                         warningDisabledCallback) {
+    function getWarningEnabled(callback) {
+      var request = _settings.createLock().get(warningDialogEnabledKey);
 
-      var warningDialogEnabledKey = settingKey + '.warningDialog.enabled';
-      var explanationItem = document.getElementById(explanationItemId);
-
-      /**
-       * Figure out whether the warning is enabled or not.
-       *
-       * @param {Function} callback Callback function to be called once the
-       *                            work is done.
-       */
-      function getWarningEnabled(callback) {
-        var request = _settings.createLock().get(warningDialogEnabledKey);
-
-        request.onsuccess = function onSuccessHandler() {
-          var warningEnabled = request.result[warningDialogEnabledKey];
-          if (warningEnabled === null) {
-            warningEnabled = true;
-          }
-          if (callback) {
-            callback(warningEnabled);
-          }
-        };
-      }
-
-      /**
-       * Set the value of the setting into the settings database.
-       *
-       * @param {Boolean} state State to be stored.
-       */
-      function setState(state) {
-        var cset = {};
-        cset[settingKey] = !!state;
-        _settings.createLock().set(cset);
-      }
-
-      function setWarningDialogState(state) {
-        var cset = {};
-        cset[warningDialogEnabledKey] = !!state;
-        _settings.createLock().set(cset);
-      }
-
-      /**
-       * Helper function. Handler to be called once the user click on the
-       * accept button form the warning dialog.
-       */
-      function onSubmit() {
-        setWarningDialogState(false);
-        explanationItem.hidden = false;
-        setState(true);
-        if (warningDisabledCallback) {
-          warningDisabledCallback();
+      request.onsuccess = function onSuccessHandler() {
+        var warningEnabled = request.result[warningDialogEnabledKey];
+        if (warningEnabled === null) {
+          warningEnabled = true;
         }
-      }
+        if (callback) {
+          callback(warningEnabled);
+        }
+      };
+    }
 
-      /**
-       * Helper function. Handler to be called once the user click on the
-       * cancel button form the warning dialog.
-       */
-      function onReset() {
-        setWarningDialogState(true);
-      }
+    /**
+     * Set the value of the setting into the settings database.
+     *
+     * @param {Boolean} state State to be stored.
+     */
+    function setState(state) {
+      var cset = {};
+      cset[settingKey] = !!state;
+      _settings.createLock().set(cset);
+    }
 
-      // Register an observer to monitor setting changes.
-      _settings.addObserver(settingKey, function observerCb(event) {
+    function getState(callback) {
+      var request = _settings.createLock().get(settingKey);
+      request.onsuccess = function onSuccessHandler() {
+        if (callback) {
+          callback(request.result[settingKey]);
+        }
+      };
+    }
+
+    function setWarningDialogState(state) {
+      var cset = {};
+      cset[warningDialogEnabledKey] = !!state;
+      _settings.createLock().set(cset);
+    }
+
+    /**
+     * Helper function. Handler to be called once the user click on the
+     * accept button form the warning dialog.
+     */
+    function onSubmit() {
+      setWarningDialogState(false);
+      setState(true);
+      explanationItem.hidden = false;
+      input.checked = true;
+    }
+
+    /**
+     * Helper function. Handler to be called once the user click on the
+     * cancel button form the warning dialog.
+     */
+    function onReset() {
+      setWarningDialogState(true);
+      setState(false);
+      input.checked = false;
+    }
+
+    // Initialize the state of the input.
+    getState(function(enabled) {
+      input.checked = enabled;
+
+        // Register an observer to monitor setting changes.
+      input.addEventListener('change', function() {
+        var enabled = this.checked;
         getWarningEnabled(function getWarningEnabledCb(warningEnabled) {
-          var enabled = event.settingValue;
           if (warningEnabled) {
             if (enabled) {
-              setState(false);
-              openDialog(dialogId, onSubmit, onReset);
+              require(['modules/dialog_service'], function(DialogService) {
+                DialogService.confirm(messageL10nId, {
+                  title: titleL10nId,
+                  submitButton: 'turnOn',
+                  cancelButton: 'notNow'
+                }).then(function(result) {
+                  var type = result.type;
+                  if (type === 'submit') {
+                    onSubmit();
+                  } else {
+                    onReset();
+                  }
+                });
+              });
             }
           } else {
+            setState(enabled);
             explanationItem.hidden = false;
           }
         });
       });
+    });
 
-      // Initialize the visibility of the warning message.
-      getWarningEnabled(function getWarningEnabledCb(warningEnabled) {
-        if (warningEnabled) {
-          var request = _settings.createLock().get(settingKey);
-          request.onsuccess = function onSuccessCb() {
-            var enabled = false;
-            if (request.result[settingKey] !== undefined) {
-              enabled = request.result[settingKey];
-            }
-            if (enabled) {
-              setWarningDialogState(false);
-              explanationItem.hidden = false;
-            }
-          };
-        } else {
-          explanationItem.hidden = false;
-          if (warningDisabledCallback) {
-            warningDisabledCallback();
+    // Initialize the visibility of the warning message.
+    getWarningEnabled(function getWarningEnabledCb(warningEnabled) {
+      if (warningEnabled) {
+        var request = _settings.createLock().get(settingKey);
+        request.onsuccess = function onSuccessCb() {
+          var enabled = false;
+          if (request.result[settingKey] !== undefined) {
+            enabled = request.result[settingKey];
           }
-        }
-      });
-    }
-
-    initWarning('ril.data.enabled',
-                'carrier-dc-warning',
-                'dataConnection-expl');
-    initWarning('ril.data.roaming_enabled',
-                'carrier-dr-warning',
-                'dataRoaming-expl');
+          if (enabled) {
+            setWarningDialogState(false);
+            explanationItem.hidden = false;
+          }
+        };
+      } else {
+        explanationItem.hidden = false;
+      }
+    });
   }
 
   return {
     init: cs_init
   };
-})(this, document);
+})();
 
-/**
- * Startup.
- */
-navigator.mozL10n.once(function loadWhenIdle() {
-  var idleObserver = {
-    time: 3,
-    onidle: function() {
-      navigator.removeIdleObserver(idleObserver);
-      CarrierSettings.init();
-    }
-  };
-  navigator.addIdleObserver(idleObserver);
-});
+CarrierSettings.init();

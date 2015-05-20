@@ -3,8 +3,9 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
 import time
-from marionette.by import By
-from marionette.marionette import Actions
+
+from marionette_driver import expected, By, Wait
+from marionette_driver.marionette import Actions
 
 from gaiatest.apps.base import Base
 from gaiatest.apps.base import PageRegion
@@ -19,6 +20,9 @@ class Homescreen(Base):
     _edit_mode_locator = (By.CSS_SELECTOR, 'body.edit-mode')
     _search_bar_icon_locator = (By.ID, 'search-input')
     _landing_page_locator = (By.ID, 'icons')
+    _bookmark_icons_locator = (By.CSS_SELECTOR, 'gaia-grid .bookmark')
+    _divider_locator = (By.CSS_SELECTOR, 'section.divider')
+    _divider_separator_locator = (By.CSS_SELECTOR, 'section.divider .separator > span')
 
     def launch(self):
         Base.launch(self)
@@ -31,17 +35,21 @@ class Homescreen(Base):
         import time
         time.sleep(1)
         self.marionette.switch_to_frame()
-        time.sleep(1)
+        Wait(self.marionette).until(lambda m: not self.keyboard.is_keyboard_displayed)
         self.marionette.find_element('id', 'rocketbar-form').tap()
+        Wait(self.marionette).until(lambda m: self.keyboard.is_keyboard_displayed)
 
         from gaiatest.apps.homescreen.regions.search_panel import SearchPanel
         return SearchPanel(self.marionette)
 
     def wait_for_app_icon_present(self, app_name):
-        self.wait_for_condition(lambda m: self.installed_app(app_name))
+        Wait(self.marionette, timeout=30).until(lambda m: self.installed_app(app_name))
 
     def wait_for_app_icon_not_present(self, app_name):
-        self.wait_for_condition(lambda m: self.installed_app(app_name) is None)
+        Wait(self.marionette).until(lambda m: self.installed_app(app_name) is None)
+
+    def wait_for_bookmark_icon_not_present(self, bookmark_title):
+        Wait(self.marionette).until(lambda m: self.bookmark(bookmark_title) is None)
 
     def is_app_installed(self, app_name):
         """Checks whether app is installed"""
@@ -55,9 +63,10 @@ class Homescreen(Base):
             release().\
             wait(1).\
             perform()
-        self.wait_for_condition(lambda m: app.is_displayed())
+        Wait(self.marionette).until(expected.element_displayed(app))
         # Ensure that edit mode is active
-        self.wait_for_condition(lambda m: self.is_edit_mode_active)
+        Wait(self.marionette).until(expected.element_present(
+            *self._edit_mode_locator))
 
     def open_context_menu(self):
         test = self.marionette.find_element(*self._landing_page_locator)
@@ -71,10 +80,30 @@ class Homescreen(Base):
 
     def move_app_to_position(self, app_position, to_position):
         app_elements = self.app_elements
+
+        self.marionette.execute_script(
+            'arguments[0].scrollIntoView(false);', [app_elements[app_position]])
+
         Actions(self.marionette).\
             press(app_elements[app_position]).\
             wait(3).\
             move(app_elements[to_position]).\
+            wait(1).\
+            release().\
+            wait(1).\
+            perform()
+
+    def move_to_divider(self, app_position, divider_position):
+        app_element = self.app_elements[app_position]
+        separator_element = self.marionette.find_elements(*self._divider_separator_locator)[divider_position]
+
+        self.marionette.execute_script(
+            'arguments[0].scrollIntoView(false);', [app_element])
+
+        Actions(self.marionette).\
+            press(app_element).\
+            wait(3).\
+            move(separator_element).\
             wait(1).\
             release().\
             wait(1).\
@@ -87,8 +116,6 @@ class Homescreen(Base):
     def tap_collection(self, collection_name):
         for root_el in self.marionette.find_elements(*self._homescreen_all_icons_locator):
             if root_el.text == collection_name:
-                self.marionette.execute_script(
-                    'arguments[0].scrollIntoView(false);', [root_el])
                 # TODO bug 1043293 introduced a timing/tap race issue here
                 time.sleep(0.5)
                 root_el.tap()
@@ -108,6 +135,10 @@ class Homescreen(Base):
         """)
 
     @property
+    def divider_elements(self):
+        return self.marionette.find_elements(*self._divider_locator)
+
+    @property
     def visible_apps(self):
         # Bug 1020910 - Marionette cannot detect correctly detect icons on vertical homescreen
         # The icons' order on screen is not represented in the DOM, thus we use the grid
@@ -115,12 +146,22 @@ class Homescreen(Base):
                 for root_element in self.app_elements if root_element.is_displayed()]
 
     def wait_for_number_of_apps(self, number_of_apps=1):
-        self.wait_for_condition(lambda m: len(self.app_elements) >= number_of_apps)
+        Wait(self.marionette).until(lambda m: len(self.app_elements) >= number_of_apps)
 
     def installed_app(self, app_name):
         for root_el in self.marionette.find_elements(*self._homescreen_all_icons_locator):
-            if root_el.text == app_name:
+            if root_el.text == app_name and (root_el.get_attribute('data-app-state') == 'ready' or
+                'bookmark' in root_el.get_attribute('class') or 'collection' in root_el.get_attribute('class')):
                 return self.InstalledApp(self.marionette, root_el)
+
+    def bookmark(self, bookmark_title):
+        for root_el in self.marionette.find_elements(*self._bookmark_icons_locator):
+            if root_el.text == bookmark_title:
+                return self.InstalledApp(self.marionette, root_el)
+
+    @property
+    def number_of_columns(self):
+        return int(self.marionette.find_element(*self._landing_page_locator).get_attribute('cols'))
 
     class InstalledApp(PageRegion):
 
@@ -133,14 +174,10 @@ class Homescreen(Base):
         def tap_icon(self):
             expected_name = self.name
 
-            #TODO remove scroll after Bug 937053 is resolved
-            self.marionette.execute_script(
-                'arguments[0].scrollIntoView(false);', [self.root_element])
-
             # TODO bug 1043293 introduced a timing/tap race issue here
             time.sleep(0.5)
             self.root_element.tap(y=1)
-            self.wait_for_condition(lambda m: self.apps.displayed_app.name.lower() == expected_name.lower())
+            Wait(self.marionette).until(lambda m: self.apps.displayed_app.name.lower() == expected_name.lower())
             self.apps.switch_to_displayed_app()
 
         def tap_delete_app(self):

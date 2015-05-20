@@ -3,7 +3,8 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-from marionette.by import By
+from marionette_driver import By
+
 from gaiatest import GaiaTestCase
 from gaiatest.apps.settings.app import Settings
 from gaiatest.apps.contacts.app import Contacts

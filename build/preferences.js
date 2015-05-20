@@ -1,5 +1,8 @@
-/* global exports, require */
 'use strict';
+
+/**
+ * Generate user.js
+ */
 
 var utils = require('./utils');
 
@@ -29,7 +32,7 @@ PreferencesBuilder.prototype.setConfig = function(config) {
     this.extenedPrefFiles.push('dogfood-prefs.js');
   }
 
-  if (config.DEBUG === 1) {
+  if (config.DEBUG === '1') {
     this.extenedPrefFiles.push('debug-prefs.js');
   }
 };
@@ -52,22 +55,17 @@ PreferencesBuilder.prototype.writeDefaultUserJs = function() {
     return;
   }
 
-  // create a clean folder to store data for B2G, this folder will copy to
-  // b2g output folder.
-  let defaultsDir = utils.getFile(this.config.PROFILE_DIR, 'defaults');
-  if (defaultsDir.exists()) {
-    defaultsDir.remove(true);
-  }
-  defaultsDir.append('pref');
-  utils.ensureFolderExists(defaultsDir);
-  let userJs = defaultsDir.clone();
-  userJs.append('user.js');
+  // Create a folder to store data for B2G, this folder will copy to b2g output
+  // folder.
+  let prefDir = utils.getFile(this.config.PROFILE_DIR, 'defaults', 'pref');
+
+  utils.ensureFolderExists(prefDir);
   let allPrefs = utils.cloneJSON(this.prefs);
   for (let pref in this.userPrefs) {
     allPrefs[pref] = this.userPrefs[pref];
   }
 
-  this.writePrefs(userJs.path, allPrefs, {});
+  this.writePrefs(utils.joinPath(prefDir.path, 'user.js'), allPrefs, {});
 };
 
 PreferencesBuilder.prototype.loadBuildPrefs = function() {
@@ -75,21 +73,21 @@ PreferencesBuilder.prototype.loadBuildPrefs = function() {
   this.loadPrefFile(buildConfigDir, this.extenedPrefFiles);
 
   var deviceConfigDir = utils.getFile(this.config.GAIA_DIR, 'build', 'config',
-                        this.config.GAIA_DEVICE_TYPE);
+    this.config.GAIA_DEVICE_TYPE);
   this.loadPrefFile(deviceConfigDir, this.extenedPrefFiles);
 
   try {
     var distDir = utils.getFile(this.config.GAIA_DISTRIBUTION_DIR);
     this.loadPrefFile(distDir, PARTNER_PREF_FILES);
   } catch (e) {
-    // utils.getFile will throw exception if GAIA_DISTRIBUTION_DIR does not
+    // The utils.getFile will throw exception if GAIA_DISTRIBUTION_DIR does not
     // exist. In this case we just don't override preferences by
     // PARTNER_PREF_FILES.
   }
 };
 
 PreferencesBuilder.prototype.loadPrefFile = function(srcDir, srcPrefFiles) {
-  // scope object for hosting functions and variables.
+  // Scope object for hosting functions and variables.
   var self = this;
   var scope = {
     user_pref: function(key, value) {
@@ -100,10 +98,9 @@ PreferencesBuilder.prototype.loadPrefFile = function(srcDir, srcPrefFiles) {
     }
   };
 
-  // read all files
+  // Read all files
   srcPrefFiles.forEach(function(filename) {
-    var srcFile = srcDir.clone();
-    srcFile.append(filename);
+    var srcFile = utils.getFile(srcDir.path, filename);
     if (srcFile.exists()) {
       utils.scriptLoader.load(srcFile.path, scope, true);
     }
@@ -127,8 +124,7 @@ PreferencesBuilder.prototype.customizePrefValue = function(key, value) {
 PreferencesBuilder.prototype.preparePref = function() {
   this.system = this.config.SYSTEM;
 
-  this.userPrefs['b2g.system_manifest_url'] =
-                   this.system + '/manifest.webapp';
+  this.userPrefs['b2g.system_manifest_url'] = this.system + '/manifest.webapp';
 
   this.userPrefs['b2g.neterror.url'] = this.system + '/net_error.html';
   if (this.system.substring(0, 6) == 'app://') { // B2G bug 773884
@@ -137,7 +133,7 @@ PreferencesBuilder.prototype.preparePref = function() {
 
   this.userPrefs['b2g.system_startup_url'] = this.system;
 
-  this.domains = [this.config.GAIA_DOMAIN];
+  this.domains = [this.config.GAIA_DOMAIN, 'theme.' + this.config.GAIA_DOMAIN];
   this.config.GAIA_ALLAPPDIRS.split(' ').forEach(function(appdir) {
     this.domains.push(utils.getFile(appdir).leafName + '.' +
       this.config.GAIA_DOMAIN);
@@ -149,8 +145,8 @@ PreferencesBuilder.prototype.preparePref = function() {
   this.userPrefs['layout.css.sticky.enabled'] = true;
   this.userPrefs['intl.uidirection.qps-plocm'] = 'rtl';
 
-  // for https://bugzilla.mozilla.org/show_bug.cgi?id=811605 to let user know
-  //what prefs is for ril debugging
+  // For https://bugzilla.mozilla.org/show_bug.cgi?id=811605 to let user know
+  // what prefs is for ril debugging
   this.userPrefs['ril.debugging.enabled'] = false;
   // Gaia has no vCard/vCalendar for now. Override MMS version to v1.1:
   // TODO: remove this override after having vCard/vCalendar implemented in
@@ -164,17 +160,29 @@ PreferencesBuilder.prototype.preparePref = function() {
   //       here.
   // @see Bug 790056 - Enable WPA Enterprise
   this.userPrefs['b2g.wifi.allow_unsafe_wpa_eap'] = true;
-  if (this.config.LOCAL_DOMAINS) {
+
+  if (this.config.LOCAL_DOMAINS === '1') {
     this.setLocalDomainPref();
   }
-  if (this.config.DESKTOP) {
+  if (this.config.DESKTOP === '1') {
     this.setDesktopPref();
   }
-  if (this.config.DEBUG) {
+  if (this.config.DEBUG === '1') {
     this.setDebugPref();
   }
-  if (this.config.DEVICE_DEBUG) {
+  if (this.config.DEVICE_DEBUG === '1') {
     this.setDeviceDebugPref();
+  }
+  // If we're turning RAPTOR on, also turn on user timing output to logcat
+  if (this.config.RAPTOR === '1') {
+    this.userPrefs['dom.performance.enable_user_timing_logging'] = true;
+  }
+
+  // If this is already equal to the profile directory, no need to
+  // write the preference
+  if (this.config.COREWEBAPPS_DIR !== this.config.PROFILE_DIR) {
+    this.userPrefs['b2g.coreappsdir'] =
+        this.config.COREWEBAPPS_DIR;
   }
 };
 
@@ -183,70 +191,6 @@ PreferencesBuilder.prototype.setLocalDomainPref = function() {
 };
 
 PreferencesBuilder.prototype.setDesktopPref = function() {
-  // Set system app as default firefox tab
-  this.userPrefs['browser.startup.homepage'] = this.system;
-  this.userPrefs['startup.homepage_welcome_url'] = '';
-  // Disable dialog asking to set firefox as default OS browser
-  this.userPrefs['browser.shell.checkDefaultBrowser'] = false;
-  // Automatically open devtools on the firefox os panel
-  this.userPrefs['devtools.toolbox.host'] = 'side';
-  this.userPrefs['devtools.toolbox.sidebar.width'] = 800;
-  this.userPrefs['devtools.toolbox.selectedTool'] = 'firefox-os-controls';
-  // Disable session store to ensure having only one tab opened
-  this.userPrefs['browser.sessionstore.max_tabs_undo'] = 0;
-  this.userPrefs['browser.sessionstore.max_windows_undo'] = 0;
-  this.userPrefs['browser.sessionstore.restore_on_demand'] = false;
-  this.userPrefs['browser.sessionstore.resume_from_crash'] = false;
-
-  this.userPrefs['dom.mozBrowserFramesEnabled'] = true;
-  this.userPrefs['b2g.ignoreXFrameOptions'] = true;
-  this.userPrefs['network.disable.ipc.security'] = true;
-
-  this.userPrefs['dom.ipc.tabs.disabled'] = true;
-  this.userPrefs['browser.ignoreNativeFrameTextSelection'] = true;
-  this.userPrefs['ui.dragThresholdX'] = 25;
-  this.userPrefs['dom.w3c_touch_events.enabled'] = 1;
-
-  // Enable apis use on the device
-  this.userPrefs['dom.sms.enabled'] = true;
-  this.userPrefs['dom.mozTCPSocket.enabled'] = true;
-  this.userPrefs['notification.feature.enabled'] = true;
-  this.userPrefs['dom.sysmsg.enabled'] = true;
-  this.userPrefs['dom.mozAlarms.enabled'] = true;
-  this.userPrefs['device.storage.enabled'] = true;
-  this.userPrefs['device.storage.prompt.testing'] = true;
-  this.userPrefs['dom.datastore.enabled'] = true;
-  this.userPrefs['dom.testing.datastore_enabled_for_hosted_apps'] = true;
-  this.userPrefs['dom.inter-app-communication-api.enabled'] = true;
-
-  // WebSettings
-  this.userPrefs['dom.mozSettings.enabled'] = true;
-  this.userPrefs['dom.navigator-property.disable.mozSettings'] = false;
-  this.userPrefs['dom.mozPermissionSettings.enabled'] = true;
-
-  // Contacts
-  this.userPrefs['dom.mozContacts.enabled'] = true;
-  this.userPrefs['dom.navigator-property.disable.mozContacts'] = false;
-  this.userPrefs['dom.global-constructor.disable.mozContact'] = false;
-
-  this.userPrefs['dom.experimental_forms'] = true;
-  this.userPrefs['dom.webapps.useCurrentProfile'] = true;
-
-  // Settings so desktop shims will work
-  this.userPrefs['bluetooth.enabled'] = true;
-  this.userPrefs['bluetooth.visible'] = false;
-  this.userPrefs['wifi.enabled'] = true;
-  this.userPrefs['wifi.suspended'] = false;
-
-  // Partial implementation of gonk fonts
-  // See: http://mxr.mozilla.org/mozilla-central/source/modules/libpref/src/
-  //      init/all.js#3202
-  this.userPrefs['font.default.x-western'] = 'sans-serif';
-
-  this.userPrefs['font.name.serif.x-western'] = 'Charis SIL Compact';
-  this.userPrefs['font.name.sans-serif.x-western'] = 'Fira Sans';
-  this.userPrefs['font.name.monospace.x-western'] = 'Source Code Pro';
-  this.userPrefs['font.name-list.sans-serif.x-western'] = 'Fira Sans, Roboto';
   this.userPrefs['extensions.autoDisableScopes'] = 0;
 };
 
@@ -273,11 +217,6 @@ PreferencesBuilder.prototype.setDebugPref = function() {
   // Identity debug messages
   this.userPrefs['toolkit.identity.debug'] = true;
 
-  // Disable HTTP caching for now
-  // This makes working with the system app much easier, due to the iframe
-  // caching issue.
-  this.userPrefs['network.http.use-cache'] = false;
-
   // Preferences for httpd
   // (Use JSON.stringify in order to avoid taking care of `\` escaping)
   this.userPrefs['extensions.gaia.dir'] = this.config.GAIA_DIR;
@@ -291,16 +230,28 @@ PreferencesBuilder.prototype.setDebugPref = function() {
   this.userPrefs['extensions.gaia.official'] = Boolean(this.config.OFFICIAL);
   this.userPrefs['extensions.gaia.locales_file'] = this.config.LOCALES_FILE;
   // Bug 952901: remove getLocaleBasedir() if bug 952900 fixed.
-  this.userPrefs['extensions.gaia.locale_basedir'] =
-    utils.getLocaleBasedir(this.config.LOCALE_BASEDIR);
+  this.userPrefs['extensions.gaia.locale_basedir'] = utils.getLocaleBasedir(
+    this.config.LOCALE_BASEDIR);
 
   var suffix = this.config.GAIA_DEV_PIXELS_PER_PX === '1' ?
-               '' : '@' + this.config.GAIA_DEV_PIXELS_PER_PX + 'x';
+    '' : '@' + this.config.GAIA_DEV_PIXELS_PER_PX + 'x';
   this.userPrefs['extensions.gaia.device_pixel_suffix'] = suffix;
   this.userPrefs['extensions.autoDisableScopes'] = 0;
+
+  // electrolysis breaks the app:// protocol as registered by httpd.js
+  // see Bug 1097912
+  this.userPrefs['browser.tabs.remote.autostart'] = false;
+  this.userPrefs['browser.tabs.remote.autostart.1'] = false;
+  this.userPrefs['browser.tabs.remote.autostart.2'] = false;
+
+  // Disable dialog asking to set firefox as default OS browser
+  this.userPrefs['browser.shell.checkDefaultBrowser'] = false;
 };
 
 PreferencesBuilder.prototype.setDeviceDebugPref = function() {
+  this.userPrefs['dom.apps.developer_mode'] = true;
+  this.userPrefs['network.disable.ipc.security'] = true;
+  this.userPrefs['dom.webcomponents.enabled'] = true;
   this.userPrefs['devtools.debugger.prompt-connection'] = false;
   this.userPrefs['devtools.debugger.forbid-certified-apps'] = false;
   // Bug 1001348: This optimization prevents debugger to fetch script sources
@@ -313,15 +264,14 @@ PreferencesBuilder.prototype.writePrefs = function(jsPath, prefs, userPrefs) {
   var userJs = utils.getFile(jsPath);
   var content = '';
   var pref;
-  // output pref
+  // Output pref
   for (pref in prefs) {
-    content += 'pref(\'' + pref + '\', ' +
-                JSON.stringify(prefs[pref]) + ');\n';
+    content += 'pref(\'' + pref + '\', ' + JSON.stringify(prefs[pref]) + ');\n';
   }
-  // output user_pref
+  // Output user_pref
   for (pref in userPrefs) {
     content += 'user_pref(\'' + pref + '\', ' +
-                JSON.stringify(userPrefs[pref]) + ');\n';
+      JSON.stringify(userPrefs[pref]) + ');\n';
   }
   utils.writeContent(userJs, content + '\n');
 };

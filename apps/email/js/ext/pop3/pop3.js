@@ -1,11 +1,11 @@
-define(['module', 'exports', 'rdcommon/log', 'tcp-socket', 'md5',
+define(['module', 'exports', 'logic', 'tcp-socket', 'md5',
         './transport', 'mimeparser', 'imap/imapchew',
-        'syncbase',
+        'syncbase', 'date',
         'mimefuncs',
         './mime_mapper', 'allback'],
-function(module, exports, log, tcpSocket, md5,
+function(module, exports, logic, tcpSocket, md5,
          transport, MimeParser, imapchew,
-         syncbase, mimefuncs, mimeMapper, allback) {
+         syncbase, dateMod, mimefuncs, mimeMapper, allback) {
 
   /**
    * The Pop3Client modules and classes are organized according to
@@ -94,8 +94,7 @@ function(module, exports, log, tcpSocket, md5,
     options.debug = options.debug || false;
     options.authMethods = ['apop', 'sasl', 'user-pass'];
 
-    this._LOG = options._logParent ?
-      LOGFAB.Pop3Client(this, options._logParent, Date.now() % 1000) : null;
+    logic.defineScope(this, 'Pop3Client');
 
     if (options.preferredAuthMethod) {
       // if we prefer a certain auth method, try that first.
@@ -193,10 +192,16 @@ function(module, exports, log, tcpSocket, md5,
       });
     }.bind(this);
 
+    // sync cares about listening for us closing; it has no way to be informed
+    // by disaster recovery otherwise
+    this.onclose = null;
     this.socket.onclose = function() {
       console.log('pop3:onclose');
       this.protocol.onclose();
       this.close();
+      if (this.onclose) {
+        this.onclose();
+      }
     }.bind(this);
 
     // To track requests/responses in the presence of a server
@@ -565,15 +570,16 @@ function(module, exports, log, tcpSocket, md5,
         checkpointInterval = totalMessages;
       }
 
+      var firstErr = null;
       // Download all of the messages in batches.
       var nextBatch = function() {
         console.log('POP3: Next batch. Messages left: ' + messages.length);
-        // If there are no more messages, we're done.
-        if (!messages.length) {
+        // If there are no more messages or our connection died, we're done.
+        if (!messages.length || this.protocol.closed) {
           console.log('POP3: Sync complete. ' +
                       totalMessages + ' messages synced, ' +
                       overflowMessages.length + ' overflow messages.');
-          cb && cb(null, totalMessages, overflowMessages);
+          cb && cb(firstErr, totalMessages, overflowMessages);
           return;
         }
 
@@ -582,15 +588,21 @@ function(module, exports, log, tcpSocket, md5,
 
         // Trigger a download for every message in the batch.
         batch.forEach(function(m, idx) {
-          var messageDone = latch.defer();
+          var messageDone = latch.defer(m.number);
           this.downloadPartialMessageByNumber(m.number, function(err, msg) {
             bytesFetched += m.size;
-            progressCb && progressCb({
-              totalBytes: totalBytes,
-              bytesFetched: bytesFetched,
-              size: m.size,
-              message: msg
-            });
+            if (err) {
+              if (!firstErr) {
+                firstErr = err;
+              }
+            } else {
+              progressCb && progressCb({
+                totalBytes: totalBytes,
+                bytesFetched: bytesFetched,
+                size: m.size,
+                message: msg
+              });
+            }
             messageDone(err);
           });
         }.bind(this));
@@ -601,8 +613,17 @@ function(module, exports, log, tcpSocket, md5,
         // save the database periodically or perform other
         // housekeeping during sync).
         latch.then(function(results) {
-          console.log('POP3: Checkpoint.');
-          if (checkpoint) {
+          // figure out if we actually did work so we actually need to save.
+          var anySaved = false;
+          for (var num in results) {
+            console.log('result', num, results[num]);
+            if (!results[num][0]) {
+              anySaved = true;
+              break;
+            }
+          }
+          if (checkpoint && anySaved) {
+            console.log('POP3: Checkpoint.');
             checkpoint(nextBatch);
           } else {
             nextBatch();
@@ -749,8 +770,6 @@ function(module, exports, log, tcpSocket, md5,
     }
 
     if (node.content != null) {
-      node.content = mimefuncs.charset.decode(node.content, 'utf-8');
-
       partMap[typeInfo.part] = node.content;
       // If this node was only partially downloaded, note it as such
       // in a special key on partMap. We'll use this key to later
@@ -779,17 +798,36 @@ function(module, exports, log, tcpSocket, md5,
   Pop3Client.prototype.parseMime = function(mimeContent, isSnippet, number) {
     var mp = new MimeParser();
     var lastNode;
-    mp.onbody = function(node) {
-      lastNode = node;
-    };
     mp.write(mimefuncs.charset.encode(mimeContent, 'utf-8'));
     mp.end();
+    // mimeparser does not generate onbody events for partial pieces of body
+    // so we find the "last" node through tree-traversal:
+    lastNode = mp.node;
+    while (lastNode._currentChild && lastNode !== lastNode._currentChild) {
+      lastNode = lastNode._currentChild;
+    }
 
     var rootNode = mp.node;
     var partialNode = (isSnippet ? lastNode : null);
     var estSize = (number && this.idToSize[number]) || mimeContent.length;
     var content;
-    var date = safeHeader(rootNode, 'date');
+    var dateHeader = safeHeader(rootNode, 'date'), dateTS;
+    // If we got a date, clamp it to now if it's trying to live in the future
+    // or it's simply invalid.  Our rational for clamping is that we don't
+    // want spammers to be able to permanently lodge their mails at the top of
+    // the inbox or to otherwise upset our careful invariants.
+    var now = dateMod.NOW();
+    if (dateHeader) {
+      dateTS = Date.parse(dateHeader);
+      if (isNaN(dateTS) || dateTS > now) {
+        dateTS = now;
+      }
+    } else {
+      // If we don't have a date, then just use now as the date.  The rationale
+      // for this is that we are already trusting the message's claimed
+      // composition date, so it's not like this can be maliciously abused.
+      dateTS = now;
+    }
 
     var headerList = [];
     for (var key in rootNode.headers) {
@@ -800,7 +838,7 @@ function(module, exports, log, tcpSocket, md5,
     var msg = {
       uid: number && this.idToUidl[number], // the server-given ID
       'header.fields[]': headerList.join(''),
-      internaldate: date && imapchew.formatImapDateTime(new Date(date)),
+      internaldate: dateTS && imapchew.formatImapDateTime(new Date(dateTS)),
       flags: [],
       bodystructure: mimeTreeToStructure(rootNode, '1', partMap, partialNode)
     };
@@ -829,7 +867,7 @@ function(module, exports, log, tcpSocket, md5,
     for (var i = 0; i < rep.bodyInfo.bodyReps.length; i++) {
       var bodyRep = rep.bodyInfo.bodyReps[i];
 
-      content = partMap[bodyRep.part];
+      content = mimefuncs.charset.decode(partMap[bodyRep.part], 'utf-8');
       var req = {
         // If bytes is null, imapchew.updateMessageWithFetch knows
         // that we've fetched the entire thing. Passing in [-1, -1] as a
@@ -845,15 +883,13 @@ function(module, exports, log, tcpSocket, md5,
           bytesFetched: content.length,
           text: content
         };
-        imapchew.updateMessageWithFetch(
-          rep.header, rep.bodyInfo, req, res, this._LOG);
+        imapchew.updateMessageWithFetch(rep.header, rep.bodyInfo, req, res);
       }
     }
 
 
     // Convert attachments and related parts to Blobs if we've
     // downloaded the whole thing:
-
     for (var i = 0; i < rep.bodyInfo.relatedParts.length; i++) {
       var relatedPart = rep.bodyInfo.relatedParts[i];
       relatedPart.sizeEstimate = partSizes[relatedPart.part];
@@ -932,26 +968,5 @@ function(module, exports, log, tcpSocket, md5,
     }
     return s;
   }
-
-var LOGFAB = exports.LOGFAB = log.register(module, {
-  Pop3Client: {
-    type: log.CONNECTION,
-    subtype: log.CLIENT,
-    events: {
-    },
-    TEST_ONLY_events: {
-    },
-    errors: {
-      htmlParseError: { ex: log.EXCEPTION },
-      htmlSnippetError: { ex: log.EXCEPTION },
-      textChewError: { ex: log.EXCEPTION },
-      textSnippetError: { ex: log.EXCEPTION },
-    },
-    asyncJobs: {
-    },
-  },
-}); // end LOGFAB
-
-Pop3Client._LOG = LOGFAB.Pop3Client();
 
 }); // end define

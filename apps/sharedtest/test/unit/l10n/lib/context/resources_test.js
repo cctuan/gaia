@@ -1,17 +1,14 @@
-/* global it, assert:true, describe, beforeEach */
-/* global window, navigator, process, __dirname */
+/* global assert:true, it, describe, beforeEach */
+/* global navigator, __dirname */
 'use strict';
-
-var assert = require('assert') || window.assert;
 
 if (typeof navigator !== 'undefined') {
   var L10n = navigator.mozL10n._getInternalAPI();
   var Context = L10n.Context;
   var path = 'app://sharedtest.gaiamobile.org/test/unit/l10n/context';
 } else {
-  var Context = process.env.L20N_COV ?
-    require('../../../build/cov/lib/l20n/context').Context
-    : require('../../../lib/l20n/context').Context;
+  var assert = require('assert');
+  var Context = require('../../../src/lib/context').Context;
   var path = __dirname;
 }
 

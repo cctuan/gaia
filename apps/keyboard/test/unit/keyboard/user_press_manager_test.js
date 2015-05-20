@@ -1,10 +1,14 @@
 'use strict';
 
-/* global UserPress, UserPressManager, KeyboardConsole, MockEventTarget */
+/* global UserPress, UserPressManager, KeyboardConsole, MockEventTarget,
+          SettingsPromiseManager, MockNavigatorMozSettings,
+          MockNavigatorMozSettingsLock */
 
 require('/shared/test/unit/mocks/mock_event_target.js');
 require('/js/keyboard/user_press_manager.js');
 require('/js/keyboard/console.js');
+require('/js/keyboard/settings.js');
+require('/shared/js/input_mgmt/mock_navigator_mozsettings.js');
 
 suite('UserPress', function() {
   test('(constructor)', function() {
@@ -44,16 +48,36 @@ suite('UserPress', function() {
 suite('UserPressManager', function() {
   var app;
   var container;
+  var domObjMap;
+  var realMozSettings;
+  var mozSettings;
+  var lock;
 
   setup(function() {
     container = new MockEventTarget();
     this.sinon.spy(container, 'addEventListener');
     this.sinon.spy(container, 'removeEventListener');
 
+    domObjMap = new WeakMap();
+
+    realMozSettings = navigator.mozSettings;
+    
+    mozSettings = navigator.mozSettings = new MockNavigatorMozSettings();
+    var createLockStub = this.sinon.stub(mozSettings, 'createLock');
+    lock = new MockNavigatorMozSettingsLock();
+    this.sinon.spy(lock, 'get');
+    createLockStub.returns(lock);
+
     app = {
+      settingsPromiseManager: new SettingsPromiseManager(),
       console: this.sinon.stub(KeyboardConsole.prototype),
       getContainer: function() {
         return container;
+      },
+      layoutRenderingManager: {
+        getTargetObject: function(e){
+          return domObjMap.get(e);
+        }
       }
     };
 
@@ -62,12 +86,28 @@ suite('UserPressManager', function() {
 
   teardown(function() {
     document.elementFromPoint.restore();
+    navigator.mozSettings = realMozSettings;
   });
 
   test('(constructor)', function() {
     var manager = new UserPressManager(app);
     assert.equal(manager.app, app);
   });
+
+  // UserPress would have updateCoords() defined in prototype, 
+  // so cannot use 'deepEqual' with lastest chai.js.
+  var assertOnpressArgs = function (args, expected, msg) {
+    // the single for-loop can only test unidirection injective relation
+    // from |args[0]| to |expected|; to make sure there aren't any properties
+    // present in |expected| but not in |args[0]|, we need to test against
+    // Object.keys().length. Note that this is different from
+    // layout_manager_test where we test bidirectionally because we need to test
+    // prototype there. (which isn't the case here.)
+    for (var key in expected[0]) {
+      assert.equal(args[0][key], expected[0][key], msg);
+    }
+    assert.equal(args[1], expected[1], msg);
+  };
 
   test('start()', function() {
     var manager = new UserPressManager(app);
@@ -113,7 +153,7 @@ suite('UserPressManager', function() {
   });
 
   suite('single touch', function() {
-    var manager, el;
+    var manager, el, dummyKey;
 
     setup(function() {
       manager = new UserPressManager(app);
@@ -123,6 +163,12 @@ suite('UserPressManager', function() {
       manager.start();
 
       el = new MockEventTarget();
+
+      dummyKey = {
+        dummy: 'dummy'
+      };
+
+      domObjMap.set(el, dummyKey);
       var touchstartEvent = {
         type: 'touchstart',
         target: el,
@@ -136,12 +182,11 @@ suite('UserPressManager', function() {
         ]
       };
       container.dispatchEvent(touchstartEvent);
-
       assert.isTrue(manager.onpressstart.calledOnce);
       assert.equal(manager.presses.size, 1);
-      assert.deepEqual(manager.onpressstart.getCall(0).args,
+      assertOnpressArgs(manager.onpressstart.getCall(0).args, 
         [{
-          target: el,
+          target: dummyKey,
           moved: false,
           clientX: 100,
           clientY: 110
@@ -167,9 +212,9 @@ suite('UserPressManager', function() {
 
       assert.isTrue(manager.onpressend.calledOnce);
       assert.equal(manager.presses.size, 0);
-      assert.deepEqual(manager.onpressend.getCall(0).args,
+      assertOnpressArgs(manager.onpressend.getCall(0).args,
         [{
-          target: el,
+          target: dummyKey,
           moved: false,
           clientX: 100,
           clientY: 110
@@ -210,9 +255,9 @@ suite('UserPressManager', function() {
 
       assert.isTrue(manager.onpressend.calledOnce);
       assert.equal(manager.presses.size, 0);
-      assert.deepEqual(manager.onpressend.getCall(0).args,
+      assertOnpressArgs(manager.onpressend.getCall(0).args,
         [{
-          target: el,
+          target: dummyKey,
           moved: false,
           clientX: 101,
           clientY: 112
@@ -237,9 +282,9 @@ suite('UserPressManager', function() {
       el.dispatchEvent(touchmoveEvent);
 
       assert.isTrue(manager.onpressmove.calledOnce);
-      assert.deepEqual(manager.onpressmove.getCall(0).args,
+      assertOnpressArgs(manager.onpressmove.getCall(0).args,
         [{
-          target: el,
+          target: dummyKey,
           moved: true,
           clientX: 120,
           clientY: 130
@@ -261,9 +306,9 @@ suite('UserPressManager', function() {
 
       assert.isTrue(manager.onpressend.calledOnce);
       assert.equal(manager.presses.size, 0);
-      assert.deepEqual(manager.onpressend.getCall(0).args,
+      assertOnpressArgs(manager.onpressend.getCall(0).args,
         [{
-          target: el,
+          target: dummyKey,
           moved: true,
           clientX: 120,
           clientY: 130
@@ -275,6 +320,12 @@ suite('UserPressManager', function() {
     test('move to another the element', function() {
       var el2 = new MockEventTarget();
       document.elementFromPoint.returns(el2);
+
+      var dummyKey2 = {
+        dummy2: 'dummy'
+      };
+
+      domObjMap.set(el2, dummyKey2);
 
       var touchmoveEvent = {
         type: 'touchmove',
@@ -291,9 +342,9 @@ suite('UserPressManager', function() {
       el.dispatchEvent(touchmoveEvent);
 
       assert.isTrue(manager.onpressmove.calledOnce);
-      assert.deepEqual(manager.onpressmove.getCall(0).args,
+      assertOnpressArgs(manager.onpressmove.getCall(0).args,
         [{
-          target: el2,
+          target: dummyKey2,
           moved: true,
           clientX: 120,
           clientY: 130
@@ -315,9 +366,9 @@ suite('UserPressManager', function() {
 
       assert.isTrue(manager.onpressend.calledOnce);
       assert.equal(manager.presses.size, 0);
-      assert.deepEqual(manager.onpressend.getCall(0).args,
+      assertOnpressArgs(manager.onpressend.getCall(0).args,
         [{
-          target: el2,
+          target: dummyKey2,
           moved: true,
           clientX: 120,
           clientY: 130
@@ -366,7 +417,7 @@ suite('UserPressManager', function() {
   });
 
   suite('single mouse click', function() {
-    var manager, el;
+    var manager, el, dummyKey;
 
     setup(function() {
       manager = new UserPressManager(app);
@@ -376,6 +427,13 @@ suite('UserPressManager', function() {
       manager.start();
 
       el = new MockEventTarget();
+
+      dummyKey = {
+        dummy: 'dummy'
+      };
+
+      domObjMap.set(el, dummyKey);
+
       var mousedownEvent = {
         type: 'mousedown',
         target: el,
@@ -387,9 +445,9 @@ suite('UserPressManager', function() {
 
       assert.isTrue(mousedownEvent.preventDefault.calledOnce);
       assert.isTrue(manager.onpressstart.calledOnce);
-      assert.deepEqual(manager.onpressstart.getCall(0).args,
+      assertOnpressArgs(manager.onpressstart.getCall(0).args,
         [{
-          target: el,
+          target: dummyKey,
           moved: false,
           clientX: 100,
           clientY: 110
@@ -409,9 +467,9 @@ suite('UserPressManager', function() {
 
       assert.isTrue(manager.onpressend.calledOnce);
       assert.equal(manager.presses.size, 0);
-      assert.deepEqual(manager.onpressend.getCall(0).args,
+      assertOnpressArgs(manager.onpressend.getCall(0).args,
         [{
-          target: el,
+          target: dummyKey,
           moved: false,
           clientX: 100,
           clientY: 110
@@ -499,9 +557,9 @@ suite('UserPressManager', function() {
 
       assert.isTrue(manager.onpressend.calledOnce);
       assert.equal(manager.presses.size, 0);
-      assert.deepEqual(manager.onpressend.getCall(0).args,
+      assertOnpressArgs(manager.onpressend.getCall(0).args,
         [{
-          target: el,
+          target: dummyKey,
           moved: false,
           clientX: 101,
           clientY: 112
@@ -520,9 +578,9 @@ suite('UserPressManager', function() {
       container.dispatchEvent(mousemoveEvent);
 
       assert.isTrue(manager.onpressmove.calledOnce);
-      assert.deepEqual(manager.onpressmove.getCall(0).args,
+      assertOnpressArgs(manager.onpressmove.getCall(0).args,
         [{
-          target: el,
+          target: dummyKey,
           moved: true,
           clientX: 120,
           clientY: 130
@@ -538,9 +596,9 @@ suite('UserPressManager', function() {
 
       assert.isTrue(manager.onpressend.calledOnce);
       assert.equal(manager.presses.size, 0);
-      assert.deepEqual(manager.onpressend.getCall(0).args,
+      assertOnpressArgs(manager.onpressend.getCall(0).args,
         [{
-          target: el,
+          target: dummyKey,
           moved: true,
           clientX: 120,
           clientY: 130
@@ -553,18 +611,24 @@ suite('UserPressManager', function() {
       var el2 = new MockEventTarget();
       document.elementFromPoint.returns(el2);
 
+      var dummyKey2 = {
+        dummy2: 'dummy'
+      };
+
+      domObjMap.set(el2, dummyKey2);
+
       var mousemoveEvent = {
         type: 'mousemove',
-        target: el,
+        target: el2,
         clientX: 120,
         clientY: 130
       };
       container.dispatchEvent(mousemoveEvent);
 
       assert.isTrue(manager.onpressmove.calledOnce);
-      assert.deepEqual(manager.onpressmove.getCall(0).args,
+      assertOnpressArgs(manager.onpressmove.getCall(0).args,
         [{
-          target: el2,
+          target: dummyKey2,
           moved: true,
           clientX: 120,
           clientY: 130
@@ -580,9 +644,9 @@ suite('UserPressManager', function() {
 
       assert.isTrue(manager.onpressend.calledOnce);
       assert.equal(manager.presses.size, 0);
-      assert.deepEqual(manager.onpressend.getCall(0).args,
+      assertOnpressArgs(manager.onpressend.getCall(0).args,
         [{
-          target: el2,
+          target: dummyKey2,
           moved: true,
           clientX: 120,
           clientY: 130
@@ -593,7 +657,7 @@ suite('UserPressManager', function() {
   });
 
   suite('two touches', function() {
-    var manager, el, el2;
+    var manager, el, el2, dummyKey, dummyKey2;
 
     setup(function() {
       manager = new UserPressManager(app);
@@ -603,6 +667,13 @@ suite('UserPressManager', function() {
       manager.start();
 
       el = new MockEventTarget();
+
+      dummyKey = {
+        dummy: 'dummy'
+      };
+
+      domObjMap.set(el, dummyKey);
+
       var touchstartEvent = {
         type: 'touchstart',
         target: el,
@@ -618,15 +689,22 @@ suite('UserPressManager', function() {
       container.dispatchEvent(touchstartEvent);
 
       assert.isTrue(manager.onpressstart.calledOnce);
-      assert.deepEqual(manager.onpressstart.getCall(0).args,
+      assertOnpressArgs(manager.onpressstart.getCall(0).args,
         [{
-          target: el,
+          target: dummyKey,
           moved: false,
           clientX: 100,
           clientY: 110
         }, 0]);
 
       el2 = new MockEventTarget();
+
+      dummyKey2 = {
+        dummy2: 'dummy'
+      };
+
+      domObjMap.set(el2, dummyKey2);
+
       var touchstartEvent2 = {
         type: 'touchstart',
         target: el2,
@@ -643,9 +721,9 @@ suite('UserPressManager', function() {
 
       assert.isTrue(manager.onpressstart.calledTwice);
       assert.equal(manager.presses.size, 2);
-      assert.deepEqual(manager.onpressstart.getCall(1).args,
+      assertOnpressArgs(manager.onpressstart.getCall(1).args,
         [{
-          target: el2,
+          target: dummyKey2,
           moved: false,
           clientX: 200,
           clientY: 210
@@ -672,9 +750,9 @@ suite('UserPressManager', function() {
 
       assert.isTrue(manager.onpressend.calledOnce);
       assert.equal(manager.presses.size, 1);
-      assert.deepEqual(manager.onpressend.getCall(0).args,
+      assertOnpressArgs(manager.onpressend.getCall(0).args,
         [{
-          target: el,
+          target: dummyKey,
           moved: false,
           clientX: 100,
           clientY: 110
@@ -696,9 +774,9 @@ suite('UserPressManager', function() {
 
       assert.isTrue(manager.onpressend.calledTwice);
       assert.equal(manager.presses.size, 0);
-      assert.deepEqual(manager.onpressend.getCall(1).args,
+      assertOnpressArgs(manager.onpressend.getCall(1).args,
         [{
-          target: el2,
+          target: dummyKey2,
           moved: false,
           clientX: 200,
           clientY: 210
@@ -726,9 +804,9 @@ suite('UserPressManager', function() {
       el.dispatchEvent(touchmoveEvent);
 
       assert.isTrue(manager.onpressmove.calledOnce);
-      assert.deepEqual(manager.onpressmove.getCall(0).args,
+      assertOnpressArgs(manager.onpressmove.getCall(0).args,
         [{
-          target: el,
+          target: dummyKey,
           moved: true,
           clientX: 120,
           clientY: 130
@@ -749,9 +827,9 @@ suite('UserPressManager', function() {
       el2.dispatchEvent(touchmoveEvent2);
 
       assert.isTrue(manager.onpressmove.calledTwice);
-      assert.deepEqual(manager.onpressmove.getCall(1).args,
+      assertOnpressArgs(manager.onpressmove.getCall(1).args,
         [{
-          target: el2,
+          target: dummyKey2,
           moved: true,
           clientX: 220,
           clientY: 230
@@ -773,9 +851,9 @@ suite('UserPressManager', function() {
 
       assert.isTrue(manager.onpressend.calledOnce);
       assert.equal(manager.presses.size, 1);
-      assert.deepEqual(manager.onpressend.getCall(0).args,
+      assertOnpressArgs(manager.onpressend.getCall(0).args,
         [{
-          target: el,
+          target: dummyKey,
           moved: true,
           clientX: 120,
           clientY: 130
@@ -786,7 +864,7 @@ suite('UserPressManager', function() {
         target: el2,
         changedTouches: [
           {
-            target: el2,
+            target: dummyKey2,
             identifier: 1,
             clientX: 220,
             clientY: 230
@@ -797,9 +875,9 @@ suite('UserPressManager', function() {
 
       assert.isTrue(manager.onpressend.calledTwice);
       assert.equal(manager.presses.size, 0);
-      assert.deepEqual(manager.onpressend.getCall(1).args,
+      assertOnpressArgs(manager.onpressend.getCall(1).args,
         [{
-          target: el2,
+          target: dummyKey2,
           moved: true,
           clientX: 220,
           clientY: 230
@@ -811,6 +889,19 @@ suite('UserPressManager', function() {
     test('move to another the element', function() {
       var el3 = new MockEventTarget();
       var el4 = new MockEventTarget();
+
+      var dummyKey3 = {
+        dummy3: 'dummy'
+      };
+
+      domObjMap.set(el3, dummyKey3);
+
+      var dummyKey4 = {
+        dummy3: 'dummy'
+      };
+
+      domObjMap.set(el4, dummyKey4);
+
       document.elementFromPoint.withArgs(120, 130).returns(el3);
       document.elementFromPoint.withArgs(220, 230).returns(el4);
 
@@ -829,9 +920,9 @@ suite('UserPressManager', function() {
       el.dispatchEvent(touchmoveEvent);
 
       assert.isTrue(manager.onpressmove.calledOnce);
-      assert.deepEqual(manager.onpressmove.getCall(0).args,
+      assertOnpressArgs(manager.onpressmove.getCall(0).args,
         [{
-          target: el3,
+          target: dummyKey3,
           moved: true,
           clientX: 120,
           clientY: 130
@@ -852,9 +943,9 @@ suite('UserPressManager', function() {
       el2.dispatchEvent(touchmoveEvent2);
 
       assert.isTrue(manager.onpressmove.calledTwice);
-      assert.deepEqual(manager.onpressmove.getCall(1).args,
+      assertOnpressArgs(manager.onpressmove.getCall(1).args,
         [{
-          target: el4,
+          target: dummyKey4,
           moved: true,
           clientX: 220,
           clientY: 230
@@ -876,9 +967,9 @@ suite('UserPressManager', function() {
 
       assert.isTrue(manager.onpressend.calledOnce);
       assert.equal(manager.presses.size, 1);
-      assert.deepEqual(manager.onpressend.getCall(0).args,
+      assertOnpressArgs(manager.onpressend.getCall(0).args,
         [{
-          target: el3,
+          target: dummyKey3,
           moved: true,
           clientX: 120,
           clientY: 130
@@ -900,9 +991,9 @@ suite('UserPressManager', function() {
 
       assert.isTrue(manager.onpressend.calledTwice);
       assert.equal(manager.presses.size, 0);
-      assert.deepEqual(manager.onpressend.getCall(1).args,
+      assertOnpressArgs(manager.onpressend.getCall(1).args,
         [{
-          target: el4,
+          target: dummyKey4,
           moved: true,
           clientX: 220,
           clientY: 230
@@ -913,7 +1004,7 @@ suite('UserPressManager', function() {
   });
 
   suite('two touches on the same element', function() {
-    var manager, el;
+    var manager, el, dummyKey;
 
     setup(function() {
       manager = new UserPressManager(app);
@@ -923,6 +1014,13 @@ suite('UserPressManager', function() {
       manager.start();
 
       el = new MockEventTarget();
+
+      dummyKey = {
+        dummy: 'dummy'
+      };
+
+      domObjMap.set(el, dummyKey);
+
       this.sinon.stub(el, 'removeEventListener');
       var touchstartEvent = {
         type: 'touchstart',
@@ -939,9 +1037,9 @@ suite('UserPressManager', function() {
       container.dispatchEvent(touchstartEvent);
 
       assert.isTrue(manager.onpressstart.calledOnce);
-      assert.deepEqual(manager.onpressstart.getCall(0).args,
+      assertOnpressArgs(manager.onpressstart.getCall(0).args,
         [{
-          target: el,
+          target: dummyKey,
           moved: false,
           clientX: 100,
           clientY: 110
@@ -963,9 +1061,9 @@ suite('UserPressManager', function() {
 
       assert.isTrue(manager.onpressstart.calledTwice);
       assert.equal(manager.presses.size, 2);
-      assert.deepEqual(manager.onpressstart.getCall(1).args,
+      assertOnpressArgs(manager.onpressstart.getCall(1).args,
         [{
-          target: el,
+          target: dummyKey,
           moved: false,
           clientX: 200,
           clientY: 210
@@ -992,9 +1090,9 @@ suite('UserPressManager', function() {
 
       assert.isTrue(manager.onpressend.calledOnce);
       assert.equal(manager.presses.size, 1);
-      assert.deepEqual(manager.onpressend.getCall(0).args,
+      assertOnpressArgs(manager.onpressend.getCall(0).args,
         [{
-          target: el,
+          target: dummyKey,
           moved: false,
           clientX: 100,
           clientY: 110
@@ -1016,9 +1114,9 @@ suite('UserPressManager', function() {
 
       assert.isTrue(manager.onpressend.calledTwice);
       assert.equal(manager.presses.size, 0);
-      assert.deepEqual(manager.onpressend.getCall(1).args,
+      assertOnpressArgs(manager.onpressend.getCall(1).args,
         [{
-          target: el,
+          target: dummyKey,
           moved: false,
           clientX: 200,
           clientY: 210
@@ -1028,6 +1126,179 @@ suite('UserPressManager', function() {
       assert.isTrue(el.removeEventListener.calledWith('touchend'));
       assert.isTrue(el.removeEventListener.calledWith('touchcancel'));
       assert.equal(el.removeEventListener.callCount, 3);
+
+      manager.stop();
+    });
+  });
+
+  suite('speedlimit', function() {
+    var manager, el, dummyKey, clock;
+
+    setup(function() {
+      clock = sinon.useFakeTimers();
+
+      manager = new UserPressManager(app);
+      manager.onpressstart = this.sinon.stub();
+      manager.onpressmove = this.sinon.stub();
+      manager.onpressend = this.sinon.stub();
+      manager.start();
+      manager._isLowEndDevice = true;
+
+      el = new MockEventTarget();
+
+      dummyKey = {
+        dummy: 'dummy'
+      };
+
+      domObjMap.set(el, dummyKey);
+      var touchstartEvent = {
+        type: 'touchstart',
+        target: el,
+        changedTouches: [
+          {
+            target: el,
+            identifier: 0,
+            clientX: 100,
+            clientY: 110
+          }
+        ]
+      };
+      container.dispatchEvent(touchstartEvent);
+      assert.isTrue(manager.onpressstart.calledOnce);
+      assert.equal(manager.presses.size, 1);
+      assertOnpressArgs(manager.onpressstart.getCall(0).args,
+        [{
+          target: dummyKey,
+          moved: false,
+          clientX: 100,
+          clientY: 110
+        }, 0]);
+
+      document.elementFromPoint.returns(el);
+    });
+
+    teardown(function() {
+      clock.restore();
+    });
+
+    test('exceeding velocity and distance, move to different key', function() {
+      var el2 = new MockEventTarget();
+      document.elementFromPoint.returns(el2);
+
+      var dummyKey2 = {
+        dummy2: 'dummy2',
+        keyCode: 'dummy2'
+      };
+
+      domObjMap.set(el2, dummyKey2);
+
+      var touchendEvent = {
+        type: 'touchend',
+        target: el2,
+        changedTouches: [
+          {
+            target: el2,
+            identifier: 0,
+            clientX: 120,
+            clientY: 130
+          }
+        ]
+      };
+      el.dispatchEvent(touchendEvent);
+
+      assert.isTrue(manager.onpressend.calledTwice);
+      assert.strictEqual(manager.onpressend.getCall(0).args[0].clientX,
+        100);
+      assert.strictEqual(manager.onpressend.getCall(0).args[0].clientY,
+        110);
+
+      assert.strictEqual(manager.onpressend.getCall(1).args[0].clientX,
+        120);
+      assert.strictEqual(manager.onpressend.getCall(1).args[0].clientY,
+        130);
+
+      manager.stop();
+    });
+
+    test('exceeding velocity and distance, stay on same key', function() {
+      var touchendEvent = {
+        type: 'touchend',
+        target: el,
+        changedTouches: [
+          {
+            target: el,
+            identifier: 0,
+            clientX: 120,
+            clientY: 130
+          }
+        ]
+      };
+      el.dispatchEvent(touchendEvent);
+
+      assert.isTrue(manager.onpressend.calledOnce);
+
+      manager.stop();
+    });
+
+    test('exceeding distance not velocity', function() {
+      var touchendEvent = {
+        type: 'touchend',
+        target: el,
+        changedTouches: [
+          {
+            target: el,
+            identifier: 0,
+            clientX: 120,
+            clientY: 130
+          }
+        ]
+      };
+      clock.tick(100);
+      el.dispatchEvent(touchendEvent);
+
+      assert.isTrue(manager.onpressend.calledOnce);
+
+      manager.stop();
+    });
+
+    test('not exceeding distance and not velocity', function() {
+      var touchendEvent = {
+        type: 'touchend',
+        target: el,
+        changedTouches: [
+          {
+            target: el,
+            identifier: 0,
+            clientX: 101,
+            clientY: 111
+          }
+        ]
+      };
+      clock.tick(100);
+      el.dispatchEvent(touchendEvent);
+
+      assert.isTrue(manager.onpressend.calledOnce);
+
+      manager.stop();
+    });
+
+    test('exceeding velocity not distance', function() {
+      var touchendEvent = {
+        type: 'touchend',
+        target: el,
+        changedTouches: [
+          {
+            target: el,
+            identifier: 0,
+            clientX: 101,
+            clientY: 111
+          }
+        ]
+      };
+      clock.tick(1);
+      el.dispatchEvent(touchendEvent);
+
+      assert.isTrue(manager.onpressend.calledOnce);
 
       manager.stop();
     });

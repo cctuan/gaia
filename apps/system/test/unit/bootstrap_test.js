@@ -1,7 +1,7 @@
 'use strict';
 /*global MockNavigatormozApps, MockNavigatorSettings, MocksHelper, MockL10n,
          MockApplications, Applications, MockNavigatormozSetMessageHandler,
-         MockGetDeviceStorages, MockVersionHelper */
+         MockGetDeviceStorages, MockVersionHelper, MockKeyboardManager */
 
 requireApp('system/shared/js/async_storage.js');
 requireApp('system/shared/js/lazy_loader.js');
@@ -15,10 +15,15 @@ requireApp('system/shared/test/unit/mocks/mock_navigator_moz_settings.js');
 requireApp('system/shared/test/unit/mocks/mock_settings_listener.js');
 requireApp('system/shared/test/unit/mocks/mock_settings_url.js');
 require('/shared/test/unit/mocks/mock_navigator_moz_set_message_handler.js');
+require('/shared/test/unit/mocks/mock_event_target.js');
+require('/shared/test/unit/mocks/mock_dom_request.js');
 requireApp('system/shared/test/unit/mocks/mock_navigator_getdevicestorage.js');
 requireApp('system/shared/test/unit/mocks/mock_navigator_getdevicestorages.js');
-
+requireApp('system/js/activity_handler.js');
+requireApp('system/js/browser.js');
+requireApp('system/js/import.js');
 requireApp('system/js/accessibility.js');
+requireApp('system/js/accessibility_quicknav_menu.js');
 requireApp('system/js/activities.js');
 requireApp('system/js/activity_window_factory.js');
 requireApp('system/js/activity_window_manager.js');
@@ -26,55 +31,69 @@ requireApp('system/js/airplane_mode.js');
 requireApp('system/js/app_migrator.js');
 requireApp('system/js/app_usage_metrics.js');
 requireApp('system/js/app_window_factory.js');
+requireApp('system/js/power_save.js');
+requireApp('system/js/battery_overlay.js');
 requireApp('system/js/browser_settings.js');
 requireApp('system/js/cell_broadcast_system.js');
+requireApp('system/js/cpu_manager.js');
 requireApp('system/js/devtools/developer_hud.js');
 requireApp('system/js/dialer_agent.js');
-requireApp('system/js/eu_roaming_manager.js');
 requireApp('system/js/external_storage_monitor.js');
 requireApp('system/js/ftu_launcher.js');
+requireApp('system/js/global_overlay_window_manager.js');
 requireApp('system/js/rocketbar.js');
 requireApp('system/js/home_gesture.js');
 requireApp('system/js/homescreen_launcher.js');
 requireApp('system/js/internet_sharing.js');
+requireApp('system/js/input_window_manager.js');
 requireApp('system/js/layout_manager.js');
+requireApp('system/js/lockscreen_agent.js');
 requireApp('system/js/lockscreen_window_manager.js');
-requireApp('system/js/lockscreen_notifications.js');
 requireApp('system/js/lockscreen_passcode_validator.js');
 requireApp('system/js/lockscreen_notification_builder.js');
 requireApp('system/js/media_recording.js');
 requireApp('system/js/permission_manager.js');
-requireApp('system/js/remote_debugger.js');
+requireApp('system/js/devtools/remote_debugger.js');
+requireApp('system/js/devtools/devtools_auth.js');
 requireApp('system/js/secure_window_factory.js');
 requireApp('system/js/secure_window_manager.js');
 requireApp('system/js/sleep_menu.js');
 requireApp('system/js/orientation_manager.js');
-requireApp('system/js/nfc_manager.js');
-requireApp('system/js/shrinking_ui.js');
+requireApp('system/js/quick_settings.js');
 requireApp('system/js/software_button_manager.js');
 requireApp('system/js/source_view.js');
 requireApp('system/js/usb_storage.js');
 requireApp('system/js/system_dialog_manager.js');
-requireApp('system/js/telephony_settings.js');
 requireApp('system/js/base_ui.js');
 requireApp('system/js/text_selection_dialog.js');
 requireApp('system/js/ttlview.js');
 requireApp('system/js/visibility_manager.js');
 requireApp('system/js/wallpaper_manager.js');
+requireApp('system/js/trusted_window_manager.js');
 requireApp('system/js/attention_window_manager.js');
 requireApp('system/js/attention_indicator.js');
+requireApp('system/js/service.js');
 
 requireApp('system/test/unit/mock_app_window.js');
 requireApp('system/test/unit/mock_attention_window.js');
 requireApp('system/test/unit/mock_callscreen_window.js');
 requireApp('system/test/unit/mock_airplane_mode.js');
 requireApp('system/test/unit/mock_applications.js');
+requireApp('system/test/unit/mock_edge_swipe_detector.js');
 require('/shared/test/unit/mocks/mock_l10n.js');
 requireApp('system/test/unit/mock_places.js');
 requireApp('system/test/unit/mock_screen_manager.js');
 requireApp('system/test/unit/mock_task_manager.js');
 requireApp('system/test/unit/mock_app_window_manager.js');
+requireApp('system/test/unit/mock_homescreen_window_manager.js');
 requireApp('system/test/unit/mock_version_helper.js');
+requireApp('system/js/base_module.js');
+requireApp('system/test/unit/mock_keyboard_manager.js');
+
+requireApp('system/js/base_icon.js');
+requireApp('system/js/battery_icon.js');
+requireApp('system/js/nfc_icon.js');
+requireApp('system/js/recording_icon.js');
 
 var mocksForBootstrap = new MocksHelper([
   'AirplaneMode',
@@ -86,9 +105,11 @@ var mocksForBootstrap = new MocksHelper([
   'SettingsURL',
   'TaskManager',
   'L10n',
+  'HomescreenWindowManager',
   'AppWindowManager',
   'VersionHelper',
-  'CallscreenWindow'
+  'CallscreenWindow',
+  'EdgeSwipeDetector'
 ]).init();
 
 suite('system/Bootstrap', function() {
@@ -102,6 +123,7 @@ suite('system/Bootstrap', function() {
   var realApplications;
   var realVersionHelper;
   var fakeElement;
+  var realKeyboardManager;
 
   mocksForBootstrap.attachTestHelpers();
 
@@ -145,7 +167,10 @@ suite('system/Bootstrap', function() {
 
     realVersionHelper = window.VersionHelper;
     window.VersionHelper = MockVersionHelper(false);
-    
+
+    realKeyboardManager = window.KeyboardManager;
+    window.KeyboardManager = MockKeyboardManager;
+
     requireApp('system/js/bootstrap.js', done);
   });
 
@@ -167,6 +192,8 @@ suite('system/Bootstrap', function() {
 
     navigator.getDeviceStorages = realNavigatorGetDeviceStorages;
     realNavigatorGetDeviceStorages = null;
+
+    window.KeyboardManager = realKeyboardManager;
 
     document.documentElement.dir = realDocumentElementDir;
     document.documentElement.lang = realDocumentElementLang;
@@ -214,32 +241,6 @@ suite('system/Bootstrap', function() {
       test('should be enabled', function() {
         assert.isTrue(MockNavigatorSettings.mSettings[setting]);
       });
-    });
-  });
-
-  suite('check for insane devices beeing cancelled', function() {
-    function createEvent(type) {
-      var evt = new CustomEvent(type, { bubbles: true, cancelable: true });
-      evt.pageX = evt.pageY = 0;
-      evt.touches = [{ pageX: 0, pageY: 0 }];
-      evt.changedTouches = [{ pageX: 0, pageY: 0 }];
-      return evt;
-    }
-
-    test('mousedown should be preventDefaulted', function() {
-      assert.ok(window.dispatchEvent(createEvent('mousedown')) === false);
-    });
-
-    test('mouseup should be preventDefaulted', function() {
-      assert.ok(window.dispatchEvent(createEvent('mouseup')) === false);
-    });
-
-    test('touchend should be preventDefaulted', function() {
-      assert.ok(window.dispatchEvent(createEvent('touchstart')) === false);
-    });
-
-    test('touchend should be preventDefaulted', function() {
-      assert.ok(window.dispatchEvent(createEvent('touchend')) === false);
     });
   });
 });

@@ -56,13 +56,37 @@ var Common = {
 
   COST_CONTROL_APP: 'app://costcontrol.gaiamobile.org',
 
-  allApps: {},
+  DATA_USAGE_WARNING: 0.8,
+
+  allApps: null,
 
   allAppsLoaded: false,
 
-  allNetworkInterfaces: {},
+  allNetworkInterfaces: null,
 
   allNetworkInterfaceLoaded: false,
+  //XXX: Group of apps, whose traffic will be added to the system app.
+  // See: https://bugzilla.mozilla.org/show_bug.cgi?id=1079609
+  specialApps: [
+    'app://search.gaiamobile.org/manifest.webapp'
+  ],
+
+  SYSTEM_MANIFEST: 'app://system.gaiamobile.org/manifest.webapp',
+
+  BROWSER_APP: {
+    manifestURL: 'app://browser.gaiamobile.org/manifest.webapp',
+    origin: '',
+    manifest: {
+      icons: {
+        '84': '/shared/resources/branding/browser_84.png',
+        '126': '/shared/resources/branding/browser_126.png',
+        '142': '/shared/resources/branding/browser_142.png',
+        '189': '/shared/resources/branding/browser_189.png',
+        '284': '/shared/resources/branding/browser_284.png'
+      },
+      name: 'browser'
+    }
+  },
 
   startFTE: function(mode) {
     var iframe = document.getElementById('fte_view');
@@ -77,27 +101,27 @@ var Common = {
 
         iframe.classList.remove('non-ready');
 
-        // PERFORMANCE EVENTS
+        // PERFORMANCE MARKERS
         // Designates that the app's *core* chrome or navigation interface
         // exists in the DOM and is marked as ready to be displayed.
-        window.dispatchEvent(new CustomEvent('moz-chrome-dom-loaded'));
+        window.performance.mark('navigationLoaded');
 
         // Designates that the app's *core* chrome or navigation interface
         // has its events bound and is ready for user interaction.
-        window.dispatchEvent(new CustomEvent('moz-chrome-interactive'));
+        window.performance.mark('navigationInteractive');
 
         // Designates that the app is visually loaded (e.g.: all of the
         // "above-the-fold" content exists in the DOM and is marked as
         // ready to be displayed).
-        window.dispatchEvent(new CustomEvent('moz-app-visually-complete'));
+        window.performance.mark('visuallyLoaded');
 
         // Designates that the app has its events bound for the minimum
         // set of functionality to allow the user to interact with the
         // "above-the-fold" content.
-        window.dispatchEvent(new CustomEvent('moz-content-interactive'));
+        window.performance.mark('contentInteractive');
 
         // Start up ended when FTE ready
-        window.dispatchEvent(new CustomEvent('moz-app-loaded'));
+        window.performance.mark('fullyLoaded');
       }
     });
 
@@ -182,7 +206,15 @@ var Common = {
 
       var request = window.navigator.mozApps.mgmt.getAll();
       request.onsuccess = function(event) {
-        Common.allApps = event.target.result;
+        var appList = event.target.result;
+        // XXX : The data traffic of the filtered apps will be automatically
+        // counted as residual data. This traffic is added to the system app
+        // on the drawApps method located on "js/views/datausage.js"
+        // See: https://bugzilla.mozilla.org/show_bug.cgi?id=1084010#c0
+        Common.allApps = appList.filter(function(app) {
+          return Common.specialApps.indexOf(app.manifestURL) === -1;
+        });
+        Common.allApps.push(Common.BROWSER_APP);
         Common.allAppsLoaded = true;
         resolve(Common.allApps);
       };
@@ -210,6 +242,72 @@ var Common = {
         onerror();
       }
     };
+  },
+
+  getApp: function(manifestURL) {
+    return this.allApps.find(function(app) {
+      return app.manifestURL === manifestURL;
+    });
+  },
+
+  getAppManifest: function(app) {
+    return app.manifest || app.updateManifest;
+  },
+
+  getLocalizedAppName: function(app) {
+    // If is System App returns label others
+    if (app.manifestURL === Common.SYSTEM_MANIFEST) {
+      return _('data-usage-other-apps');
+    }
+    // Browser app does not exist, we have to provide the localized app name
+    if (app.manifestURL === Common.BROWSER_APP.manifestURL) {
+      return _('data-usage-browser-app');
+    }
+    var manifest = this.getAppManifest(app);
+    var userLang = document.documentElement.lang;
+    var locales = manifest.locales;
+    var localized = locales && locales[userLang] && locales[userLang].name;
+
+    return localized || manifest.name;
+  },
+
+  getAppIcon: function(app) {
+    var manifest = this.getAppManifest(app);
+    var icons = manifest.icons;
+    var defaultImage = '../style/images/app/icons/default.png';
+
+    if (!icons || !Object.keys(icons).length) {
+      return defaultImage;
+    }
+
+    // The preferred size is 30 by the default. If we use HDPI device, we may
+    // use the image larger than 30 * 1.5 = 45 pixels.
+    var preferredIconSize = 30 * (window.devicePixelRatio || 1);
+    var preferredSize = Number.MAX_VALUE;
+    var max = 0;
+
+    for (var size in icons) {
+      size = parseInt(size, 10);
+      if (size > max) {
+        max = size;
+      }
+
+      if (size >= preferredIconSize && size < preferredSize) {
+        preferredSize = size;
+      }
+    }
+    // If there is an icon matching the preferred size, we return the result,
+    // if there isn't, we will return the maximum available size.
+    if (preferredSize === Number.MAX_VALUE) {
+      preferredSize = max;
+    }
+
+    var url = icons[preferredSize];
+    if (url) {
+      return !(/^(http|https|data):/.test(url)) ? app.origin + url : url;
+    } else {
+      return defaultImage;
+    }
   },
 
   getDataLimit: function _getDataLimit(settings) {
@@ -313,6 +411,13 @@ var Common = {
         }
       }
       nextReset = new Date(year, month, monthday);
+      if (monthday !== nextReset.getDate()) {
+        var LAST_DAY_OF_PREVIOUS_MONTH = 0;
+        // If monthday is not equal to nextReset day, it means that the selected
+        // reset day does not exist (e.g. 30 Feb). In this case, the reset day
+        // must be the last day of the previous month
+        nextReset.setDate(LAST_DAY_OF_PREVIOUS_MONTH);
+      }
 
     // Recalculate with week period
     } else if (trackingPeriod === 'weekly') {

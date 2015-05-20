@@ -65,6 +65,10 @@ var Voicemail = {
       }
 
       if (number) {
+        // To prevent '+' sign for displaying on the wrong side of
+        // international numbers in RTL mode we add the LRM character.
+        // We can remove this when bug 1154438 is fixed.
+        number = '\u200E' + number;
         text = _('dialNumber', { number: number });
       }
 
@@ -84,7 +88,7 @@ var Voicemail = {
 
     serviceId = serviceId || 0;
 
-    if (SIMSlotManager.isMultiSIM()) {
+    if (!SIMSlotManager.hasOnlyOneSIMCardDetected()) {
       var _ = window.navigator.mozL10n.get;
       title =
         _('voicemailNotificationMultiSim', { n: serviceId + 1, title: title });
@@ -93,7 +97,10 @@ var Voicemail = {
     var notifOptions = {
       body: text,
       icon: this.icon,
-      tag: this.tagPrefix + serviceId
+      tag: this.tagPrefix + serviceId,
+      mozbehavior: {
+        showOnlyOnce: true
+      }
     };
 
     var notification = new Notification(title, notifOptions);
@@ -160,7 +167,7 @@ var Voicemail = {
     this.notifications = {};
     var prefix = this.tagPrefix;
     var promise = Notification.get();
-    promise.then(function(notifications) {
+    return promise.then(function(notifications) {
       notifications.forEach(function(notification) {
         if (!notification) {
           return;
@@ -180,7 +187,6 @@ var Voicemail = {
       var voicemail = window.navigator.mozVoicemail;
       voicemail.addEventListener('statuschanged', this);
     }).bind(this));
-    return promise;
   },
 
   showVoicemailSettings: function vm_showVoicemailSettings() {

@@ -65,7 +65,7 @@
 
 define(
   [
-    'rdcommon/log',
+    'logic',
     'mix',
     '../jobmixins',
     '../drafts/jobs',
@@ -75,7 +75,7 @@ define(
     'exports'
   ],
   function(
-    $log,
+    logic,
     mix,
     $jobmixins,
     draftsJobs,
@@ -116,6 +116,89 @@ var UNCHECKED_BAILED = 'bailed';
  * attachments.
  */
 var UNCHECKED_COHERENT_NOTYET = 'coherent-notyet';
+
+/**
+ * In the event the server is horrible and does not tell us delimiter info, we
+ * need to pick one.  The horrible servers I've seen all seem to use '/', so
+ * let's just arbitrarily go with that.
+ */
+var FALLBACK_FOLDER_DELIM = '/';
+
+/**
+ * Figure out the correct name for a folder given the parent folder and
+ * namespace information.  Note that because there exist certain IMAP
+ * implementations out there that don't return a namespace delimiter, we
+ * may still need to fall back to FALLBACK_FOLDER_DELIM.  In the future we
+ * can improve on this by looking at what other delimiters have been reported.
+ * (We have seen both null namespace delimiters and null INBOX delimiters.)
+ *
+ * We export this function so it can be unit-tested in isolation.
+ *
+ * @param {String} name
+ *   The name of the folder we want to create.  It does not need to be encoded;
+ *   that will happen in browserbox.
+ * @param {Boolean} containOtherFolders
+ *   Will this folder contain other folders?  The result is for us to append
+ *   the delimiter if true.  The RFC 3501 semantics are that this should be
+ *   passed when there will be child folders.  The real-world horrors mean
+ *   that this is most likely an issue on a server using a storage mechanism
+ *   where you can only have a file or a subdirectory with the given name.
+ *   In general we expect to pass false for this right now.  When we support
+ *   user folder creation, we'll need to do more of a survey here.  (We might
+ *   want to do a probe step when creating an account to figure out what the
+ *   server does to know whether we need to bother the user, etc.)
+ * @param {FolderMeta} [parentFolderInfo]
+ *   If we're creating this folder under another folder, the folderInfo.$meta
+ *   for the folder.  This value should be null if we want to create a
+ *   "top-level" folder.  Note that when the personal namespace is "INBOX."
+ *   so that everything goes under the folder, passing a parentFolderInfo of
+ *   INBOX or null should end up doing the same thing.  (Even if we didn't
+ *   properly normalize this, the server would probably do it for us anyways;
+ *   dovecot does, at least.
+ *
+ *   The parts of parentFolderInfo we use are just { path, delim, depth }.
+ * @param {Object} personalNamespace
+ *   The personal namespace info which can be characterized as { prefix,
+ *   delimiter}.  We REQUIRE that the caller pass in an object here, although
+ *   we do not require that the properties are present / non-null.
+ *
+ * @return
+ *   An object of the form { path, delim, depth } where path is the path we
+ *   derived, delim is what we think the effective delimiter character is at
+ *   that point, and depth the depth of the folder.
+ */
+var deriveFolderPath = exports.deriveFolderPath =
+function(name, containOtherFolders, parentFolderInfo, personalNamespace) {
+  var path, delim, depth;
+  // If we've got the parent folder info, we're doing pretty well but we
+  // still might need to failover the delimiter.
+  if (parentFolderInfo) {
+    // We have seen INBOX folders and namespaces lacking indicated delimiters.
+    delim = parentFolderInfo.delim ||
+      personalNamespace.delimiter ||
+      FALLBACK_FOLDER_DELIM;
+    path = parentFolderInfo.path || '';
+    depth = parentFolderInfo.depth + 1;
+  } else {
+    delim = personalNamespace.delimiter ||
+      FALLBACK_FOLDER_DELIM;
+    path = personalNamespace.prefix || '';
+    depth = path ? 1: 0;
+  }
+
+  // If we're going under something, we need the delimiter.
+  if (path) {
+    path += delim;
+  }
+
+  path += name;
+
+  if (containOtherFolders) {
+    path += delim;
+  }
+
+  return { path: path, delimiter: delim, depth: depth };
+};
 
 /**
  * @typedef[MutationState @dict[
@@ -167,12 +250,12 @@ var UNCHECKED_COHERENT_NOTYET = 'coherent-notyet';
  * }
  **/
 
-function ImapJobDriver(account, state, _parentLog) {
+function ImapJobDriver(account, state) {
   this.account = account;
   this.resilientServerIds = false;
   this._heldMutexReleasers = [];
 
-  this._LOG = LOGFAB.ImapJobDriver(this, _parentLog, this.account.id);
+  logic.defineScope(this, 'ImapJobDriver', { accountId: this.account.id });
 
   this._state = state;
   // (we only need to use one as a proxy for initialization)
@@ -232,7 +315,7 @@ ImapJobDriver.prototype = {
           callback(syncer.folderConn, storage);
         }
         catch (ex) {
-          self._LOG.callbackErr(ex);
+          logic(self, 'callbackErr', { ex: ex });
         }
       };
 
@@ -277,12 +360,12 @@ ImapJobDriver.prototype = {
    * there is no need to release it directly.
    */
   _acquireConnWithoutFolder: function(label, callback, deathback) {
-    this._LOG.acquireConnWithoutFolder_begin(label);
+    logic(this, 'acquireConnWithoutFolder_begin', { label: label });
     var self = this;
     this.account.__folderDemandsConnection(
       null, label,
       function(conn) {
-        self._LOG.acquireConnWithoutFolder_end(label);
+        logic(self, 'acquireConnWithoutFolder_end', { label: label });
         self._heldMutexReleasers.push(function() {
           self.account.__folderDoneWithConnection(conn, false, false);
         });
@@ -290,7 +373,7 @@ ImapJobDriver.prototype = {
           callback(conn);
         }
         catch (ex) {
-          self._LOG.callbackErr(ex);
+          logic(self, 'callbackErr', { ex: ex });
         }
       },
       deathback
@@ -598,7 +681,19 @@ ImapJobDriver.prototype = {
 
         // - got the target folder conn, now do the copies
         function gotTargetConn(targetConn, targetStorage) {
-          var uidnext = targetConn.box.uidNext;
+          var usingUid, nextId;
+          // Some servers don't provide
+          if (targetConn.box.uidNext) {
+            usingUid = true;
+            nextId = targetConn.box.uidNext;
+          } else {
+            usingUid = false;
+            // Message sequence numbers are 1-based, so if 0 exist, then 1 is
+            // the sequence number of the next message.  If 1 exists, its
+            // number is 1, and the next number is 2.  And so on.
+            nextId = targetConn.box.exists + 1;
+          }
+
           folderConn._conn.copyMessages(serverIds.join(','),
                                         targetStorage.folderMeta.path,
                                         { byUid: true },
@@ -616,9 +711,9 @@ ImapJobDriver.prototype = {
           // - copies are done, find the UIDs
           function copiedMessages_findNewUIDs() {
             var fetcher = targetConn._conn.listMessages(
-              uidnext + ':*',
+              nextId + ':*',
               ['UID', 'BODY.PEEK[HEADER.FIELDS (MESSAGE-ID)]'],
-              { byUid: true },
+              { byUid: usingUid },
               function (err, messages) {
                 if (err) {
                   perFolderDone();
@@ -650,7 +745,6 @@ ImapJobDriver.prototype = {
                     }
                     var namer = guidToNamer[guid];
                     stateDelta.serverIdMap[namer.suid] = msg.uid;
-                    uidnext = msg.uid + 1;
                     var newSuid = state.moveMap[namer.suid];
                     var newId =
                           parseInt(newSuid.substring(newSuid.lastIndexOf('/') + 1));
@@ -886,7 +980,7 @@ ImapJobDriver.prototype = {
   },
 
   check_syncFolderList: function(op, doneCallback) {
-    doneCallback('idempotent');
+    doneCallback(null, 'coherent-notyet');
   },
 
   local_undo_syncFolderList: function(op, doneCallback) {
@@ -905,94 +999,100 @@ ImapJobDriver.prototype = {
     doneCallback(null);
   },
 
-  do_createFolder: function(op, callback) {
-    var path, delim, parentFolderId = null;
+  do_createFolder: function(op, doneCallback) {
+    var parentFolderInfo;
     if (op.parentFolderId) {
-      if (!this.account._folderInfos.hasOwnProperty(op.parentFolderId))
+      if (!this.account._folderInfos.hasOwnProperty(op.parentFolderId)) {
         throw new Error("No such folder: " + op.parentFolderId);
-      var parentFolder = this.account._folderInfos[op.parentFolderId];
-      delim = parentFolder.$meta.delim;
-      path = parentFolder.$meta.path + delim;
-      parentFolderId = parentFolder.$meta.id;
+      }
+      parentFolderInfo = this.account._folderInfos[op.parentFolderId].$meta;
     }
-    else {
-      path = '';
-      delim = '/';
-    }
-    if (typeof(op.folderName) === 'string')
-      path += op.folderName;
-    else
-      path += op.folderName.join(delim);
-    if (op.containOnlyOtherFolders)
-      path += delim;
 
-    var rawConn = null, self = this;
-    function gotConn(conn) {
-      // create the box
-      rawConn = conn;
-      rawConn.addBox(path, addBoxCallback);
-    }
-    function addBoxCallback(err) {
+    var personalNamespace =
+          (this.account._namespaces && this.account._namespaces.personal) ||
+          { prefix: '', delimiter: FALLBACK_FOLDER_DELIM };
+
+    var derivedInfo = deriveFolderPath(
+      op.folderName, op.containOtherFolders, parentFolderInfo,
+      personalNamespace);
+    var path = derivedInfo.path;
+
+    var scope = logic.subscope(this, { _path: path });
+
+    var gotConn = function(conn) {
+      // - create the box
+      // Paths are private.
+      logic(scope, 'creatingFolder', { _path: path });
+      conn.createMailbox(path, addBoxCallback);
+    }.bind(this);
+
+    var addBoxCallback = function(err, alreadyExists) {
       if (err) {
-        // If the folder already exists, we are done.
-        if (err.serverResponse &&
-            /\[ALREADYEXISTS\]/.test(err.serverResponse)) {
-          done(null);
-          return;
-        }
-        console.error('Error creating box:', err);
-        // XXX implement the already-exists check...
-        done('unknown');
+        logic(scope, 'createFolderErr', { err: err });
+        // TODO: do something clever in terms of making sure the folder didn't
+        // already exist and the server just doesn't like to provide the
+        // ALREADYEXISTS response.
+        //
+        // For now, give up immediately on the folder for safety.
+        // ensureEssentialFolders is the only logic that creates folders and it
+        // does not know about existing/pending createFolder requests, so it's
+        // for the best if we simply give up permanently on this.
+        done('failure-give-up', null);
         return;
       }
-      // Do a list on the folder so that we get the right attributes and any
-      // magical case normalization performed by the server gets observed by
-      // us.
-      rawConn.getBoxes('', path, gotBoxes);
-    }
-    function gotBoxes(err, boxesRoot) {
-      if (err) {
-        console.error('Error looking up box:', err);
-        done('unknown');
-        return;
-      }
-      // We need to re-derive the path.  The hierarchy will only be that
-      // required for our new folder, so we traverse all children and create
-      // the leaf-node when we see it.
-      var folderMeta = null;
-      function walkBoxes(boxLevel, pathSoFar, pathDepth) {
-        for (var boxName in boxLevel) {
-          var box = boxLevel[boxName],
-              boxPath = pathSoFar ? (pathSoFar + boxName) : boxName;
-          if (box.children) {
-            walkBoxes(box.children, boxPath + box.delim, pathDepth + 1);
-          }
-          else {
-            var type = self.account._determineFolderType(box, boxPath, rawConn);
-            folderMeta = self.account._learnAboutFolder(
-              boxName, boxPath, parentFolderId, type, box.delim, pathDepth);
-          }
-        }
-      }
-      walkBoxes(boxesRoot, '', 0);
-      if (folderMeta)
-        done(null, folderMeta);
-      else
-        done('unknown');
-    }
+
+      logic(scope, 'createdFolder', { alreadyExists: alreadyExists });
+
+      // We originally (under imap.js) would do a LIST against the folder for
+      // the path we thought we just created and then we would use that to
+      // learn about the folder like we had heard about it from syncFolderList
+      // (but more efficiently).  This really only was needed because we
+      // potentially would screw up when it came to IMAP namespaces.  We now
+      // try to correctly honor the namespace so we just assume if the folder
+      // says it created the folder that it didn't do any crazy transforms
+      // that it won't also do when we otherwise deal with the folder.
+      //
+      // An alternative would be to not learn about the folder now and instead
+      // just trigger syncFolderList.  This gets tricky in the face of us
+      // potentially trying to create multiple folders and infinite loops if we
+      // screw up, so we don't do that.
+      var folderMeta = this.account._learnAboutFolder(
+        op.folderName, path, op.parentFolderId, op.folderType,
+        derivedInfo.delimiter, derivedInfo.depth,
+        // do not suppress the add notification
+        false);
+      done(null, folderMeta);
+    }.bind(this);
     function done(errString, folderMeta) {
-      if (rawConn)
-        rawConn = null;
-      if (callback)
-        callback(errString, folderMeta);
+      if (doneCallback) {
+        doneCallback(errString, folderMeta);
+        doneCallback = null;
+      }
     }
     function deadConn() {
-      callback('aborted-retry');
+      done('aborted-retry', null);
     }
-    this._acquireConnWithoutFolder('createFolder', gotConn, deadConn);
+
+    // Check to make sure the folder doesn't already exist and early return if
+    // it does exist.  There is nothing preventing a caller from making
+    // ridiculous calls like this or emergent ridiculosity from syncFolderList
+    // being triggered multiple times and interacting with complicated failures.
+    //
+    // Note that there is a hypothetical edge case here related to case
+    // normalization (ex where Gmail can report the Inbox as "Inbox" but then
+    // allows subfolders to be reported like INBOX/Blah) that is already
+    // mitigated by some smarts in browserbox when it builds the folder
+    // hierarchies.
+    var existingFolder = this.account.getFolderByPath(path);
+    if (existingFolder) {
+      done(null, existingFolder);
+    } else {
+      this._acquireConnWithoutFolder('createFolder', gotConn, deadConn);
+    }
   },
 
   check_createFolder: function(op, doneCallback) {
+    doneCallback('moot');
   },
 
   local_undo_createFolder: function(op, doneCallback) {
@@ -1095,23 +1195,5 @@ HighLevelJobDriver.prototype = {
 
 mix(ImapJobDriver.prototype, draftsJobs.draftsMixins);
 
-var LOGFAB = exports.LOGFAB = $log.register($module, {
-  ImapJobDriver: {
-    type: $log.DAEMON,
-    events: {
-      savedAttachment: { storage: true, mimeType: true, size: true },
-      saveFailure: { storage: false, mimeType: false, error: false },
-    },
-    TEST_ONLY_events: {
-      saveFailure: { filename: false },
-    },
-    asyncJobs: {
-      acquireConnWithoutFolder: { label: false },
-    },
-    errors: {
-      callbackErr: { ex: $log.EXCEPTION },
-    },
-  },
-});
 
 }); // end define

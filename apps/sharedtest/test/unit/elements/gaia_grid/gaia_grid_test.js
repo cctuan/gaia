@@ -13,6 +13,7 @@ require('/shared/elements/gaia_grid/script.js');
 require('/shared/elements/gaia_grid/js/items/grid_item.js');
 require('/shared/elements/gaia_grid/js/items/divider.js');
 require('/shared/elements/gaia_grid/js/items/placeholder.js');
+require('/shared/elements/gaia_grid/js/items/group.js');
 
 var mocksHelperForGrid = new MocksHelper([
   'LazyLoader'
@@ -23,6 +24,7 @@ suite('GaiaGrid', function() {
   mocksHelperForGrid.attachTestHelpers();
 
   setup(function() {
+    this.sinon.useFakeTimers();
     this.container = document.createElement('div');
     document.body.appendChild(this.container);
   });
@@ -60,6 +62,14 @@ suite('GaiaGrid', function() {
       assert.equal(grid.dragdrop, undefined);
       assert.ok(grid.layout);
     });
+
+    test('/w dragdrop and disable-sections', function() {
+      this.container.innerHTML =
+        '<gaia-grid dragdrop disable-sections></gaia-grid>';
+      var grid = this.container.firstElementChild._grid;
+      grid.render();
+      assert.ok(grid.config.features.disableSections);
+    });
   });
 
   suite('items', function() {
@@ -72,6 +82,8 @@ suite('GaiaGrid', function() {
         id: 'http://mozilla.org',
         url: 'http://mozilla.org'
       },
+      setPosition: function() {},
+      setCoordinates: function() {},
       render: function() {}
     };
 
@@ -81,7 +93,10 @@ suite('GaiaGrid', function() {
         type: 'bookmark',
         id: 'http://tid.es',
         url: 'http://tid.es'
-      }
+      },
+      setPosition: function() {},
+      setCoordinates: function() {},
+      render: function() {}
     };
 
     var fakeBookmarkItem3 = {
@@ -90,7 +105,10 @@ suite('GaiaGrid', function() {
         type: 'bookmark',
         id: 'http://firefoxos.com',
         url: 'http://firefoxos.com'
-      }
+      },
+      setPosition: function() {},
+      setCoordinates: function() {},
+      render: function() {}
     };
 
     setup(function() {
@@ -119,18 +137,36 @@ suite('GaiaGrid', function() {
       assert.equal(element.getItems().length, itemLength + 1);
     });
 
-    test('removeUntilDivider', function() {
+    test('appendItem adds before divider', function() {
       element.clear();
-      var placeholder = new GaiaGrid.Placeholder();
 
-      var removeStub = this.sinon.stub(placeholder, 'remove');
+      var divider = new GaiaGrid.Divider();
       element.add(fakeBookmarkItem);
-      element.add(placeholder);
-      element.render();
-      assert.equal(element.children.length, 2);
-      element.removeUntilDivider();
-      assert.ok(removeStub.calledOnce);
-      assert.equal(element.children.length, 2);
+      element.add(divider);
+
+      var itemLength = element.getItems().length;
+      element.appendItemToExpandedGroup(fakeBookmarkItem2);
+
+      var items = element.getItems();
+      assert.equal(items.length, itemLength + 1);
+      assert.equal(items[items.length - 1], divider);
+    });
+
+    test('appendItemToExpandedGroup expands collapsed divider', function() {
+      element.clear();
+
+      var divider = new GaiaGrid.Divider();
+      element.add(fakeBookmarkItem);
+      element.add(divider);
+
+      var itemLength = element.getItems().length;
+      divider.detail.collapsed = true;
+      element.appendItemToExpandedGroup(fakeBookmarkItem2);
+      this.sinon.clock.tick(20);
+
+      var items = element.getItems();
+      assert.ok(items.length > itemLength);
+      assert.notEqual(divider.detail.collapsed, true);
     });
 
     test('clear will dereference item elements', function() {
@@ -174,3 +210,4 @@ suite('GaiaGrid', function() {
   });
 
 });
+

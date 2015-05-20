@@ -1,13 +1,14 @@
-requireLib('provider/abstract.js');
-requireLib('provider/local.js');
+define(function(require) {
+'use strict';
 
-suiteGroup('Templates.Calendar', function() {
-  'use strict';
+var Calendar = require('templates/calendar');
+var Local = require('provider/local');
 
+suite('Templates.Calendar', function() {
   var subject;
 
   suiteSetup(function() {
-    subject = Calendar.Templates.Calendar;
+    subject = Calendar;
   });
 
   function renderHTML(type, options) {
@@ -17,13 +18,31 @@ suiteGroup('Templates.Calendar', function() {
   test('#item with local id', function() {
     var model = {
       localDisplayed: true,
-      _id: Calendar.Provider.Local.calendarId,
+      _id: Local.calendarId,
+      name: 'foo',
+      color: '#BADA55'
+    };
+
+    var output = renderHTML('item', model);
+    assert.ok(output);
+    assert.match(output, /calendar-local-first"\s+role="presentation"/);
+    assert.match(output,
+      /icon-calendar-dot"\s+style="color:#BADA55"\s+aria-hidden="true"/);
+    assert.match(output,
+      /class="pack-checkbox" role="option" aria-selected="true"/);
+    assert.include(output, 'calendar-local');
+  });
+
+  test('#item not local displayed', function() {
+    var model = {
+      localDisplayed: false,
+      _id: Local.calendarId,
       name: 'foo'
     };
 
     var output = renderHTML('item', model);
     assert.ok(output);
-    assert.include(output, 'calendar-local');
+    assert.match(output, /class="pack-checkbox" role="option" >/);
   });
 
   test('#item', function() {
@@ -52,4 +71,6 @@ suiteGroup('Templates.Calendar', function() {
     assert.isFalse(selected);
     assert.include(output, model.name);
   });
+});
+
 });

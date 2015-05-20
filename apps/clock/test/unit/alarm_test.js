@@ -18,7 +18,8 @@ suite('Alarm Test', function() {
 
   suite('Date handling', function() {
 
-    var now = new Date(1398387324081); // thursday
+    //var now = new Date(1398387324081); // thursday
+    var now = new Date(Date.UTC(2014, 3, 24)); // thursday
 
     setup(function() {
       this.alarm = new Alarm({
@@ -44,14 +45,16 @@ suite('Alarm Test', function() {
       });
     });
 
-    test('alarm is enabled when snoozed', function(done) {
+    // Bug 1146263
+    test.skip('alarm is enabled when snoozed', function(done) {
       this.alarm.schedule('snooze').then(function() {
         assert.ok(this.alarm.isEnabled());
         done();
       }.bind(this));
     });
 
-    test('schedule saves alarm', function(done) {
+    // Bug 1146263
+    test.skip('schedule saves alarm', function(done) {
       var spy = sinon.spy(alarmDatabase, 'put');
       this.alarm.schedule('normal').then(function() {
         spy.restore();
@@ -60,7 +63,8 @@ suite('Alarm Test', function() {
       });
     });
 
-    test('cancel saves alarm', function(done) {
+    // Bug 1146263
+    test.skip('cancel saves alarm', function(done) {
       var spy = sinon.spy(alarmDatabase, 'put');
       this.alarm.cancel().then(function() {
         spy.restore();

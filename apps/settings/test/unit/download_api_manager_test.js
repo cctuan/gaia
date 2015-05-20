@@ -1,4 +1,6 @@
-
+/* global MocksHelper, MockMozDownloads, MockDownloadHelper, MockDownload,
+          DownloadApiManager, MockDownloadStore, MockMozDownloads,
+          DownloadUI, DownloadHelper */
 'use strict';
 
 require('/shared/test/unit/mocks/mock_download.js');
@@ -19,11 +21,14 @@ if (!window.DownloadHelper) {
 }
 
 suite('DownloadApiManager', function() {
+  var clock;
+  var TICK = 1000;
+
   var mocksHelperForDownloadApi = new MocksHelper([
     'DownloadStore',
     'DownloadUI'
   ]);
-  var realMozDownloads, realDatastore, realDownloadHelper;
+  var realMozDownloads, realDownloadHelper;
   suiteSetup(function() {
     realMozDownloads = navigator.mozDownloadManager;
     navigator.mozDownloadManager = MockMozDownloads;
@@ -45,15 +50,23 @@ suite('DownloadApiManager', function() {
   suite(' > methods', function() {
     var downloadsMock;
     setup(function(done) {
+      clock = this.sinon.useFakeTimers();
+
+      DownloadApiManager.init();
+      clock.tick(TICK);
+
       DownloadApiManager.getDownloads(function(downloads) {
         downloadsMock = downloads;
         done();
       });
+      clock.tick(TICK);
     });
 
     teardown(function() {
       downloadsMock = null;
       MockDownloadStore.downloads = [];
+
+      clock.restore();
     });
 
     test(' > getDownloads with empty datastore', function() {
@@ -75,6 +88,7 @@ suite('DownloadApiManager', function() {
         assert.equal(downloads.length, MockMozDownloads.mockLength);
         done();
       });
+      clock.tick(TICK);
     });
 
     test(' > getDownloads sorted properly', function(done) {
@@ -95,6 +109,7 @@ suite('DownloadApiManager', function() {
         }
         done();
       });
+      clock.tick(TICK);
     });
 
     test(' > getDownload given an ID', function() {
@@ -104,6 +119,7 @@ suite('DownloadApiManager', function() {
 
     test(' > updateDownload', function() {
       var download = DownloadApiManager.getDownload(0);
+      clock.tick(TICK);
       // This one comes from datastore, so state is succeed.
       var previousState = download.state;
       download.state = 'downloading';
@@ -122,12 +138,14 @@ suite('DownloadApiManager', function() {
       DownloadApiManager.deleteDownloads([{id: 0}], function() {}, function() {
         // Once cancelled, we get the same object
         var download = DownloadApiManager.getDownload(0);
+        clock.tick(TICK);
         // and the object still exists
         assert.ok(download);
         assert.isFalse(DownloadHelper.remove.called);
         showStub.restore();
         done();
       });
+      clock.tick(TICK);
     });
 
     test(' > deleteDownload given an ID (user confirms)', function(done) {
@@ -136,6 +154,7 @@ suite('DownloadApiManager', function() {
       DownloadApiManager.deleteDownloads([{id: 0}], function() {
         // Once deleted, we try to get the same object
         var download = DownloadApiManager.getDownload(0);
+        clock.tick(TICK);
         // Now the object does not exist
         assert.ok(!download);
         sinon.assert.called(DownloadUI.show);
@@ -144,6 +163,7 @@ suite('DownloadApiManager', function() {
         DownloadUI.show.restore();
         done();
       });
+      clock.tick(TICK);
     });
 
     test(' > force deleteDownload given an ID', function(done) {
@@ -152,6 +172,8 @@ suite('DownloadApiManager', function() {
       DownloadApiManager.deleteDownloads([{id: 1, force: true}], function() {
         // Once deleted, we try to get the same object
         var download = DownloadApiManager.getDownload(1);
+        clock.tick(TICK);
+
         // Now the object does not exist
         assert.ok(!download);
         assert.ok(!DownloadUI.show.called);
@@ -160,6 +182,7 @@ suite('DownloadApiManager', function() {
         DownloadUI.show.restore();
         done();
       });
+      clock.tick(TICK);
     });
   });
 });

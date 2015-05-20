@@ -72,8 +72,6 @@ var FindMyDevice = {
       onlogout: self._onLogout.bind(self),
       onerror: self._onFxAError.bind(self)
     });
-
-    this._observeSettings();
   },
 
   _observeSettings: function fmd_observe_settings() {
@@ -103,6 +101,7 @@ var FindMyDevice = {
     });
 
     this._fxaReady = true;
+    this._observeSettings();
   },
 
   _loadState: function fmd_load_state(callback) {
@@ -440,10 +439,10 @@ var FindMyDevice = {
     } else {
       this._loadState((function() {
         this._contactServer();
-        this._currentClientIDHelper.set(this._state.clientid);
-        // XXX(ggp) since every re-registration causes a change in the
-        // client id, we don't need to release the 'clientLogic' lock
-        // here, let _onCanDisableChanged do it
+        this._currentClientIDHelper.set('');
+        // XXX(ggp) we're still holding a 'clientLogic' lock, but let
+        // _onClientIDChanged or _onCanDisableChanged release it (depending
+        // on whether we're logged in or not).
       }).bind(this));
     }
   },
@@ -588,6 +587,11 @@ var FindMyDevice = {
 
   _countRegistrationRetry: function fmd_count_registration_retry (){
     this._scheduleAlarm('retry');
+
+    if (!navigator.onLine) {
+      return;
+    }
+
     if (!this._registered) {
       var countHelper = SettingsHelper('findmydevice.retry-count');
 
@@ -651,4 +655,4 @@ var FindMyDevice = {
   }
 };
 
-navigator.mozL10n.once(FindMyDevice.init.bind(FindMyDevice));
+FindMyDevice.init();

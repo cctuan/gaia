@@ -1,7 +1,6 @@
 define(function(require) {
   'use strict';
 
-  var SettingsUtils = require('modules/settings_utils');
   var SettingsPanel = require('modules/settings_panel');
   var WifiUtils = require('modules/wifi_utils');
   var WifiHelper = require('shared/wifi_helper');
@@ -21,11 +20,6 @@ define(function(require) {
           panel.querySelector('.importCertificate');
         elements.deleteCertificateBtn =
           panel.querySelector('.deleteCertificate');
-
-        elements.importCertificateBtn.onclick = function() {
-          SettingsUtils.openDialog('wifi-selectCertificateFile');
-        };
-
         elements.deleteCertificateBtn.onclick =
           this._deleteCertificate.bind(this);
       },
@@ -33,13 +27,11 @@ define(function(require) {
         this._scan();
       },
       _scan: function() {
-        var self = this;
         var list = elements.certificateList;
         this._cleanup();
 
-        var certRequest = wifiManager.getImportedCerts();
-        certRequest.onsuccess = function() {
-          var certList = certRequest.result;
+        wifiManager.getImportedCerts().then((result) => {
+          var certList = result;
           // save the imported server certificates
           var certificateList = certList.ServerCert;
 
@@ -47,14 +39,14 @@ define(function(require) {
           if (certificateList.length) {
             for (var i = 0; i < certificateList.length; i++) {
               list.appendChild(
-                self._newCertificateItem(certificateList[i]));
+                this._newCertificateItem(certificateList[i]));
             }
 
             // add event listener for update toggle delete/import cert. buttons
-            var toggleBtnsWhenClicked = function() {
-              var option = self._isItemSelected();
-              self._toggleDeleteCertificateBtn(option);
-              self._toggleImportCertificateBtn(!option);
+            var toggleBtnsWhenClicked = () => {
+              var option = this._isItemSelected();
+              this._toggleDeleteCertificateBtn(option);
+              this._toggleImportCertificateBtn(!option);
             };
 
             var inputItems = list.querySelectorAll('input');
@@ -62,16 +54,13 @@ define(function(require) {
               inputItems[j].onchange = toggleBtnsWhenClicked;
             }
           } else {
-            // display "no certificate" message
-            // while no any imported certificate
+            // show "no certificates" message
             list.appendChild(
-              WifiUtils.newExplanationItem('noCertificate'));
+              WifiUtils.newExplanationItem('noImportedCertificates'));
           }
-        };
-
-        certRequest.onerror = function() {
+        }, () => {
           console.warn('getImportedCerts failed');
-        };
+        });
 
         this._toggleDeleteCertificateBtn(false);
         this._toggleImportCertificateBtn(true);
@@ -84,43 +73,40 @@ define(function(require) {
         }
       },
       _deleteCertificate: function() {
-        var self = this;
         var countItemDeleted = 0;
         var checkedInputList =
           elements.certificateList.querySelectorAll(
             'input[type=checkbox]:checked');
 
-        var scanWhenDeleteFinish = function(totalLength) {
-          return function() {
-            if (++countItemDeleted == totalLength) {
-              // refresh certificate list
-              countItemDeleted = 0;
-              self._scan();
-            }
-          };
+        var scanWhenDeleteFinish = (totalLength) => {
+          if (++countItemDeleted == totalLength) {
+            // refresh certificate list
+            countItemDeleted = 0;
+            this._scan();
+          }
         };
 
-        var scanWhenDeleteError = function(totalLength) {
-          return function() {
-            if (++countItemDeleted == totalLength) {
-              // refresh certificate list
-              countItemDeleted = 0;
-              self._scan();
-            }
-            // Pop out alert message for certificate deletion failed
-            var dialog = elements.deleteCertificateFailedDialog;
-            dialog.hidden = false;
-            dialog.onsubmit = function confirm() {
-              dialog.hidden = true;
-            };
+        var scanWhenDeleteError = (totalLength) => {
+          if (++countItemDeleted == totalLength) {
+            // refresh certificate list
+            countItemDeleted = 0;
+            this._scan();
+          }
+          // Pop out alert message for certificate deletion failed
+          var dialog = elements.deleteCertificateFailedDialog;
+          dialog.hidden = false;
+          dialog.onsubmit = () => {
+            dialog.hidden = true;
           };
         };
 
         for (var i = 0; i < checkedInputList.length; i++) {
           var nickname = checkedInputList[i].name;
-          var certRequest = wifiManager.deleteCert(nickname);
-          certRequest.onsuccess = scanWhenDeleteFinish(checkedInputList.length);
-          certRequest.onerror = scanWhenDeleteError(checkedInputList.length);
+          wifiManager.deleteCert(nickname).then(() => {
+            scanWhenDeleteFinish(checkedInputList.length);
+          }, () => {
+            scanWhenDeleteError(checkedInputList.length);
+          });
         }
       },
       _isItemSelected: function() {

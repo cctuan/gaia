@@ -34,7 +34,8 @@ var SimManager = (function() {
       var retryCount = request.result.retryCount;
       if (retryCount) {
         var l10nArgs = {n: retryCount};
-        uiElement.textContent = _('inputCodeRetriesLeft', l10nArgs);
+        navigator.mozL10n.setAttributes(uiElement,'inputCodeRetriesLeft',
+                                          l10nArgs);
         uiElement.classList.remove('hidden');
       }
     };
@@ -42,8 +43,6 @@ var SimManager = (function() {
       console.error('Could not fetch CardLockRetryCount', request.error.name);
     };
   }
-
-  var _;
 
   // mozIcc.cardState values for a locked SIM
   var lockStates = ['pinRequired', 'pukRequired', 'networkLocked',
@@ -85,43 +84,53 @@ var SimManager = (function() {
     this.iccManager.addEventListener('iccdetected',
                                      this.handleIccState.bind(this));
 
-    _ = navigator.mozL10n.get;
-
     this.alreadyImported = false;
   },
 
-  handleUnlockError: function sm_handleUnlockError(data) {
-    var l10nArgs = {n: data.retryCount};
-    switch (data.lockType) {
+  handleUnlockError: function sm_handleUnlockError(lockType, retryCount) {
+    var l10nArgs = {n: retryCount};
+    switch (lockType) {
       case 'pin':
-        if (data.retryCount === 0) {
+        if (retryCount === 0) {
           this.showPukScreen(this._unlockingIcc);
           break;
         }
         UIManager.pinInput.value = '';
         UIManager.pinInput.classList.add('onerror');
-        UIManager.pinError.textContent = _('pinError');
         UIManager.pinError.classList.remove('hidden');
-        UIManager.pinError.textContent = _('pinAttemptMsg2', l10nArgs);
-        UIManager.pinRetriesLeft.textContent = _('inputCodeRetriesLeft',
-                                                 l10nArgs);
+        navigator.mozL10n.setAttributes(UIManager.pinRetriesLeft,
+                                          'inputCodeRetriesLeft', l10nArgs);
         UIManager.pinRetriesLeft.classList.remove('hidden');
-        if (data.retryCount == 1) {
-          UIManager.pinError.textContent += ' ' + _('pinLastChanceMsg');
+        if (retryCount === 1) {
+          UIManager.pinError.
+            querySelector('.lastchance').classList.remove('hidden');
+        } else {
+          navigator.mozL10n.setAttributes(
+            UIManager.pinError.querySelector('.main'),
+            'pinAttemptMsg2',
+            l10nArgs
+          );
+          UIManager.pinError.querySelector('.main').classList.remove('hidden');
         }
         break;
       case 'puk':
         UIManager.pukInput.value = '';
         UIManager.pukInput.classList.add('onerror');
-        UIManager.pukError.textContent = _('pukError');
         UIManager.pukError.classList.remove('hidden');
         UIManager.pukInfo.classList.add('hidden');
-        UIManager.pukError.textContent = _('pukAttemptMsg2', l10nArgs);
-        UIManager.pukRetriesLeft.textContent = _('inputCodeRetriesLeft',
-                                                 l10nArgs);
+        navigator.mozL10n.setAttributes(UIManager.pukRetriesLeft,
+                                          'inputCodeRetriesLeft', l10nArgs);
         UIManager.pukRetriesLeft.classList.remove('hidden');
-        if (data.retryCount == 1) {
-          UIManager.pukError.textContent += _('pukLastChanceMsg');
+        if (retryCount === 1) {
+          UIManager.pukError.
+            querySelector('.lastchance').classList.remove('hidden');
+        } else {
+          navigator.mozL10n.setAttributes(
+            UIManager.pukError.querySelector('.main'),
+            'pukAttemptMsg2',
+            l10nArgs
+          );
+          UIManager.pukError.querySelector('.main').classList.remove('hidden');
         }
         // TODO what if counter gets to 0 ??
         break;
@@ -130,15 +139,21 @@ var SimManager = (function() {
       case 'spck':
         UIManager.xckInput.value = '';
         UIManager.xckInput.classList.add('onerror');
-        UIManager.xckError.textContent = _('nckError');
         UIManager.xckError.classList.remove('hidden');
         UIManager.xckInfo.classList.add('hidden');
-        UIManager.xckError.textContent = _('nckAttemptMsg2', l10nArgs);
-        UIManager.xckRetriesLeft.textContent = _('inputCodeRetriesLeft',
-                                                 l10nArgs);
+        navigator.mozL10n.setAttributes(UIManager.xckRetriesLeft,
+                                          'inputCodeRetriesLeft', l10nArgs);
         UIManager.xckRetriesLeft.classList.remove('hidden');
-        if (data.retryCount == 1) {
-          UIManager.xckError.textContent += _('nckLastChanceMsg');
+        if (retryCount == 1) {
+          UIManager.xckError.
+            querySelector('.lastchance').classList.remove('hidden');
+        } else {
+          navigator.mozL10n.setAttributes(
+            UIManager.xckError.querySelector('.main'),
+            'nckAttemptMsg2',
+            l10nArgs
+          );
+          UIManager.xckError.querySelector('.main').classList.remove('hidden');
         }
         break;
     }
@@ -269,7 +284,9 @@ var SimManager = (function() {
     var iccNumber = (icc === this.icc0) ? 1 : 2;
     if (icc && icc.isLocked()) {
       UIManager['simInfo' + iccNumber].classList.add('locked');
-      UIManager['simCarrier' + iccNumber].textContent = _('simPinLocked');
+      UIManager['simCarrier' + iccNumber].setAttribute('data-l10n-id',
+        'simPinLocked');
+      UIManager['simNumber' + iccNumber].removeAttribute('data-l10n-id');
       UIManager['simNumber' + iccNumber].textContent = '';
     } else {
       UIManager['simInfo' + iccNumber].classList.remove('locked');
@@ -289,6 +306,7 @@ var SimManager = (function() {
 
           if (operator) {
             // If we have an operator, we update the UI and stop listening.
+            UIManager['simCarrier' + iccNumber].removeAttribute('data-l10n-id');
             UIManager['simCarrier' + iccNumber].textContent = operator;
             mobConn.removeEventListener(
               'voicechange', this.voiceChangeListeners[iccNumber - 1]);
@@ -300,8 +318,14 @@ var SimManager = (function() {
           'voicechange', this.voiceChangeListeners[iccNumber - 1]);
       }
 
-      UIManager['simCarrier' + iccNumber].textContent = operator ||
-        _('searchingOperator');
+      if (operator) {
+        UIManager['simCarrier' + iccNumber].removeAttribute('data-l10n-id');
+        UIManager['simCarrier' + iccNumber].textContent = operator;
+      } else {
+        UIManager['simCarrier' + iccNumber].setAttribute(
+          'data-l10n-id', 'searchingOperator'
+        );
+      }
       var number = icc.mozIcc.iccInfo.msisdn ||
                    icc.mozIcc.iccInfo.mdn || '';
       if (number) {
@@ -357,13 +381,14 @@ var SimManager = (function() {
     UIManager.pincodeScreen.classList.add('show');
     UIManager.xckcodeScreen.classList.remove('show');
 
-    UIManager.unlockSimHeader.textContent = _('pincode2');
-    var pincodeLabel = _('type_pin');
+    UIManager.unlockSimHeader.setAttribute('data-l10n-id', 'pincode2');
     if (this.simSlots > 1) {
       var simNumber = icc === this.icc0 ? 1 : 2;
-      pincodeLabel = _('pincodeLabel', {n: simNumber});
+      navigator.mozL10n.setAttributes(UIManager.pinLabel,
+                                      'pincodeLabel', {n: simNumber});
+    } else {
+      UIManager.pinLabel.setAttribute('data-l10n-id', 'type_pin');
     }
-    UIManager.pinLabel.textContent = pincodeLabel;
     UIManager.pinInput.focus();
   },
 
@@ -376,14 +401,14 @@ var SimManager = (function() {
     UIManager.pukcodeScreen.classList.add('show');
     UIManager.xckcodeScreen.classList.remove('show');
 
-    UIManager.unlockSimHeader.textContent = _('pukcode');
-    var pukcodeLabel = _('type_puk');
+    UIManager.unlockSimHeader.setAttribute('data-l10n-id', 'pukcode');
     if (this.simSlots > 1) {
       var simNumber = icc === this.icc0 ? 1 : 2;
-      pukcodeLabel = _('pukcodeLabel', {n: simNumber});
+      navigator.mozL10n.setAttributes(UIManager.pukLabel,
+                                      'pukcodeLabel', {n: simNumber});
+    } else {
+      UIManager.pukLabel.setAttribute('data-l10n-id', 'type_puk');
     }
-    UIManager.pukLabel.textContent = pukcodeLabel;
-
     UIManager.pukInput.focus();
   },
 
@@ -430,51 +455,51 @@ var SimManager = (function() {
     var simNumber = icc === this.icc0 ? 1 : 2;
     switch (icc.mozIcc.cardState) {
       case 'networkLocked':
-        UIManager.unlockSimHeader.textContent = _('nckcodeTitle',
-                                                  {n: simNumber});
-        UIManager.xckLabel.textContent = _('nckcodeLabel',
+        navigator.mozL10n.setAttributes(UIManager.unlockSimHeader,
+                                        'nckcodeTitle', {n: simNumber});
+        navigator.mozL10n.setAttributes(UIManager.xckLabel, 'nckcodeLabel',
                                            {n: simNumber});
         break;
       case 'corporateLocked':
-        UIManager.unlockSimHeader.textContent = _('cckcodeTitle',
-                                                  {n: simNumber});
-        UIManager.xckLabel.textContent = _('cckcodeLabel',
+        navigator.mozL10n.setAttributes(UIManager.unlockSimHeader,
+                                        'cckcodeTitle', {n: simNumber});
+        navigator.mozL10n.setAttributes(UIManager.xckLabel, 'cckcodeLabel',
                                            {n: simNumber});
         break;
       case 'serviceProviderLocked':
-        UIManager.unlockSimHeader.textContent = _('spckcodeTitle',
-                                                  {n: simNumber});
-        UIManager.xckLabel.textContent = _('spckcodeLabel',
+        navigator.mozL10n.setAttributes(UIManager.unlockSimHeader,
+                                        'spckcodeTitle', {n: simNumber});
+        navigator.mozL10n.setAttributes(UIManager.xckLabel, 'spckcodeLabel',
                                            {n: simNumber});
         break;
       case 'network1Locked':
-        UIManager.unlockSimHeader.textContent = _('nck1codeTitle',
-                                                  {n: simNumber});
-        UIManager.xckLabel.textContent = _('nck1codeLabel',
+        navigator.mozL10n.setAttributes(UIManager.unlockSimHeader,
+                                        'nck1codeTitle', {n: simNumber});
+        navigator.mozL10n.setAttributes(UIManager.xckLabel, 'nck1codeLabel',
                                            {n: simNumber});
         break;
       case 'network2Locked':
-        UIManager.unlockSimHeader.textContent = _('nck2codeTitle',
-                                                  {n: simNumber});
-        UIManager.xckLabel.textContent = _('nck2codeLabel',
+        navigator.mozL10n.setAttributes(UIManager.unlockSimHeader,
+                                        'nck2codeTitle', {n: simNumber});
+        navigator.mozL10n.setAttributes(UIManager.xckLabel, 'nck2codeLabel',
                                            {n: simNumber});
         break;
       case 'hrpdNetworkLocked':
-        UIManager.unlockSimHeader.textContent = _('hnckcodeTitle',
-                                                  {n: simNumber});
-        UIManager.xckLabel.textContent = _('hnckcodeLabel',
+        navigator.mozL10n.setAttributes(UIManager.unlockSimHeader,
+                                        'hnckcodeTitle', {n: simNumber});
+        navigator.mozL10n.setAttributes(UIManager.xckLabel, 'hnckcodeLabel',
                                            {n: simNumber});
         break;
       case 'ruimCorporateLocked':
-        UIManager.unlockSimHeader.textContent = _('rcckcodeTitle',
-                                                  {n: simNumber});
-        UIManager.xckLabel.textContent = _('rcckcodeLabel',
+        navigator.mozL10n.setAttributes(UIManager.unlockSimHeader,
+                                        'rcckcodeTitle', {n: simNumber});
+        navigator.mozL10n.setAttributes(UIManager.xckLabel, 'rcckcodeLabel',
                                            {n: simNumber});
         break;
       case 'ruimServiceProviderLocked':
-        UIManager.unlockSimHeader.textContent = _('rspckcodeTitle',
-                                                  {n: simNumber});
-        UIManager.xckLabel.textContent = _('rspckcodeLabel',
+        navigator.mozL10n.setAttributes(UIManager.unlockSimHeader,
+                                        'rspckcodeTitle', {n: simNumber});
+        navigator.mozL10n.setAttributes(UIManager.xckLabel, 'rspckcodeLabel',
                                            {n: simNumber});
         break;
     }
@@ -527,7 +552,7 @@ var SimManager = (function() {
   },
 
   simUnlockBack: function sm_simUnlockBack() {
-    if (this.icc0.skipped) {
+    if (this.icc0 && this.icc0.skipped) {
       this.icc0.skipped = false;
       this.hideScreen();
       this.handleCardState();
@@ -541,6 +566,7 @@ var SimManager = (function() {
     if (!icc) {
       throw new Error('Cannot unlock SIM, no current ICC');
     }
+    this.clearFields();
 
     switch (icc.mozIcc.cardState) {
       case 'pinRequired':
@@ -565,7 +591,8 @@ var SimManager = (function() {
   unlockPin: function sm_unlockPin(icc) {
     var pin = UIManager.pinInput.value;
     if (pin.length < 4 || pin.length > 8) {
-      UIManager.pinError.textContent = _('pinValidation');
+      UIManager.pinError.
+        querySelector('.main').setAttribute('data-l10n-id', 'pinValidation');
       UIManager.pinInput.classList.add('onerror');
       UIManager.pinError.classList.remove('hidden');
       UIManager.pinInput.focus();
@@ -590,18 +617,26 @@ var SimManager = (function() {
     UIManager.confirmNewpinError.classList.add('hidden');
 
     UIManager.pinError.classList.add('hidden');
+    UIManager.pinError.querySelector('.main').classList.add('hidden');
+    UIManager.pinError.querySelector('.lastchance').classList.add('hidden');
     UIManager.pinRetriesLeft.classList.add('hidden');
+
     UIManager.pukError.classList.add('hidden');
+    UIManager.pukError.querySelector('.main').classList.add('hidden');
+    UIManager.pukError.querySelector('.lastchance').classList.add('hidden');
     UIManager.pukRetriesLeft.classList.add('hidden');
+
     UIManager.xckError.classList.add('hidden');
+    UIManager.xckError.querySelector('.main').classList.add('hidden');
+    UIManager.xckError.querySelector('.lastchance').classList.add('hidden');
     UIManager.xckRetriesLeft.classList.add('hidden');
   },
 
   unlockPuk: function sm_unlockPuk(icc) {
-    this.clearFields();
     var pukCode = UIManager.pukInput.value;
     if (pukCode.length !== 8) {
-      UIManager.pukError.textContent = _('pukValidation');
+      UIManager.pukError.querySelector('.main')
+        .setAttribute('data-l10n-id', 'pukValidation');
       UIManager.pukError.classList.remove('hidden');
       UIManager.pukInfo.classList.add('hidden');
       UIManager.pukInput.classList.add('onerror');
@@ -611,14 +646,15 @@ var SimManager = (function() {
     var newpinCode = UIManager.newpinInput.value;
     var confirmNewpin = UIManager.confirmNewpinInput.value;
     if (newpinCode.length < 4 || newpinCode.length > 8) {
-      UIManager.newpinError.textContent = _('pinValidation');
+      UIManager.newpinError.setAttribute('data-l10n-id', 'pinValidation');
       UIManager.newpinError.classList.remove('hidden');
       UIManager.newpinInput.classList.add('onerror');
       UIManager.newpinError.focus();
       return;
     }
     if (newpinCode != confirmNewpin) {
-      UIManager.confirmNewpinError.textContent = _('newpinConfirmation');
+      UIManager.confirmNewpinError.setAttribute('data-l10n-id',
+                                    'newpinConfirmation');
       UIManager.confirmNewpinError.classList.remove('hidden');
       UIManager.newpinInput.classList.add('onerror');
       UIManager.confirmNewpinInput.classList.add('onerror');
@@ -663,7 +699,8 @@ var SimManager = (function() {
     if (xck.length < 8 || xck.length > 16) {
       UIManager.xckInput.classList.add('onerror');
       UIManager.xckError.classList.remove('hidden');
-      UIManager.xckError.textContent = _(lockType + 'Validation');
+      UIManager.xckError.querySelector('.main').
+        setAttribute('data-l10n-id', lockType + 'Validation');
       UIManager.xckInput.focus();
       return;
     } else {
@@ -685,7 +722,7 @@ var SimManager = (function() {
       this.handleCardState();
     }).bind(this);
     req.onerror = (function sm_unlockError() {
-      this.handleUnlockError(req.error);
+      this.handleUnlockError(options.lockType, req.error.retryCount);
     }).bind(this);
   },
 
@@ -714,7 +751,7 @@ var SimManager = (function() {
     // Delay for showing feedback to the user after importing
     var DELAY_FEEDBACK = 300;
     UIManager.navBar.setAttribute('aria-disabled', 'true');
-    var progress = utils.overlay.show(_('simContacts-reading'),
+    var progress = utils.overlay.show('simContacts-reading',
                                       'activityBar');
 
     var importButton = UIManager.simImportButton;
@@ -730,7 +767,7 @@ var SimManager = (function() {
         // is being cooked
         progress.setClass('activityBar');
         utils.overlay.hideMenu();
-        progress.setHeaderMsg(_('messageCanceling'));
+        progress.setHeaderMsg('messageCanceling');
       } else {
         importer.onfinish(); // Early return while reading contacts
       }
@@ -741,7 +778,7 @@ var SimManager = (function() {
       contactsRead = true;
       if (n > 0) {
         progress.setClass('progressBar');
-        progress.setHeaderMsg(_('simContacts-importing'));
+        progress.setHeaderMsg('simContacts-importing');
         progress.setTotal(n);
       }
     };
@@ -763,9 +800,10 @@ var SimManager = (function() {
         if (!cancelled) {
           SimManager.alreadyImported = true;
           importButton.setAttribute('disabled', 'disabled');
-          utils.status.show(_('simContacts-imported3',
-                              {n: importedContacts})
-          );
+          utils.status.show({
+            id: 'simContacts-imported3',
+            args: {n: importedContacts}
+          });
         }
       }, DELAY_FEEDBACK);
 

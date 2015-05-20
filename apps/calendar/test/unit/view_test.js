@@ -1,8 +1,10 @@
-requireLib('view.js');
+define(function(require) {
+'use strict';
+
+var CalendarError = require('common/error');
+var View = require('view');
 
 suite('view', function() {
-  'use strict';
-
   var el, subject;
 
   setup(function() {
@@ -16,7 +18,7 @@ suite('view', function() {
 
     document.body.appendChild(el);
 
-    subject = new Calendar.View();
+    subject = new View();
 
     subject.selectors = {
       element: '#view',
@@ -32,12 +34,12 @@ suite('view', function() {
 
   suite('initialization', function() {
     test('string', function() {
-      subject = new Calendar.View('#view');
+      subject = new View('#view');
       assert.equal(subject.selectors.element, '#view');
     });
 
     test('object', function() {
-      subject = new Calendar.View({ controller: 'a' });
+      subject = new View({ controller: 'a' });
       assert.equal(subject.controller, 'a');
       assert.ok(!subject.selectors);
     });
@@ -205,7 +207,7 @@ suite('view', function() {
 
   suite('#showErrors', function() {
 
-    test('successfuly display', function() {
+    test('successfully display', function() {
       var errors = [{ name: 'error-default' }];
       subject.showErrors(errors);
       var list = subject.status.classList;
@@ -223,8 +225,8 @@ suite('view', function() {
      * Verifies that built in errors map to a l10n field.
      */
     function verifyBuiltIn(error, expectedID) {
-      test('show built-in error: Calendar.Error.' + error, function() {
-        var err = new Calendar.Error[error]();
+      test('show built-in error: CalendarError.' + error, function() {
+        var err = new CalendarError[error]();
         var msg = navigator.mozL10n.get(expectedID) || expectedID;
 
         subject.showErrors(err);
@@ -268,5 +270,6 @@ suite('view', function() {
 
     assert.isFalse(el.classList.contains(subject.activeClass));
   });
+});
 
 });

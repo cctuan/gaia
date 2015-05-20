@@ -3,6 +3,7 @@
 
 var assert = require('assert');
 
+var PROVIDERS_VERSION = 3;
 /**
  * Abstraction around search app.
  * @constructor
@@ -17,6 +18,7 @@ function Search(client) {
 Search.URL = 'app://search.gaiamobile.org';
 
 Search.Selectors = {
+  allGridResults: 'gaia-grid .icon',
   iframe: 'iframe[mozapptype="search"]',
   firstAppContainer: 'gaia-grid',
   firstApp: 'gaia-grid .icon',
@@ -24,10 +26,18 @@ Search.Selectors = {
   firstContactContainer: '#contacts',
   firstPlace: '#places div .title',
   firstPlaceContainer: '#places',
-  firstRunConfirm: '#suggestions-notice-confirm'
+  firstRunConfirm: '#suggestions-notice-confirm',
+  privateWindow: '#private-window',
+  topSites: '.top-site',
+  historyResults: '#history .result',
+  suggestions: '#suggestions li',
+  switchProviders: '#suggestions-select'
 };
 
 Search.prototype = {
+
+  URL: Search.URL,
+  Selectors: Search.Selectors,
 
   /**
    * Navigates to the search results frame.
@@ -47,11 +57,26 @@ Search.prototype = {
   },
 
   /**
+   * Return selector for the history list item by URL
+   */
+  getHistoryResultSelector: function(url) {
+    return '.result[data-url="' + url + '"]';
+  },
+
+  /**
    * Return grid results for a particular identifier
    */
   getResult: function(identifier) {
     var selector = '.icon[data-identifier="' + identifier + '"]';
     return this.client.findElements(selector);
+  },
+
+  getHistoryResults: function() {
+    return this.client.findElements(Search.Selectors.historyResults);
+  },
+
+  getTopSites: function() {
+    return this.client.findElements(Search.Selectors.topSites);
   },
 
   /**
@@ -68,18 +93,10 @@ Search.prototype = {
   },
 
   /**
-   * Workaround for bug 1022768, where app permissions are not auto ALLOWed
-   * for tests on desktop. If that bug is fixed, this function should be
-   * removed.
+   * Counts all grid search results.
    */
-  removeGeolocationPermission: function() {
-    var client = this.client.scope({ context: 'chrome' });
-    client.executeScript(function(origin) {
-      var mozPerms = navigator.mozPermissionSettings;
-      mozPerms.set(
-        'geolocation', 'deny', origin + '/manifest.webapp', origin, false
-      );
-    }, [Search.URL]);
+  countGridResults: function() {
+    return this.client.findElements(Search.Selectors.allGridResults).length;
   },
 
   /**
@@ -87,11 +104,13 @@ Search.prototype = {
    * trigger this notice and confirm it.
    */
   triggerFirstRun: function(rocketbar) {
-    rocketbar.enterText('abc');
+    rocketbar.enterText('a');
     this.goToResults();
-    this.client.helper
-      .waitForElement(Search.Selectors.firstRunConfirm)
-      .click();
+
+    this.client.executeScript(function() {
+      window.wrappedJSObject.Search.toShowNotice = false;
+    });
+
     this.client.switchToFrame();
     rocketbar.enterText('');
   },
@@ -104,7 +123,32 @@ Search.prototype = {
     this.client.switchToFrame();
     this.client.apps.switchToApp.apply(this.client.apps, arguments);
     this.client.helper.waitForElement('body');
-  }
+  },
+
+  searchDataVersion: function() {
+    return PROVIDERS_VERSION;
+  },
+
+  /**
+   * Gets a reference to the provider select using findElement.
+   * This waits for the element to be available, but not visible on the apge.
+   */
+  get switchProvidersSelect() {
+    // Fail finding elements quickly.
+    var quickly = this.client.scope({
+      searchTimeout: 20
+    });
+
+    var element;
+
+    try {
+      element = quickly.findElement(Search.Selectors.switchProviders);
+    } catch(e) {
+      return this.switchProvidersSelect;
+    }
+
+    return element;
+  },
 
 };
 

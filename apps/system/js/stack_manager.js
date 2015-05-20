@@ -1,14 +1,14 @@
 'use strict';
-
-/* global SheetsTransition, AppWindowManager */
+/* global SheetsTransition, Service, appWindowManager */
 
 var StackManager = {
   init: function sm_init() {
     window.addEventListener('appcreated', this);
     window.addEventListener('launchapp', this);
     window.addEventListener('appopening', this);
+    window.addEventListener('appopened', this);
     window.addEventListener('appterminated', this);
-    window.addEventListener('home', this);
+    window.addEventListener('homescreenopened', this);
     window.addEventListener('cardviewclosed', this);
   },
 
@@ -23,7 +23,7 @@ var StackManager = {
     // Until then we can get into edge cases where the app currently
     // displayed is not part of the stack and we don't want to break.
     if (!app) {
-      app = AppWindowManager.getActiveApp();
+      app = Service.currentApp;
     }
 
     return app;
@@ -99,6 +99,13 @@ var StackManager = {
   },
 
   commit: function sm_commit() {
+    // We're back to the same place, let's close up the gesture without
+    // queueing.
+    if (this._didntMove) {
+      window.dispatchEvent(new CustomEvent('sheets-gesture-end'));
+      var current = this.getCurrent();
+      current && current.setNFCFocus(true);
+    }
     if (!this._broadcastTimeout) {
       this._broadcast();
     }
@@ -132,6 +139,12 @@ var StackManager = {
   get position() {
     return this._current;
   },
+
+  get _didntMove() {
+    return (!this._appIn && !this._appOut) ||
+           (!!this._appIn && this._appIn === this._appOut);
+  },
+
   set position(position) {
     var _position = parseInt(position);
     if (_position < -1 || _position >= this._stack.length) {
@@ -187,6 +200,7 @@ var StackManager = {
         }
         break;
       case 'appopening':
+      case 'appopened':
         var app = e.detail; // jshint ignore: line
         var root = app.getRootWindow();
 
@@ -195,7 +209,7 @@ var StackManager = {
           this._current = id;
         }
         break;
-      case 'home':
+      case 'homescreenopened':
         // only handle home events if task manager is not visible
         if (window.taskManager && window.taskManager.isShown()) {
           return;
@@ -306,7 +320,7 @@ var StackManager = {
     }
 
     if (this._broadcastTimeout === null) {
-      AppWindowManager.sendStopRecordingRequest();
+      appWindowManager.sendStopRecordingRequest();
     }
 
     clearTimeout(this._broadcastTimeout);
@@ -321,16 +335,16 @@ var StackManager = {
       return;
     }
 
-    // We're done swiping around, let's close up the gesture. Note that
-    // sheets-gesture-start is detected and sent in SheetsTransition!!!
-    window.dispatchEvent(new CustomEvent('sheets-gesture-end'));
-
     // We're back to the same place
-    if (this._appIn && this._appIn === this._appOut) {
-      this._appIn.transitionController.clearTransitionClasses();
+    if (this._didntMove) {
+      this._appIn && this._appIn.transitionController.clearTransitionClasses();
       this._cleanUp();
       return;
     }
+
+    // We're done swiping around, let's close up the gesture. Note that
+    // sheets-gesture-start is detected and sent in SheetsTransition!!!
+    window.dispatchEvent(new CustomEvent('sheets-gesture-end'));
 
     if (this._appIn) {
       this._appIn.broadcast('swipein');

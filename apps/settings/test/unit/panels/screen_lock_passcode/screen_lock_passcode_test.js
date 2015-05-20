@@ -146,6 +146,36 @@ suite('ScreenLockPasscode > ', function() {
       window.navigator.mozSettings.mTeardown();
     });
 
+    suite('basic check > ', function() {
+      suite('only accepts events from the keypad', function() {
+        var fakeEvent;
+        setup(function() {
+          fakeEvent = {
+            target: screenLockPasscode.passcodeInput,
+            preventDefault: sinon.spy()
+          };
+        });
+
+        test('numbers', function() {
+          fakeEvent.keyCode = 0;
+          screenLockPasscode.handleEvent(fakeEvent);
+          assert.ok(fakeEvent.preventDefault.called);
+        });
+
+        test('backspace', function() {
+          fakeEvent.keyCode = 8;
+          screenLockPasscode.handleEvent(fakeEvent);
+          assert.ok(fakeEvent.preventDefault.called);
+        });
+
+        test('others', function() {
+          fakeEvent.keyCode = 100;
+          screenLockPasscode.handleEvent(fakeEvent);
+          assert.ok(fakeEvent.preventDefault.notCalled);
+        });
+      });
+    });
+
     suite('create/new lock > ', function() {
       suite('with right passcode', function() {
         setup(function() {
@@ -155,6 +185,7 @@ suite('ScreenLockPasscode > ', function() {
           screenLockPasscode.handleEvent({
             target: screenLockPasscode.passcodeInput,
             charCode: 48,
+            keyCode: 0,
             preventDefault: function() {}
           });
         });
@@ -171,6 +202,7 @@ suite('ScreenLockPasscode > ', function() {
           screenLockPasscode.handleEvent({
             target: screenLockPasscode.passcodeInput,
             charCode: 49,
+            keyCode: 0,
             preventDefault: function() {}
           });
         });
@@ -191,6 +223,7 @@ suite('ScreenLockPasscode > ', function() {
           screenLockPasscode.handleEvent({
             target: screenLockPasscode.passcodeInput,
             charCode: 48,
+            keyCode: 0,
             preventDefault: function() {}
           });
         });
@@ -213,6 +246,7 @@ suite('ScreenLockPasscode > ', function() {
           screenLockPasscode.handleEvent({
             target: screenLockPasscode.passcodeInput,
             charCode: 48,
+            keyCode: 0,
             preventDefault: function() {}
           });
         });
@@ -235,6 +269,7 @@ suite('ScreenLockPasscode > ', function() {
           screenLockPasscode.handleEvent({
             target: screenLockPasscode.passcodeInput,
             charCode: 48,
+            keyCode: 0,
             preventDefault: function() {}
           });
         });
@@ -258,6 +293,7 @@ suite('ScreenLockPasscode > ', function() {
           screenLockPasscode.handleEvent({
             target: screenLockPasscode.passcodeInput,
             charCode: 48,
+            keyCode: 0,
             preventDefault: function() {}
           });
         });
@@ -280,6 +316,7 @@ suite('ScreenLockPasscode > ', function() {
           screenLockPasscode.handleEvent({
             target: screenLockPasscode.passcodeInput,
             charCode: 48,
+            keyCode: 0,
             preventDefault: function() {}
           });
         });
@@ -299,6 +336,7 @@ suite('ScreenLockPasscode > ', function() {
           screenLockPasscode.handleEvent({
             target: screenLockPasscode.passcodeInput,
             charCode: 48,
+            keyCode: 0,
             preventDefault: function() {}
           });
         });
@@ -307,5 +345,65 @@ suite('ScreenLockPasscode > ', function() {
         });
       });
     });
+  });
+
+  suite('onBeforeShow > ', function() {
+    setup(function() {
+      this.sinon.stub(screenLockPasscode, '_showDialogInMode');
+    });
+
+    suite('if users left panel by home', function() {
+      setup(function() {
+        screenLockPasscode._leftApp = true;
+        screenLockPasscode.onBeforeShow('create');
+      });
+
+      test('we would not re-show dialog again', function() {
+        assert.isFalse(screenLockPasscode._showDialogInMode.called);
+      });
+    });
+
+    suite('if users left panel by back button', function() {
+      setup(function() {
+        screenLockPasscode._leftApp = false;
+        screenLockPasscode.onBeforeShow('create');
+      });
+
+      test('we would re-show dialog again', function() {
+        assert.isTrue(screenLockPasscode._showDialogInMode.called);
+      });
+    });
+  });
+
+  suite('onHide > ', function() {
+    var realDocumentHidden = document.hidden;
+
+    setup(function() {
+      Object.defineProperty(document, 'hidden', {
+        configurable: true,
+        get: function() {
+          return false;
+        }
+      });
+      this.sinon.stub(screenLockPasscode, '_updatePassCodeUI');
+      screenLockPasscode._MODE = 'edit';
+      screenLockPasscode._leftApp = false;
+      screenLockPasscode.onHide();
+    });
+
+    teardown(function() {
+      Object.defineProperty(document, 'hidden', {
+        configurable: true,
+        get: function() {
+          return realDocumentHidden;
+        }
+      });
+    });
+
+    test('when editing passcode, we would clear passcode buffer everytime ' +
+      'when going back to previous panel', function() {
+        assert.isTrue(screenLockPasscode._updatePassCodeUI.called);
+        assert.equal(screenLockPasscode._passcodeBuffer, '');
+      });
   });
 });

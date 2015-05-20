@@ -1,9 +1,7 @@
 /* global DataMobile, SimManager, IccHelper,
           SdManager, UIManager, WifiManager, WifiUI,
           ImportIntegration,
-          OperatorVariant,
-          getLocalizedLink,
-          utils */
+          OperatorVariant */
 /* exported Navigation */
 'use strict';
 /*
@@ -60,8 +58,6 @@ var steps = {
 // Retrieve number of steps for navigation
 var numSteps = Object.keys(steps).length;
 
-var _;
-
 var Navigation = {
   currentStep: 1,
   previousStep: 1,
@@ -71,7 +67,6 @@ var Navigation = {
   skipDateTimeScreen: false,
   tzInitialized: false,
   init: function n_init() {
-    _ = navigator.mozL10n.get;
     var settings = navigator.mozSettings;
     var forward = document.getElementById('forward');
     var back = document.getElementById('back');
@@ -127,6 +122,7 @@ var Navigation = {
         UIManager.sendNewsletter(function newsletterSent(result) {
           if (result) { // sending process ok, we advance
             UIManager.activationScreen.classList.remove('show');
+            UIManager.changeStatusBarColor(UIManager.DARK_THEME);
             UIManager.finishScreen.classList.add('show');
             UIManager.hideActivationScreenFromScreenReader();
           } else { // error on sending, we stay where we are
@@ -176,16 +172,16 @@ var Navigation = {
     var actualHash = window.location.hash;
     switch (actualHash) {
       case '#languages':
-        UIManager.mainTitle.innerHTML = _('language');
+        UIManager.mainTitle.setAttribute('data-l10n-id', 'language');
         break;
       case '#data_3g':
-        UIManager.mainTitle.innerHTML = _('3g');
+        UIManager.mainTitle.setAttribute('data-l10n-id', '3g');
         DataMobile.
           getStatus(UIManager.updateDataConnectionStatus.bind(UIManager));
         break;
       case '#wifi':
         DataMobile.removeSVStatusObserver();
-        UIManager.mainTitle.innerHTML = _('selectNetwork');
+        UIManager.mainTitle.setAttribute('data-l10n-id', 'selectNetwork');
         UIManager.activationScreen.classList.remove('no-options');
         if (UIManager.navBar.classList.contains('secondary-menu')) {
           UIManager.navBar.classList.remove('secondary-menu');
@@ -201,7 +197,7 @@ var Navigation = {
         // appears so that it doesn't delay the appearance of the page.
         // This is the last good opportunity to call it.
 
-        WifiManager.scan((networks) => {
+        WifiManager.getNetworks(networks => {
           this.ensureTZInitialized().then(() => {
             WifiUI.renderNetworks(networks);
           });
@@ -209,13 +205,13 @@ var Navigation = {
 
         break;
       case '#date_and_time':
-        UIManager.mainTitle.innerHTML = _('dateAndTime');
+        UIManager.mainTitle.setAttribute('data-l10n-id', 'dateAndTime');
         break;
       case '#geolocation':
-        UIManager.mainTitle.innerHTML = _('geolocation');
+        UIManager.mainTitle.setAttribute('data-l10n-id', 'geolocation');
         break;
       case '#import_contacts':
-        UIManager.mainTitle.innerHTML = _('importContacts3');
+        UIManager.mainTitle.setAttribute('data-l10n-id', 'importContacts3');
         // Enabling or disabling SIM import depending on card status
         SimManager.checkSIMButton();
 
@@ -227,52 +223,44 @@ var Navigation = {
         if (!WifiManager.api) {
           // Desktop
           ImportIntegration.checkImport('enabled');
-          return;
+          break;
         }
 
         fbState = window.navigator.onLine ? 'enabled' : 'disabled';
         ImportIntegration.checkImport(fbState);
         break;
       case '#firefox_accounts':
-        UIManager.mainTitle.innerHTML = _('firefox-accounts');
+        UIManager.mainTitle.setAttribute('data-l10n-id', 'firefox-accounts');
         break;
       case '#welcome_browser':
-        UIManager.mainTitle.innerHTML = _('aboutBrowser');
-        var welcome = document.getElementById('browser_os_welcome');
-        navigator.mozL10n.localize(welcome, 'htmlWelcome', {
-          link: getLocalizedLink('htmlWelcome')
-        });
-        var improve = document.getElementById('browser_os_improve');
-        navigator.mozL10n.localize(improve, 'helpImprove', {
-          link: getLocalizedLink('helpImprove')
-        });
+        UIManager.mainTitle.setAttribute('data-l10n-id', 'aboutBrowser');
+
+        // Initialize the share checkbox according to the preset value
+        // of debug.performance_data.shared
+        var sharePerformance = document.getElementById('share-performance');
+        var settingName = sharePerformance.name;
+        var settings = navigator.mozSettings;
+        var req = settings && settings.createLock().get(settingName);
+        if (req) {
+          req.onsuccess = function() {
+            sharePerformance.checked = req.result[settingName] || false;
+          };
+        }
         break;
       case '#browser_privacy':
-        UIManager.mainTitle.innerHTML = _('aboutBrowser');
-        var linkPrivacy = document.getElementById('external-link-privacy');
-        navigator.mozL10n.localize(linkPrivacy, 'learn-more-privacy', {
-          link: getLocalizedLink('learn-more-privacy')
-        });
+        UIManager.mainTitle.setAttribute('data-l10n-id', 'aboutBrowser');
         break;
       case '#SIM_mandatory':
-        UIManager.mainTitle.innerHTML = _('SIM_mandatory');
+        UIManager.mainTitle.setAttribute('data-l10n-id', 'SIM_mandatory');
         break;
       case '#about-your-rights':
       case '#about-your-privacy':
-        UIManager.mainTitle.innerHTML = _('aboutBrowser');
+        UIManager.mainTitle.setAttribute('data-l10n-id', 'aboutBrowser');
         UIManager.navBar.classList.add('back-only');
         break;
       case '#sharing-performance-data':
-        UIManager.mainTitle.innerHTML = _('aboutBrowser');
+        UIManager.mainTitle.setAttribute('data-l10n-id', 'aboutBrowser');
         UIManager.navBar.classList.add('back-only');
-        var linkTelemetry = document.getElementById('external-link-telemetry');
-        navigator.mozL10n.localize(linkTelemetry, 'learn-more-telemetry', {
-          link: getLocalizedLink('learn-more-telemetry')
-        });
-        var linkInfo = document.getElementById('external-link-information');
-        navigator.mozL10n.localize(linkInfo, 'learn-more-information', {
-          link: getLocalizedLink('learn-more-information')
-        });
         break;
     }
 
@@ -287,7 +275,7 @@ var Navigation = {
 
     // Managing options button
     if (this.currentStep <= numSteps &&
-        steps[this.currentStep].hash !== '#wifi') {
+        (steps[this.currentStep].hash !== '#wifi')) {
       UIManager.activationScreen.classList.add('no-options');
     }
 
@@ -347,11 +335,6 @@ var Navigation = {
     // Retrieve future location
     var futureLocation = steps[self.currentStep];
 
-    // There is some locations which need a 'loading'
-    if (futureLocation.hash === '#wifi') {
-      utils.overlay.show(_('scanningNetworks'), 'spinner');
-    }
-
     // If SIMcard is mandatory and no SIM, go to message window
     if (this.simMandatory &&
         !IccHelper.cardState &&
@@ -377,13 +360,13 @@ var Navigation = {
 
     // Substitute button content on last step
     if (this.currentStep === numSteps) {
-      nextButton.firstChild.textContent = _('done');
+      nextButton.setAttribute('data-l10n-id', 'done');
     } else {
-      nextButton.firstChild.textContent = _('navbar-next');
+      nextButton.setAttribute('data-l10n-id', 'navbar-next');
     }
 
     if (futureLocation.hash === '#firefox_accounts') {
-      nextButton.firstChild.textContent = _('skip');
+      nextButton.setAttribute('data-l10n-id', 'skip');
     }
 
     // Change hash to the right location
@@ -419,8 +402,29 @@ var Navigation = {
 
       if (self.skipDateTimeScreen) {
         self.postStepMessage(self.currentStep);
+        if(navigator.onLine) {
+          //if you are online you can get a more accurate guess for the time
+          //time you just need to trigger it
+          UIManager.updateSetting(
+            'time.timezone.automatic-update.enabled',
+            true
+          );
+          UIManager.updateSetting(
+            'time.clock.automatic-update.enabled',
+            true
+          );
+        }
         self.skipStep();
       }
+    }
+
+    // if we are not connected we should not try fxa
+    if ((futureLocation.hash === '#firefox_accounts' &&
+         !navigator.onLine) ||
+        (futureLocation.hash === '#firefox_accounts' &&
+         UIManager.skipFxA)) {
+      self.postStepMessage(self.currentStep);
+      self.skipStep();
     }
   }
 };

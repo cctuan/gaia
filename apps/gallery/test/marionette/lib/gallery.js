@@ -1,3 +1,6 @@
+'use strict';
+/* jshint node:true */
+
 /**
  * @constructor
  * @param {Marionette.Client} client Marionette client to use.
@@ -21,7 +24,7 @@ Gallery.ORIGIN = 'app://gallery.gaiamobile.org';
 Gallery.Selector = Object.freeze({
   thumbnail: '.thumbnail',
   fullscreenView: '#fullscreen-view',
-  thumbnailsView: '#thumbnail-list-view',
+  thumbnailsView: '#thumbnail-views > footer.thumbnails-list',
   thumbnailsSelectButton: '#thumbnails-select-button',
   thumbnailsDeleteButton: '#thumbnails-delete-button',
   fullscreenBackButton: '#fullscreen-back-button-tiny',
@@ -36,11 +39,12 @@ Gallery.Selector = Object.freeze({
   exposureOptions: '#exposure-slider',
   cropOptions: '#edit-crop-options',
   effectOptions: '#edit-effect-options',
-  enhanceOptions: '#edit-enhance-options',
   exposureSlider: '#sliderthumb',
   editCropAspectPortraitButton: '#edit-crop-aspect-portrait',
   editEffectSepiaButton: '#edit-effect-sepia',
   editSaveButton: '#edit-save-button',
+  editToolApplyButton: '#edit-tool-apply-button',
+  editHeader: '#edit-view gaia-header',
   fullscreenFrame2: '#frame2',
   fullscreenFrame3: '#frame3'
 });
@@ -201,18 +205,27 @@ Gallery.prototype = {
   },
 
   /**
+   * @return {Marionette.Element} Element to apply edits in edit tool.
+   */
+  get editToolApplyButton() {
+    return this.client.helper
+               .waitForElement(Gallery.Selector.editToolApplyButton);
+  },
+
+  /**
    * @return {Marionette.Element} Element to click to crop an image.
    */
   get editCropAspectPortraitButton() {
-    return this.client
-               .findElement(Gallery.Selector.editCropAspectPortraitButton);
+    return this.client.helper
+               .waitForElement(Gallery.Selector.editCropAspectPortraitButton);
   },
 
   /**
    * @return {Marionette.Element} Element to click to apply a sepia affect.
    */
   get editEffectSepiaButton() {
-    return this.client.findElement(Gallery.Selector.editEffectSepiaButton);
+    return this.client.helper
+               .waitForElement(Gallery.Selector.editEffectSepiaButton);
   },
 
   /**
@@ -230,16 +243,6 @@ Gallery.prototype = {
   },
 
   /**
-   * @return {boolean} Whether or not the thumbnail view is in list mode.
-   */
-  isThumbnailListViewVisible: function() {
-    var elementClass = this.client
-      .findElement('#thumbnails')
-      .getAttribute('class');
-    return elementClass == 'list';
-  },
-
-  /**
    * Read the translateX style and return its integer value.
    */
   getFrameTranslation: function(frame) {
@@ -247,13 +250,67 @@ Gallery.prototype = {
     return parseInt(style.match(/.*:\s.*\((\d*).*/)[1]);
   },
 
+  waitFor: function(selector) {
+    return this.client.helper.waitForElement(selector);
+  },
+
   /**
   * Wait for the image editor view to render before continuing with the tests.
   */
   waitForImageEditor: function() {
-    this.client.helper.waitForElement(Gallery.Selector.editCropButton);
-    this.client.helper.waitForElement(Gallery.Selector.editEffectButton);
-    this.client.helper.waitForElement(Gallery.Selector.editExposureButton);
+    this.waitFor(Gallery.Selector.editCropButton);
+    this.waitFor(Gallery.Selector.editEffectButton);
+    this.waitFor(Gallery.Selector.editExposureButton);
+    this.waitFor(Gallery.Selector.editEnhanceButton);
+  },
+
+  enterMainEditScreen: function() {
+    this.thumbnail.click();
+    this.editButton.click();
+  },
+
+  tapCancel: function() {
+    this.waitFor(Gallery.Selector.editHeader).tap(25, 25);
+  },
+
+  getExposureSliderPosition: function() {
+    return this.exposureSlider.text();
+  },
+
+  applyEditToolOptions: function() {
+    this.editToolApplyButton.click();
+  },
+
+  saveEditedImage: function() {
+    this.editSaveButton.click();
+  },
+
+  waitForCropAspectPortraitSelected: function() {
+    this.client.waitFor(function() {
+      return this.editCropAspectPortraitButton
+                        .getAttribute('class').indexOf('selected') > -1;
+    }.bind(this));
+  },
+
+  waitForSepiaEffectSelected: function() {
+    this.client.waitFor(function() {
+      return this.editEffectSepiaButton
+                        .getAttribute('class').indexOf('selected') > -1;
+    }.bind(this));
+  },
+
+  waitForAutoEnhanceButtonOn: function() {
+    this.client.waitFor(function() {
+      return this.editEnhanceButton
+                        .getAttribute('class').split(' ').indexOf('on') > -1;
+    }.bind(this));
+  },
+
+  waitForAutoEnhanceButtonOff: function() {
+    this.client.waitFor(function() {
+      return this.editEnhanceButton
+                        .getAttribute('class').split(' ').indexOf('on') < 0;
+    }.bind(this));
   },
 
   /**
@@ -267,7 +324,7 @@ Gallery.prototype = {
     // Wait for the document body to know we're really 'launched'.
     this.client.helper.waitForElement('body');
     // Make sure the gallery is done scanning for new content.
-    this.client.setSearchTimeout(3000);
+    this.client.setSearchTimeout(1000);
     this.client.helper.waitForElement(Gallery.Selector.thumbnail);
   }
 };

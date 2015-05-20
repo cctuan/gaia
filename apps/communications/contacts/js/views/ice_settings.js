@@ -1,6 +1,6 @@
 /* global Contacts */
 /* global ICEData */
-
+/* global ConfirmDialog */
 
 /**
  * ICE Settings view. In charge of selecting
@@ -19,7 +19,7 @@ contacts.ICE = (function() {
     iceContactItems = [],
     iceContactCheckboxes = [],
     iceContactButtons = [],
-    iceScreenLoaded = false,
+    iceScreenInitialized = false,
     currentICETarget;
 
   /**
@@ -28,8 +28,8 @@ contacts.ICE = (function() {
    * The first time executed will attach listeners for the
    * frame ui.
    */
-  var init = function ice_init(forceReload) {
-    if (iceScreenLoaded && !forceReload) {
+  var init = function ice_init() {
+    if (iceScreenInitialized) {
       return;
     }
     // ICE DOM elements
@@ -46,7 +46,8 @@ contacts.ICE = (function() {
     iceContactButtons.push(document.getElementById('select-ice-contact-1'));
     iceContactButtons.push(document.getElementById('select-ice-contact-2'));
 
-    reloadButtonsState();
+    iceContactButtons[0].dataset.contactId = '';
+    iceContactButtons[1].dataset.contactId = '';
 
     // ICE Events handlers
     iceSettingsHeader.addEventListener('action', function(){
@@ -59,12 +60,18 @@ contacts.ICE = (function() {
       item.addEventListener('click', function(i) {
         return function(evt) {
           var localIceContacts = ICEData.iceContacts;
-          var disabled = iceContactCheckboxes[i].checked;
-          iceContactCheckboxes[i].checked = !disabled;
-          iceContactItems[i].setAttribute('aria-checked', !disabled);
-          iceContactButtons[i].disabled = disabled;
-          if (localIceContacts[i] && localIceContacts[i].id) {
-            setICEContact(localIceContacts[i].id, i, !disabled);
+          var wasActive = iceContactCheckboxes[i].checked;
+          iceContactCheckboxes[i].checked = !wasActive;
+          iceContactItems[i].setAttribute('aria-checked', !wasActive);
+
+          if (wasActive) {
+            resetIceGroupState(i);
+            if (localIceContacts[i] && localIceContacts[i].id) {
+              setICEContact(null, i, !wasActive);
+            }
+          }
+          else {
+            iceContactButtons[i].disabled = false;
           }
         };
       }(index));
@@ -72,49 +79,117 @@ contacts.ICE = (function() {
 
     iceContactButtons.forEach(function(element){
       element.addEventListener('click', function(evt) {
-          showSelectList(evt.target.id);
+        showSelectList(evt.target.id);
+      });
+      // Bug 1071064 If users clicked on disabled button, the switch was checked
+      element.parentNode.addEventListener('click', (evt) => {
+        evt.stopPropagation();
       });
     });
 
-    // Listen for changes that happen in the ICE contacts
-    ICEData.listenForChanges(reloadButtonsState);
-
-    iceScreenLoaded = true;
+    iceScreenInitialized = true;
   };
 
-  function reloadButtonsState() {
-    ICEData.load().then(setButtonsState);
+  function reloadButtonsState(cb) {
+    ICEData.load().then(retrieveContactData.bind(null, cb));
+  }
+
+  function retrieveContactData(cb) {
+    var iceContactsData = [];
+    var iceContactsIds = ICEData.iceContacts;
+    var numRetrievedContacts = 0;
+
+    iceContactsIds.forEach(function(iceContact, index) {
+      contacts.List.getContactById(iceContact.id, function(cindex, contact) {
+        var theContact = {
+          active: iceContactsIds[cindex].active,
+          mozContact: contact
+        };
+
+        iceContactsData[cindex] = theContact;
+
+        numRetrievedContacts++;
+
+        if (numRetrievedContacts === 2) {
+          setButtonsState(iceContactsData, cb);
+        }
+      }.bind(null, index));
+    });
+  }
+
+  function refresh(done) {
+    if (!iceScreenInitialized) {
+      init();
+    }
+    reloadButtonsState(done);
   }
 
   /**
    * Given an object representing the internal state
    * fills the UI elements.
-   * @params iceContactsIds (Array) list of contacts and state 
+   * @params iceContactsIds (Array) list of contacts and state
    */
-  function setButtonsState(iceContactsIds) {
-    iceContactsIds = iceContactsIds || [];
-    iceContactsIds.forEach(function(iceContact, index) {
-      iceContactCheckboxes[index].checked = iceContact.active || false;
-      iceContactButtons[index].disabled = !iceContact.active || false;
+  function setButtonsState(iceContactsData, done) {
+    iceContactsData.forEach(setIceButtonState);
 
-      if (iceContact.id) {
-        contacts.List.getContactById(iceContact.id, function(contact) {
-          var givenName = (contact.givenName && contact.givenName[0]) || '';
-          var familyName = (contact.familyName && contact.familyName[0]) || '';
-          var display = [givenName, familyName];
-          
-          var span = document.createElement('span');
-          span.classList.add('ice-contact');
-          span.textContent = display.join(' ').trim();
-          iceContactButtons[index].innerHTML = '';
-          iceContactButtons[index].appendChild(span);
-        });
-      } else {
-        iceContactButtons[index].innerHTML = '';
-        iceContactButtons[index].setAttribute('data-l10n-id',
-         'ICESelectContact');
+    typeof done === 'function' && done();
+  }
+
+  function setIceButtonState(iceContactData, index) {
+    if (!iceContactData) {
+      return;
+    }
+
+    if (iceContactData.mozContact) {
+      var iceContact = iceContactData.mozContact;
+
+      var givenName = (Array.isArray(iceContact.givenName) &&
+                       iceContact.givenName[0]) || '';
+      var familyName = (Array.isArray(iceContact.familyName) &&
+                        iceContact.familyName[0]) || '';
+
+      var display = [givenName, familyName];
+      var iceLabel = display.join(' ').trim();
+      // If contact has no name we the first tel number will be used
+      if (!iceLabel) {
+        if (Array.isArray(iceContact.tel) && iceContact.tel[0]) {
+          iceLabel = iceContact.tel[0].value.trim();
+        }
       }
-    });
+
+      buildIceContactUI(index, iceLabel, iceContact.id,
+                        iceContactData.active);
+    }
+    else {
+        resetIceGroupState(index);
+    }
+  }
+
+  function buildIceContactUI(index, label, contactId, active) {
+    iceContactCheckboxes[index].checked = active;
+    iceContactButtons[index].disabled = !active;
+
+    var bdi = document.createElement('bdi');
+    bdi.classList.add('ice-contact');
+    bdi.textContent = label;
+    iceContactButtons[index].innerHTML = '';
+    iceContactButtons[index].appendChild(bdi);
+    iceContactButtons[index].dataset.contactId = contactId;
+  }
+
+  function resetIceGroupState(index) {
+    iceContactCheckboxes[index].checked = false;
+
+    iceContactButtons[index].disabled = true;
+    iceContactButtons[index].innerHTML = '';
+    iceContactButtons[index].dataset.contactId = '';
+    iceContactButtons[index].setAttribute('data-l10n-id', 'ICESelectContact');
+  }
+
+  function resetIceGroupStates() {
+    for(var j = 0; j < iceContactCheckboxes.length; j++) {
+      resetIceGroupState(j);
+    }
   }
 
   function goBack() {
@@ -126,21 +201,92 @@ contacts.ICE = (function() {
       return x.active === true;
     });
 
-    if (hasICESet) {
-      contacts.List.toggleICEGroup(true);
+    if (!hasICESet) {
+      resetIceGroupStates();
     }
 
-    contacts.Settings.navigation.back();
+    if (contacts.Search && contacts.Search.isInSearchMode()) {
+      contacts.Search.exitSearchMode();
+    }
+
+    contacts.Settings.navigation.back(() => {
+      hasICESet && contacts.List.toggleICEGroup(true);
+    });
   }
 
   /**
    * Given a contact id, saves it internally. Also restores the contact
    * list default handler.
+   * In case of not valid contact it will display a message on the screen
+   * indicating the cause of the error.
    * @param id (string) contact id
    */
   function selectICEHandler(id) {
-    contacts.List.toggleICEGroup(true);
-    setICEContact(id, currentICETarget, true, goBack);
+    checkContact(id).then(function() {
+      setICEContact(id, currentICETarget, true, goBack);
+    }, function error(l10nId) {
+      var dismiss = {
+        title: 'ok',
+        callback: function() {
+          ConfirmDialog.hide();
+        }
+      };
+      Contacts.confirmDialog(null, l10nId || 'ICEUnknownError', dismiss);
+    });
+  }
+
+  /**
+   * Will perform a series of checks to validate the selected
+   * contact as a valid ICE contact
+   * @param id (string) contact id
+   * @return (Promise) fulfilled if contact is valid
+   */
+  function checkContact(id) {
+    return ICEData.load().then(function() {
+      return contactNotICE(id).then(contactNotAllowed);
+    });
+  }
+
+  /**
+   * Checks if a contacts is already set as ICE
+   * @param id (string) contact id
+   * @return (Promise) fulfilled if contact is not repeated,
+   *  rejected otherwise
+   */
+  function contactNotICE(id) {
+    return new Promise(function(resolve, reject) {
+      var isICE = ICEData.iceContacts.some(function(x) {
+        return x.id === id;
+      });
+
+      if (isICE) {
+        reject('ICERepeatedContact');
+      } else {
+        resolve(id);
+      }
+    });
+  }
+
+  /**
+   * Filter to avoid selecting contacts as ICE if they don't have a phone number
+   * or they are a Facebook contact
+   * @param id (String) contact id
+   * @returns (Promise) Fulfilled if contact has phone
+   */
+  function contactNotAllowed(id) {
+    return new Promise(function(resolve, reject) {
+      contacts.List.getContactById(id, function(contact, isFBContact) {
+        if(Array.isArray(contact.tel) && contact.tel[0] &&
+         contact.tel[0].value && contact.tel[0].value.trim()) {
+          resolve(id);
+        }
+        else if (isFBContact) {
+          reject('ICEFacebookContactNotAllowed');
+        } else {
+          reject('ICEContactNoNumber');
+        }
+      });
+    });
   }
 
   /**
@@ -150,7 +296,7 @@ contacts.ICE = (function() {
    */
   function showSelectList(target) {
     contacts.List.toggleICEGroup(false);
-    Contacts.setCanceleableHeader(goBack);
+    Contacts.setCancelableHeader(goBack, 'selectContact');
     contacts.Settings.navigation.go('view-contacts-list', 'right-left');
     currentICETarget = target === 'select-ice-contact-1' ? 0 : 1;
     contacts.List.clearClickHandlers();
@@ -158,7 +304,7 @@ contacts.ICE = (function() {
   }
 
   /**
-   * Set the values for ICE contacts, both in local and in the 
+   * Set the values for ICE contacts, both in local and in the
    * datastore
    * @param id (string) contact id
    * @param pos (int) current position (0,1)
@@ -167,17 +313,34 @@ contacts.ICE = (function() {
    */
   function setICEContact(id, pos, active, cb) {
     ICEData.setICEContact(id, pos, active).then(function() {
-      setButtonsState(ICEData.iceContacts);
-
-      if (typeof cb === 'function') {
-        cb();
+      // Only reload contact info in case there is a change in the contact
+      if (id === iceContactButtons[pos].dataset.contactId) {
+        return;
       }
+
+      contacts.List.getContactById(id, function(contact) {
+        var theContact = {
+          active: active,
+          mozContact: contact
+        };
+        var iceContactData = [];
+        if (pos === 0) {
+          iceContactData[1] = null;
+        }
+        else {
+          iceContactData[0] = null;
+        }
+        iceContactData[pos] = theContact;
+
+        setButtonsState(iceContactData);
+
+        typeof cb === 'function' && cb();
+      });
     });
-    
   }
 
   function reset() {
-    iceScreenLoaded = false;
+    iceScreenInitialized = false;
     iceContactItems = [];
     iceContactCheckboxes = [];
     iceContactButtons = [];
@@ -186,7 +349,8 @@ contacts.ICE = (function() {
 
   return {
     init: init,
+    refresh: refresh,
     reset: reset,
-    get loaded() { return iceScreenLoaded; }
+    get initialized() { return iceScreenInitialized; }
   };
 })();

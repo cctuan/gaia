@@ -12,6 +12,20 @@ var MockCommon = function(config) {
 
   return {
     COST_CONTROL_APP: 'app://costcontrol.gaiamobile.org',
+
+    BROWSER_APP: {
+      manifestURL: 'app://browser.gaiamobile.org/manifest.webapp',
+      origin: '',
+      manifest: {
+        icons: {
+          '84': '/shared/resources/branding/browser_84.png'
+        },
+        name: 'browser'
+      }
+    },
+
+    SYSTEM_MANIFEST: 'app://system.gaiamobile.org/manifest.webapp',
+
     allNetworkInterfaces: {},
     localize: function (element, label, args) {
       element.textContent = label;
@@ -92,6 +106,8 @@ var MockCommon = function(config) {
       var multiplier = (settings.dataLimitUnit === 'MB') ?
                        1000000 : 1000000000;
       return settings.dataLimitValue * multiplier;
-    }
+    },
+    updateNextReset: function() {},
+    resetData : function() {}
   };
 };

@@ -10,7 +10,6 @@ contacts.NFC = (function() {
   var currentContact;
   var vCardContact;
   var mozNfcPeer;
-  var _ = navigator.mozL10n.get;
 
   var startListening = function(contact) {
     currentContact = contact;
@@ -64,18 +63,18 @@ contacts.NFC = (function() {
        payload: nfcUtils.fromUTF8(vCardContact)
      });
 
-     var res = mozNfcPeer.sendNDEF([NDEFRecord]);
-     res.onsuccess = function() {
+     var promise = mozNfcPeer.sendNDEF([NDEFRecord]);
+     promise.then(() => {
        console.log('Contact succesfuly sent');
-     };
-
-     res.onerror = function() {
-       console.log('Something goes wrong');
-     };
-   };
+     }).catch(e => {
+       console.log('Something goes wrong : ' + e);
+     });
+  };
 
   var handlePeerReadyForFb = function() {
-    Contacts.showStatus(_('facebook-export-forbidden'));
+    Contacts.showStatus({
+      id: 'facebook-export-forbidden'
+    });
   };
 
   return {

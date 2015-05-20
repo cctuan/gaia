@@ -1,10 +1,11 @@
 Keyboards['pt-BR'] = {
   label: 'Portuguese',
   shortLabel: 'Pt',
-  menuLabel: 'Português',
+  menuLabel: 'Português (do Brasil)',
   imEngine: 'latin',
   types: ['text', 'url', 'email', 'password'],
   autoCorrectLanguage: 'pt_br',
+  lang: 'pt-BR',
   alt: {
     a: 'áãàâäåæª',
     c: 'çćč',
@@ -13,12 +14,13 @@ Keyboards['pt-BR'] = {
     o: 'óõôòöœøōɵ',
     u: 'úüùûū',
     s: '$ßśš',
+    S: '$ŚŠ',
     n: 'ñń',
     l: '£ł',
     y: '¥ÿ',
     z: 'žźż',
     r: 'R$ ',
-    '.': ',?!;:'
+    '.': ',?!;:…'
   },
   keys: [
     [
@@ -41,19 +43,22 @@ Keyboards['pt-BR'] = {
   ],
   pages: [undefined, {
     alt: {
-      '0': 'º',
-      '1': '1º 1ª',
-      '2': '2º 2ª',
-      '3': '3º 3ª',
-      '4': '4º 4ª',
-      '5': '5º 5ª',
-      '6': '6º 6ª',
-      '7': '7º 7ª',
-      '8': '8º 8ª',
-      '9': '9º 9ª',
-      'R$': '€£¥$',
-      '?': '¿',
-      '!': '¡'
+      '0': ['º'],
+      '1': ['1º', '1ª'],
+      '2': ['2º', '2ª'],
+      '3': ['3º', '3ª'],
+      '4': ['4º', '4ª'],
+      '5': ['5º', '5ª'],
+      '6': ['6º', '6ª'],
+      '7': ['7º', '7ª'],
+      '8': ['8º', '8ª'],
+      '9': ['9º', '9ª'],
+      'R$': [ '€', '$', '£', '¢', '¥'],
+      '"': ['“', '”'],
+      '\'':['‘', '’'],
+      '?': ['¿'],
+      '!': ['¡'],
+      '+': ['-', '×', '÷', '±']
     },
     // These are based on en layout except $ is replaced by R$.
     keys: [
@@ -77,7 +82,7 @@ Keyboards['pt-BR'] = {
             value: ','
           }
         }, { value: ':' }, { value: ';' }, { value: '"' },
-        { value: '\'' }, { value: '?' }, { value: '!' },
+        { value: '\'' }, { value: '!' }, { value: '?' },
         { value: '⌫', ratio: 1.5, keyCode: KeyEvent.DOM_VK_BACK_SPACE }
       ], [
         { value: '&nbsp', ratio: 8, keyCode: KeyboardEvent.DOM_VK_SPACE },

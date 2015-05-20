@@ -1,12 +1,10 @@
 'use strict';
 /* global module */
 
-var Actions = require('marionette-client').Actions;
-
 function Collection(client, server) {
   this.client = client;
   this.server = server;
-  this.actions = new Actions(client);
+  this.actions = client.loader.getActions();
 }
 
 /**
@@ -40,6 +38,8 @@ Collection.Selectors = {
   allIcons: 'gaia-grid .icon',
 
   offlineMessage: '#offline-message',
+  updateDoneButton: '#done-button',
+  updateTitle: '#collection-title',
 
   mozbrowser: '.inline-activity.active iframe[mozbrowser]',
 };
@@ -83,31 +83,6 @@ Collection.prototype = {
   get firstPinnedResult() {
     return this.client.helper.waitForElement(
       Collection.Selectors.firstPinnedResult);
-  },
-
-  /**
-   * Disables the Geolocation prompt.
-   */
-  disableGeolocation: function() {
-    var client = this.client.scope({ context: 'chrome' });
-    client.executeScript(function(origin) {
-      var mozPerms = navigator.mozPermissionSettings;
-      mozPerms.set(
-        'geolocation', 'deny', origin + '/manifest.webapp', origin, false
-      );
-    }, [Collection.URL]);
-  },
-
-  /**
-   * Updates eme server settings to hit the local server URL.
-   */
-  setServerURL: function(server) {
-    var client = this.client.scope({ context: 'chrome' });
-    client.executeScript(function(url) {
-      navigator.mozSettings.createLock().set({
-        'everythingme.api.url': url
-      });
-    }, [server.url + '/{resource}']);
   },
 
   /**
@@ -229,6 +204,9 @@ Collection.prototype = {
     this.actions.longPress(element, 1).perform();
     this.client.helper.waitForElement(
       Collection.Selectors.cloudMenuPin).click();
+
+    // Wait for animation to finish
+    this.actions.wait(1).perform();
   },
 
   /**
@@ -250,6 +228,25 @@ Collection.prototype = {
     );
 
     bookmark.addButton.click();
+  },
+
+  /**
+   * Renames a collection and presses enter.
+   * @param {String} newName
+   */
+  renameAndPressEnter: function(newName) {
+    this.client.switchToFrame();
+    this.client.apps.switchToApp(Collection.URL);
+
+    var title = this.client.helper.waitForElement(
+      Collection.Selectors.updateTitle);
+    title.clear();
+    title.sendKeys(newName + '\uE006');
+
+    this.client.helper.waitForElement(
+      Collection.Selectors.updateDoneButton).click();
+
+    this.client.switchToFrame();
   }
 };
 

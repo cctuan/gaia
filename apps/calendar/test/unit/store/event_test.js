@@ -1,23 +1,16 @@
-/*global Factory */
+define(function(require) {
+'use strict';
 
-requireLib('timespan.js');
-requireLib('interval_tree.js');
-requireLib('responder.js');
-requireLib('calc.js');
-requireLib('store/event.js');
+var Abstract = require('store/abstract');
+var AccountModel = require('models/account');
+var Calc = require('common/calc');
+var CalendarModel = require('models/calendar');
+var Factory = require('test/support/factory');
+var core = require('core');
 
 suite('store/event', function() {
-  'use strict';
-
-  testSupport.calendar.loadObjects(
-    'Models.Account',
-    'Model.Calendar',
-    'Provider.Local'
-  );
-
   var subject;
   var db;
-  var app;
   var id = 0;
 
   function event(date) {
@@ -25,16 +18,13 @@ suite('store/event', function() {
       date = new Date();
     }
 
-    return Factory('event', {
-      remote: { startDate: date, _id: ++id }
-    });
+    return Factory('event', { remote: { startDate: date, _id: ++id } });
   }
 
   setup(function(done) {
     id = 0;
-    app = testSupport.calendar.app();
-    db = app.db;
-    subject = db.getStore('Event');
+    db = core.db;
+    subject = core.storeFactory.get('Event');
 
     db.open(function(err) {
       assert.ok(!err);
@@ -46,7 +36,7 @@ suite('store/event', function() {
 
   teardown(function(done) {
     testSupport.calendar.clearStore(
-      subject.db,
+      core.db,
       [
         'accounts', 'calendars', 'events',
         'busytimes', 'icalComponents'
@@ -59,9 +49,8 @@ suite('store/event', function() {
   });
 
   test('initialization', function() {
-    assert.instanceOf(subject, Calendar.Store.Abstract);
+    assert.instanceOf(subject, Abstract);
     assert.equal(subject._store, 'events');
-    assert.equal(subject.db, db);
   });
 
   test('#_createModel', function() {
@@ -72,17 +61,13 @@ suite('store/event', function() {
 
     assert.deepEqual(
       output.remote.startDate,
-      Calendar.Calc.dateFromTransport(
-        output.remote.start
-      ),
+      Calc.dateFromTransport(output.remote.start),
       'startDate'
     );
 
     assert.deepEqual(
       output.remote.endDate,
-      Calendar.Calc.dateFromTransport(
-        output.remote.end
-      ),
+      Calc.dateFromTransport(output.remote.end),
       'endDate'
     );
   });
@@ -99,22 +84,21 @@ suite('store/event', function() {
     });
 
     test('#ownersOf', function(done) {
-      subject.ownersOf(event, function(err, owners) {
-        done(function() {
-          assert.instanceOf(owners.calendar, Calendar.Models.Calendar);
-          assert.instanceOf(owners.account, Calendar.Models.Account);
-
-          assert.equal(owners.calendar._id, this.calendar._id, 'calendar id');
+      subject.ownersOf(event, (err, owners) => {
+        done(() => {
+          assert.instanceOf(owners.account, AccountModel);
+          assert.instanceOf(owners.calendar, CalendarModel);
           assert.equal(owners.account._id, this.account._id, 'account id');
-        }.bind(this));
-      }.bind(this));
+          assert.equal(owners.calendar._id, this.calendar._id, 'calendar id');
+        });
+      });
     });
 
     test('#providerFor', function(done) {
       subject.providerFor(event, function(err, provider) {
         assert.equal(
           provider,
-          Calendar.App.provider('Mock')
+          core.providerFactory.get('Mock')
         );
         done();
       });
@@ -208,13 +192,13 @@ suite('store/event', function() {
       var componentStore;
 
       setup(function(done) {
-        componentStore = db.getStore('IcalComponent');
+        componentStore = core.storeFactory.get('IcalComponent');
         event = Factory('event');
         component = Factory('icalComponent', {
           eventId: event._id
         });
 
-        var trans = subject.db.transaction(
+        var trans = core.db.transaction(
           ['events', 'icalComponents'],
           'readwrite'
         );
@@ -312,7 +296,7 @@ suite('store/event', function() {
     persistEvent(2);
 
     setup(function(done) {
-      busytime = subject.db.getStore('Busytime');
+      busytime = core.storeFactory.get('Busytime');
       subject.get(byCalendar[2][0], function(err, result) {
         done(function() {
           assert.ok(result, 'has control event');
@@ -341,5 +325,6 @@ suite('store/event', function() {
       });
     });
   });
+});
 
 });

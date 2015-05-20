@@ -1,20 +1,25 @@
 'use strict';
 
 /* exported MockBluetoothTransfer */
-/* globals MockDOMRequest, NfcHandoverManager */
+/* globals MockDOMRequest */
 
 (function(exports) {
 
   var MockBluetoothTransfer = {
+    mNfcHandoverManager: null,
     sendFileQueueEmpty: true,
+    fileTransferInProgress: false,
     sendFileViaHandover: function(mac, blob) {
+      var self = this;
       var req = new MockDOMRequest();
       var details = {received: false,
                      success: true,
                      viaHandover: true};
 
       req.onsuccess = function() {
-        NfcHandoverManager.transferComplete(details);
+        self.mNfcHandoverManager.transferComplete({
+          detail: details
+        });
       };
 
       return req;
@@ -22,6 +27,10 @@
 
     get isSendFileQueueEmpty() {
       return MockBluetoothTransfer.sendFileQueueEmpty;
+    },
+
+    get isFileTransferInProgress() {
+      return MockBluetoothTransfer.fileTransferInProgress;
     }
   };
 

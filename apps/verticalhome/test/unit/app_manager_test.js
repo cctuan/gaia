@@ -2,7 +2,7 @@
 /* global loadBodyHTML, MockNavigatormozApps, appManager, MockL10n */
 
 require('/shared/test/unit/mocks/mock_navigator_moz_apps.js');
-require('/test/unit/mock_l10n.js');
+require('/shared/test/unit/mocks/mock_l10n.js');
 require('/shared/test/unit/load_body_html_helper.js');
 require('/shared/js/component_utils.js');
 require('/shared/elements/gaia_confirm/script.js');
@@ -33,6 +33,22 @@ suite('app_manager.js > ', function() {
   test('The library was initialized properly', function() {
     MockNavigatormozApps.mTriggerLastRequestSuccess(app);
     assert.equal(appManager.self, app);
+  });
+
+  test('Can\'t show delete dialog more than once', function() {
+    var showDialogSpy = sinon.spy();
+    sinon.stub(window, 'ConfirmDialogHelper').returns({ show: showDialogSpy });
+
+    var removeItemEvent = new CustomEvent('removeitem',
+      { detail:
+        { detail: { type: null } }
+      });
+
+    appManager.handleEvent(removeItemEvent);
+    assert(appManager.dialogVisible);
+
+    appManager.handleEvent(removeItemEvent);
+    assert(showDialogSpy.calledOnce);
   });
 
 });

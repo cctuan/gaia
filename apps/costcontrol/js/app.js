@@ -1,6 +1,6 @@
 /* global BalanceTab, ConfigManager, Common, NonReadyScreen, SimManager,
           debug, CostControl, TelephonyTab, ViewManager, LazyLoader,
-          PerformanceTestingHelper, AirplaneModeHelper, setNextReset */
+          AirplaneModeHelper, setNextReset, asyncStorage */
 /* exported CostControlApp */
 
 'use strict';
@@ -45,7 +45,8 @@ var CostControlApp = (function() {
 
   var costcontrol,
       initialized = false,
-      hashFromLastRun;
+      hashFromLastRun,
+      hashFromNotification;
   var vmanager;
 
   // Set the application in waiting for SIM mode. During this mode, the
@@ -81,12 +82,13 @@ var CostControlApp = (function() {
           if (AirplaneModeHelper.getStatus() === 'enabled') {
             console.warn('The airplaneMode is enabled.');
             fakeState = 'airplaneMode';
-            var iccManager = window.navigator.mozIccManager;
-            iccManager.addEventListener('iccdetected',
-              function _oniccdetected() {
-                iccManager.removeEventListener('iccdetected', _oniccdetected);
-                waitForSIMReady(callback);
-              });
+            window.addEventListener('airplaneModeDisabled',
+              function _onAirplanemodeDisabled(evt) {
+                if (evt.detail && evt.detail.serviceId === 'data') {
+                  waitForSIMReady(startApp);
+                }
+              }
+            );
           }
           showNonReadyScreen(fakeState);
         });
@@ -130,6 +132,53 @@ var CostControlApp = (function() {
 
   // XXX: See the module documentation for details about URL schema
   var tabmanager, settingsVManager;
+
+  function _onHashChange(evt) {
+    var parser = document.createElement('a');
+    parser.href = evt.oldURL;
+    var oldHash = parser.hash.split('#');
+    parser.href = evt.newURL;
+    var newHash = parser.hash.split('#');
+
+    if (newHash.length > 3) {
+      console.error('Cost Control bad URL schema');
+      return;
+    }
+
+    debug('URL schema before normalizing:', newHash);
+
+    var normalized = false;
+    if (!newHash[1] && oldHash[1]) {
+      newHash[1] = oldHash[1];
+      normalized = true;
+    }
+
+    if (newHash.length === 3 && newHash[2] === '') {
+      if (oldHash.length === 3) {
+        newHash[2] = oldHash[2];
+      } else {
+        newHash = newHash.slice(0, 2);
+      }
+      normalized = true;
+    }
+
+    if (normalized) {
+      debug('URL schema after normalization:', newHash);
+      window.location.hash = newHash.join('#');
+      return;
+    }
+
+    if (newHash[1]) {
+      tabmanager.changeViewTo(newHash[1]);
+    }
+
+    if (newHash.length < 3) {
+      vmanager.closeCurrentView();
+    } else {
+      vmanager.changeViewTo(newHash[2], '#tabpanel');
+    }
+  }
+
   function setupCardHandler() {
     // View managers for dialogs and settings
     tabmanager = new ViewManager(
@@ -138,52 +187,7 @@ var CostControlApp = (function() {
     settingsVManager = new ViewManager();
 
     // View handler
-    window.addEventListener('hashchange', function _onHashChange(evt) {
-
-      var parser = document.createElement('a');
-      parser.href = evt.oldURL;
-      var oldHash = parser.hash.split('#');
-      parser.href = evt.newURL;
-      var newHash = parser.hash.split('#');
-
-      if (newHash.length > 3) {
-        console.error('Cost Control bad URL schema');
-        return;
-      }
-
-      debug('URL schema before normalizing:', newHash);
-
-      var normalized = false;
-      if (newHash[1] === '' && oldHash[1]) {
-        newHash[1] = oldHash[1];
-        normalized = true;
-      }
-
-      if (newHash.length === 3 && newHash[2] === '') {
-        if (oldHash.length === 3) {
-          newHash[2] = oldHash[2];
-        } else {
-          newHash = newHash.slice(0, 2);
-        }
-        normalized = true;
-      }
-
-      if (normalized) {
-        debug('URL schema after normalization:', newHash);
-        window.location.hash = newHash.join('#');
-        return;
-      }
-
-      if (newHash[1]) {
-        tabmanager.changeViewTo(newHash[1]);
-      }
-
-      if (newHash.length < 3) {
-        vmanager.closeCurrentView();
-      } else {
-        vmanager.changeViewTo(newHash[2]);
-      }
-    });
+    window.addEventListener('hashchange', _onHashChange);
   }
 
   function loadMessageHandler() {
@@ -215,15 +219,40 @@ var CostControlApp = (function() {
   }
 
   function startApp(callback) {
+    // If customMode is not ready and it was activated on previous execution,
+    // we have to change the setup plan to no plan.
+    if (!ConfigManager.supportCustomizeMode) {
+      SimManager.requestDataSimIcc(function(dataSim) {
+        ConfigManager.requestSettings(dataSim.iccId, function(settings) {
+          if (settings.trackingPeriod === 'custom') {
+            ConfigManager.setOption({ trackingPeriod: 'never' });
+            // Removing manually if a nextReset alarm exists
+            // XXX: This is not part of configuration by SIM so we bypass
+            // ConfigManager
+            asyncStorage.getItem('nextResetAlarm', function(id) {
+              // There is already an alarm, remove it
+              debug('Current nextResetAlarm', id + '.', id ? 'Removing.' : '');
+              if (id) {
+                navigator.mozAlarms.remove(id);
+              }
+              asyncStorage.setItem('nextResetAlarm', null, function() {
+                ConfigManager.setOption({ nextReset: null });
+              });
+            });
+          }
+        });
+      });
+    }
+
     if (SimManager.isMultiSim()) {
       window.addEventListener('dataSlotChange', _onDataSimChange);
     }
-
     CostControl.getInstance(function _onCostControlReady(instance) {
       if (ConfigManager.option('fte')) {
         startFTE();
         return;
       }
+
       loadMessageHandler();
 
       costcontrol = instance;
@@ -246,7 +275,6 @@ var CostControlApp = (function() {
   });
 
   function setupApp(callback) {
-
     setupCardHandler();
 
     // Configure settings buttons
@@ -290,7 +318,7 @@ var CostControlApp = (function() {
           var app = evt.target.result;
           app.launch();
 
-          var type = notification.imageURL.split('?')[1];
+          var type = notification.data;
           debug('Notification type:', type);
           handleNotification(type);
         };
@@ -316,7 +344,7 @@ var CostControlApp = (function() {
 
   // Load settings in background
   function loadSettings() {
-    PerformanceTestingHelper.dispatch('init-load-settings');
+    window.performance.mark('loadSettingsStart');
     document.getElementById('settings-view-placeholder').src = 'settings.html';
   }
 
@@ -328,8 +356,10 @@ var CostControlApp = (function() {
       case 'lowBalance':
       case 'zeroBalance':
         window.location.hash = '#balance-tab';
+        hashFromNotification = '#balance-tab';
         break;
       case 'dataUsage':
+        hashFromNotification = '#datausage-tab';
         tabmanager.changeViewTo('datausage-tab');
         break;
     }
@@ -341,29 +371,30 @@ var CostControlApp = (function() {
       ConfigManager.requestSettings(dataSim.iccId,
                                     function _onSettings(settings) {
         var mode = ConfigManager.getApplicationMode();
-        var newHash;
+        var newHash = window.location.hash;
+        var tabs = document.getElementById('tabs');
+        var dataUsageTab = document.getElementById('datausage-tab');
+
         debug('App UI mode: ', mode);
 
         // Layout
         if (mode !== currentMode) {
           currentMode = mode;
-
           // Stand alone mode when data usage only
           if (mode === 'DATA_USAGE_ONLY') {
-            var tabs = document.getElementById('tabs');
-            tabs.setAttribute('aria-hidden', true);
-
-            var dataUsageTab = document.getElementById('datausage-tab');
+            tabs.hidden = true;
             dataUsageTab.classList.add('standalone');
             newHash = '#datausage-tab';
 
           // Two tabs mode
           } else {
+            dataUsageTab.classList.remove('standalone');
+            tabs.hidden = false;
             document.getElementById('balance-tab-filter')
-              .setAttribute('aria-hidden', (mode !== 'PREPAID'));
+              .hidden = (mode !== 'PREPAID');
 
             document.getElementById('telephony-tab-filter')
-              .setAttribute('aria-hidden', (mode !== 'POSTPAID'));
+              .hidden = (mode !== 'POSTPAID');
 
             // If it was showing the left tab, force changing to the
             // proper left view
@@ -372,15 +403,14 @@ var CostControlApp = (function() {
                         '#telephony-tab#';
             }
           }
-          window.location.hash = hashFromLastRun || newHash;
-          hashFromLastRun = null;
+          window.location.hash = hashFromNotification ||
+                                 hashFromLastRun ||
+                                 newHash;
+          hashFromLastRun = hashFromNotification = null;
 
           // XXX: Break initialization to allow Gecko to render the animation on
           // time.
-          setTimeout(function continueLoading() {
-            if (typeof callback === 'function') {
-              window.setTimeout(callback, 0);
-            }
+          requestAnimationFrame(function continueLoading() {
             document.getElementById('main').classList.remove('non-ready');
 
             if (mode === 'PREPAID') {
@@ -400,6 +430,7 @@ var CostControlApp = (function() {
             }
           });
         }
+        (typeof callback === 'function') && callback();
       });
     });
   }
@@ -408,26 +439,24 @@ var CostControlApp = (function() {
     return window.location.hash.split('#')[1] === 'datausage-tab';
   }
 
+  function onFteFinished(e) {
+    if (e.origin !== Common.COST_CONTROL_APP) {
+      return;
+    }
+    var type = e.data.type;
+    if (type === 'fte_finished') {
+      window.removeEventListener('message', onFteFinished);
+      document.getElementById('splash_section').hidden = 'true';
+
+      // Only hide the FTE view when everything in the UI is ready
+      ConfigManager.requestAll(function() {
+        startApp(Common.closeFTE);
+      });
+    }
+  }
+
   function startFTE() {
-    window.addEventListener('message', function handler_finished(e) {
-      if (e.origin !== Common.COST_CONTROL_APP) {
-        return;
-      }
-
-      var type = e.data.type;
-
-      if (type === 'fte_finished') {
-        window.removeEventListener('message', handler_finished);
-        document.getElementById('splash_section').
-          setAttribute('aria-hidden', 'true');
-
-        // Only hide the FTE view when everything in the UI is ready
-        ConfigManager.requestAll(function() {
-          startApp(Common.closeFTE);
-        });
-      }
-    });
-
+    window.addEventListener('message', onFteFinished);
     var mode = ConfigManager.getApplicationMode();
     Common.startFTE(mode);
   }
@@ -463,6 +492,7 @@ var CostControlApp = (function() {
           'js/sim_manager.js',
           'js/utils/debug.js',
           'shared/js/date_time_helper.js',
+          'js/utils/chart.js',
           'js/utils/formatting.js',
           'js/utils/toolkit.js',
           'js/settings/networkUsageAlarm.js',
@@ -489,6 +519,8 @@ var CostControlApp = (function() {
       currentMode = null;
       isApplicationLocalized = false;
       window.removeEventListener('dataSlotChange', _onDataSimChange);
+      window.removeEventListener('hashchange', _onHashChange);
+      window.removeEventListener('message', onFteFinished);
       window.location.hash = '';
       nonReadyScreen = null;
     },
@@ -497,6 +529,10 @@ var CostControlApp = (function() {
     },
     showDataUsageTab: function _showDataUsageTab() {
       window.location.hash = '#datausage-tab';
-    }
+    },
+    showAppDetailView: function _showAppDetailView() {
+      window.location.hash = '##appdetail-view';
+    },
+    _onHashChange: _onHashChange
   };
 }());

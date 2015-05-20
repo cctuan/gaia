@@ -9,6 +9,7 @@ Keyboards.hi = {
   types: ['text', 'url', 'email'],
   width: 11,
   keyClassName: 'hindi',
+  lang: 'hi',
   alt: {
     'र': 'ॠऋ',
     'म': 'ॐ',
@@ -76,19 +77,22 @@ Keyboards.hi = {
   ],
   pages: [undefined, {
     alt: {
-      '१': '1',
-      '२': '2',
-      '३': '3',
-      '४': '4',
-      '५': '5',
-      '६': '6',
-      '७': '7',
-      '८': '8',
-      '९': '9',
-      '०': '0',
-      '?': '¿',
-      '!': '¡',
-      '₹': '$ € £ ¥ ৳'
+      '१': ['1'],
+      '२': ['2'],
+      '३': ['3'],
+      '४': ['4'],
+      '५': ['5'],
+      '६': ['6'],
+      '७': ['7'],
+      '८': ['8'],
+      '९': ['9'],
+      '०': ['0'],
+      '₹': ['$', '€', '£', '¢', '¥', '৳'],
+      '"': ['“', '”'],
+      '\'':['‘', '’'],
+      '?': ['¿'],
+      '!': ['¡'],
+      '+': ['-', '×', '÷', '±']
     },
     // These are based on the en layout, with top row modifed and $ localized.
     keys: [
@@ -112,7 +116,7 @@ Keyboards.hi = {
             value: ','
           }
         }, { value: ':' }, { value: ';' }, { value: '"' },
-        { value: '\'' }, { value: '?' }, { value: '!' },
+        { value: '\'' }, { value: '!' }, { value: '?'},
         { value: '⌫', ratio: 1.5, keyCode: KeyEvent.DOM_VK_BACK_SPACE }
       ], [
         { value: '&nbsp', ratio: 8, keyCode: KeyboardEvent.DOM_VK_SPACE },

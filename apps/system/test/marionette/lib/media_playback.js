@@ -1,5 +1,7 @@
 'use strict';
 
+var UtilityTray = require('./lib/utility_tray');
+
 function click(client, element) {
   // Make sure the element is displayed first. This seems really unnecessary
   // and is probably masking a bug in Marionette, since all the elements we're
@@ -12,9 +14,12 @@ function click(client, element) {
   element.click();
 }
 
+var utilityTray;
+
 function MediaPlaybackContainer(client, container) {
   this.client = client;
   this.containerElement = container;
+  utilityTray = new UtilityTray(client);
 }
 
 MediaPlaybackContainer.Selector = Object.freeze({
@@ -123,49 +128,35 @@ MediaPlayback.prototype = {
   },
 
   get lockscreenContainerElement() {
-    return this.client.findElement(
+    var lockScreenFrame = this.client.findElement('#lockscreen-frame');
+    if (!lockScreenFrame) {
+      throw new Error('--- no lockscreen frame ---');
+    }
+    this.client.switchToFrame(lockScreenFrame);
+    var container = this.client.findElement(
       MediaPlayback.Selector.lockscreenContainerElement
     );
-  },
-
-  openUtilityTray: function() {
-    this.client.executeScript(function() {
-      window.wrappedJSObject.UtilityTray.show();
-    });
-  },
-
-  closeUtilityTray: function() {
-    this.client.executeScript(function() {
-      window.wrappedJSObject.UtilityTray.hide();
-    });
+    this.client.switchToFrame();
+    return container;
   },
 
   inUtilityTray: function(callback) {
-    this.openUtilityTray();
+    utilityTray.open();
     callback(new MediaPlaybackContainer(
       this.client, this.notificationContainerElement
     ));
-    this.closeUtilityTray();
+    utilityTray.close();
   },
 
   lockScreen: function() {
     this.client.executeScript(function() {
-      // The lockscreen window would not be active while we do the test.
-      // XXX: This is a strange issue that only happen on B2G desktop:
-      // the lockscreen window suddenly disappear after the simulator is ready.
-      var lwm = window.wrappedJSObject.lockScreenWindowManager,
-          needRelock = !lwm.states.instance.isActive();
-      if (needRelock) {
-        lwm.closeApp();
-        lwm.openApp();
-      }
-      window.wrappedJSObject.lockScreen.lock();
+      window.wrappedJSObject.Service.request('lock', { 'forcibly': true });
     });
   },
 
   unlockScreen: function() {
     this.client.executeScript(function() {
-      window.wrappedJSObject.lockScreen.unlock();
+      window.wrappedJSObject.Service.request('unlock', { 'forcibly': true });
     });
   },
 

@@ -9,17 +9,8 @@
 *
 */
 
-/* global SettingsListener */
-
 (function(exports) {
   'use strict';
-
-  var forceApzSetting = true;
-  SettingsListener.observe('apz.force-enable', true,
-    function apzSettingsChanged(value) {
-      forceApzSetting = value;
-    }
-  );
 
   var TouchForwarder = function TouchForwarder() {
     this.destination = null;
@@ -29,6 +20,11 @@
   TouchForwarder.prototype.forward = function(e) {
     var iframe = this.destination;
     var touch;
+
+    // Should not forward to a frame that's not displayed
+    if (iframe.getAttribute('aria-hidden') == 'true') {
+      return;
+    }
 
     switch (e.type) {
       case 'touchstart':
@@ -41,13 +37,7 @@
         break;
 
       case 'touchmove':
-        // We only forward one touchmove for APZ enabled iframes
-        // the potention subsequent ones are ignored.
-        if (!this._firstMoveForwarded || notUsingAsyncPanZoom(iframe)) {
-          sendTouchEvent(iframe, e);
-          this._firstMoveForwarded = true;
-        }
-
+        sendTouchEvent(iframe, e);
         touch = e.touches[0];
         this._updateShouldTap(touch);
         break;
@@ -58,8 +48,7 @@
         touch = e.changedTouches[0];
         this._updateShouldTap(touch);
 
-        // We only need to forge mouse events for iframes without APZ.
-        if (this._shouldTap && notUsingAsyncPanZoom(iframe)) {
+        if (this._shouldTap) {
           sendTapMouseEvents(iframe, touch.clientX, touch.clientY);
         }
 
@@ -72,7 +61,6 @@
     this._startX = null;
     this._startY = null;
     this._shouldTap = false;
-    this._firstMoveForwarded = false;
   };
 
   TouchForwarder.prototype._updateShouldTap = function(touch) {
@@ -84,21 +72,22 @@
     }
   };
 
-  function notUsingAsyncPanZoom(iframe) {
-    if (!iframe) {
-      return;
-    }
-
-    var apzFlag = iframe.getAttribute('mozasyncpanzoom');
-    return !forceApzSetting && !apzFlag;
-  }
-
   function sendTouchEvent(iframe, e) {
     if (!iframe) {
       return;
     }
 
-    iframe.sendTouchEvent.apply(null, unsynthetizeEvent(e));
+    iframe.sendTouchEvent.apply(iframe, unsynthetizeEvent(e));
+  }
+
+  function sendTapMouseEvents(iframe, x, y) {
+    if (!iframe) {
+      return;
+    }
+
+    iframe.sendMouseEvent('mousemove', x, y, 0, 0, 0);
+    iframe.sendMouseEvent('mousedown', x, y, 0, 1, 0);
+    iframe.sendMouseEvent('mouseup', x, y, 0, 1, 0);
   }
 
   function unsynthetizeEvent(e) {
@@ -112,6 +101,7 @@
     var rys = [];
     var rs = [];
     var fs = [];
+    var modifiers = 0;
 
     for (var i = 0; i < relevantTouches.length; i++) {
       var t = relevantTouches[i];
@@ -125,17 +115,7 @@
       fs.push(t.force);
     }
 
-    return [type, identifiers, xs, ys, rxs, rys, rs, fs, xs.length];
-  }
-
-  function sendTapMouseEvents(iframe, x, y) {
-    if (!iframe) {
-      return;
-    }
-
-    iframe.sendMouseEvent('mousemove', x, y, 0, 0, 0);
-    iframe.sendMouseEvent('mousedown', x, y, 0, 1, 0);
-    iframe.sendMouseEvent('mouseup', x, y, 0, 1, 0);
+    return [type, identifiers, xs, ys, rxs, rys, rs, fs, xs.length, modifiers];
   }
 
   exports.TouchForwarder = TouchForwarder;

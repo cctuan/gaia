@@ -17,6 +17,8 @@ suite('font size manager', function() {
   var realMozL10n;
 
   var view;
+  var bdiNode;
+  var innerEl;
 
   mocksHelperForCallScreen.attachTestHelpers();
 
@@ -67,6 +69,11 @@ suite('font size manager', function() {
       {
         element: 'input',
         textField: 'value'
+      },
+      {
+        element: 'div',
+        childElement: 'bdi',
+        textField: 'textContent'
       }
     ];
 
@@ -77,14 +84,21 @@ suite('font size manager', function() {
         var getExpectedEllipsizedText = function(side, direction) {
           // MockL10n does not invert text when in RTL mode, but FSM will
           // treat the left side as the end for the purpose of ellipses.
-          return side === 'end' ^ direction === 'ltr' ? '\u2026ar' : 'fo\u2026';
+          return side === 'end' ? 'fo\u2026' : '\u2026ar';
         };
 
         setup(function() {
           originalInnerHTML = document.body.innerHTML;
           document.documentElement.style.fontSize = ROOT_FONT_SIZE + 'px';
+
           view = document.createElement(viewElement.element);
-          view[viewElement.textField] = 'foobar';
+          if(viewElement.childElement) {
+            innerEl = document.createElement(viewElement.childElement);
+            view.appendChild(innerEl);
+          } else {
+            innerEl = view;
+          }
+          innerEl[viewElement.textField] = 'foobar';
           document.body.appendChild(view);
         });
 
@@ -181,6 +195,100 @@ suite('font size manager', function() {
         });
       });
     });
+
+    suite('special view cases', function() {
+      var originalInnerHTML;
+      var originalFontSize;
+
+      setup(function() {
+        originalInnerHTML = document.body.innerHTML;
+        document.documentElement.style.fontSize = ROOT_FONT_SIZE + 'px';
+
+        FontSizeUtils.getMaxFontSizeInfo.returns({
+          fontSize: 42,
+          overflow: false
+        });
+      });
+
+      teardown(function() {
+        document.body.innerHTML = originalInnerHTML;
+      });
+
+      suite('on <input> with no value', function() {
+        setup(function() {
+          view = document.createElement('input');
+          document.body.appendChild(view);
+        });
+
+        test('no adaptation is made', function() {
+          FontSizeManager.adaptToSpace(FontSizeManager.DIAL_PAD, view);
+          assert.notEqual(view.style.fontSize, '42px');
+        });
+      });
+
+      suite('on child <bdi>', function() {
+        setup(function() {
+          originalInnerHTML = document.body.innerHTML;
+          originalFontSize = document.documentElement.style.fontSize;
+
+          document.documentElement.style.fontSize = ROOT_FONT_SIZE + 'px';
+
+          bdiNode = document.createElement('bdi');
+          bdiNode.textContent = 'testing';
+
+          view = document.createElement('div');
+          view.appendChild(bdiNode);
+
+          document.body.appendChild(view);
+        });
+
+        teardown(function() {
+          document.body.innerHTML = originalInnerHTML;
+          document.documentElement.style.fontSize = originalFontSize;
+        });
+
+        test('bdi Node is preserved', function() {
+          FontSizeUtils.getMaxFontSizeInfo.returns({
+            fontSize: 42,
+            overflow: true
+          });
+
+          FontSizeManager.adaptToSpace(FontSizeManager.SINGLE_CALL, view);
+          var el = view.querySelector('bdi');
+          assert.isNotNull(el);
+        });
+      });
+
+      suite('on <div> with no text content', function() {
+        setup(function() {
+          view = document.createElement('div');
+          document.body.appendChild(view);
+        });
+
+        test('no adaptation is made', function() {
+          FontSizeManager.adaptToSpace(FontSizeManager.DIAL_PAD, view);
+          assert.notEqual(view.style.fontSize, '42px');
+        });
+      });
+
+      // Bug 1082139 - JavascriptException: JavascriptException: TypeError:
+      //  window.getComputedStyle(...) is null at://
+      //  app://callscreen.gaiamobile.org/gaia_build_defer_index.js line: 146
+      suite('if window.getComputedStyle(view) is null', function() {
+        setup(function() {
+          view = document.createElement('input');
+          view.value = 'foobar';
+          document.body.appendChild(view);
+
+          this.sinon.stub(window, 'getComputedStyle').returns(null);
+        });
+
+        test('no adaptation is made', function() {
+          FontSizeManager.adaptToSpace(FontSizeManager.DIAL_PAD, view);
+          assert.notEqual(view.style.fontSize, '42px');
+        });
+      });
+    });
   });
 
   suite('ensureFixedBaseline', function() {
@@ -205,6 +313,23 @@ suite('font size manager', function() {
       view.style.fontSize = '100px';
       FontSizeManager.ensureFixedBaseline(FontSizeManager.SINGLE_CALL, view);
       assert.equal(view.style.lineHeight, '1px');
+    });
+  });
+
+  suite('resetFixedBaseline', function() {
+    var originalInnerHTML;
+
+    setup(function() {
+      originalInnerHTML = document.body.innerHTML;
+      view = document.createElement('div');
+      view.textContent = 'foobar';
+      view.style.lineHeight = '12px';
+      document.body.appendChild(view);
+    });
+
+    test('resets line heights', function() {
+      FontSizeManager.resetFixedBaseline(view);
+      assert.equal(view.style.lineHeight, '');
     });
   });
 });

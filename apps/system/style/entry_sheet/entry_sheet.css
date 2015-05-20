@@ -1,8 +1,8 @@
 .entrySheet {
   position: absolute;
   width: 100%;
-  height: 100%;
-  top: 0;
+  height: calc(100% - 2.4rem);
+  top: 2.4rem;
   left: 0;
   opacity: 1;
   visibility: visible;
@@ -45,6 +45,19 @@
   left: 0;
   position: absolute;
 }
+
+/*
+ * We need to style the title placed in the entrySheet's gaia-header
+ * To ensure it overflows and truncates for the correct direction
+ * for the content placed in there
+ */
+gaia-header h1 > bdi.entrySheet-title {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  unicode-bidi: -moz-plaintext;
+}
+
 
 .entrySheet .content {
   position: absolute;

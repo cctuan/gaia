@@ -1,3 +1,6 @@
+'use strict';
+/* global Downsample, LazyLoader */
+
 var Wallpaper = {
   // We're reducing each image to 1/3rd of its original size by displaying
   // 3 wallpaper images in each row, decoding each image at 3/8ths of the
@@ -11,8 +14,9 @@ var Wallpaper = {
     if (navigator.mozSetMessageHandler) {
       navigator.mozSetMessageHandler('activity', function handler(request) {
         var activityName = request.source.name;
-        if (activityName !== 'pick')
+        if (activityName !== 'pick') {
           return;
+        }
         self.startPick(request);
       });
     }
@@ -23,33 +27,31 @@ var Wallpaper = {
   },
 
   generateWallpaperList: function wallpaper_generateWallpaperList(cb) {
-    var xhr = new XMLHttpRequest();
-    xhr.open('GET', this.wallpapersUrl, true);
-    xhr.responseType = 'json';
-    xhr.send(null);
-
     var self = this;
     // Get #-moz-samplesize media fragment to downsample while decoding
     // so that we can display smaller images without using lot of memory
     // See Bug 1011460
     var sampleSize = Downsample.sizeNoMoreThan(this.thumbnailScale);
-    xhr.onload = function successGenerateWallpaperList() {
-      self.wallpapers.innerHTML = '';
-      xhr.response.forEach(function(wallpaper) {
-        var fileName = 'resources/' + wallpaper;
-        // Use image tag instead of backgroundImage because gecko handles
-        // memory for off-screen images better
-        var imgNode = document.createElement('img');
-        imgNode.alt = '';
-        imgNode.classList.add('wallpaper');
-        imgNode.dataset.filename = fileName;
-        imgNode.src = fileName + sampleSize;
-        self.wallpapers.appendChild(imgNode);
-      });
-      if (cb) {
-        cb();
-      }
-    };
+
+    LazyLoader.getJSON(this.wallpapersUrl)
+      .then(function(json) {
+        self.wallpapers.innerHTML = '';
+        json.forEach(function(wallpaper) {
+          var fileName = 'resources/' + wallpaper;
+          // Use image tag instead of backgroundImage
+          // because gecko handles
+          // memory for off-screen images better
+          var imgNode = document.createElement('img');
+          imgNode.alt = '';
+          imgNode.classList.add('wallpaper');
+          imgNode.dataset.filename = fileName;
+          imgNode.src = fileName + sampleSize;
+          self.wallpapers.appendChild(imgNode);
+        });
+        if (cb) {
+          cb();
+        }
+    });
   },
 
   startPick: function wallpaper_startPick(request) {
@@ -62,8 +64,9 @@ var Wallpaper = {
     // Get the wallpaper file name
     var src = e.target.dataset.filename;
     // Ignore clicks that are not on one of the images
-    if (src == '')
+    if (src === '') {
       return;
+    }
 
     if (!this.pickActivity) { return; }
 

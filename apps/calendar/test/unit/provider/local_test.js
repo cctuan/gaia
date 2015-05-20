@@ -1,29 +1,21 @@
-/*global Factory */
+define(function(require) {
+'use strict';
 
-requireLib('timespan.js');
+var Abstract = require('provider/abstract');
+var Factory = require('test/support/factory');
+var Local = require('provider/local');
+var core = require('core');
 
-suiteGroup('Provider.Local', function() {
-  'use strict';
-
+suite('provider/local', function() {
   var subject;
-  var app;
   var db;
-  var controller;
-  var shouldDisplay;
+  var storeFactory;
 
   setup(function(done) {
-    app = testSupport.calendar.app();
-    subject = new Calendar.Provider.Local({
-      app: app
-    });
+    subject = new Local();
+    storeFactory = core.storeFactory;
 
-    controller = app.timeController;
-    shouldDisplay = controller._shouldDisplayBusytime;
-    controller._shouldDisplayBusytime = function() {
-      return true;
-    };
-
-    db = app.db;
+    db = core.db;
     db.open(function(err) {
       assert.ok(!err);
       done();
@@ -31,7 +23,6 @@ suiteGroup('Provider.Local', function() {
   });
 
   teardown(function(done) {
-    controller._shouldDisplayBusytime = shouldDisplay;
     testSupport.calendar.clearStore(
       db,
       ['accounts', 'calendars', 'events', 'busytimes'],
@@ -44,8 +35,7 @@ suiteGroup('Provider.Local', function() {
   });
 
   test('initialization', function() {
-    assert.equal(subject.app, app);
-    assert.instanceOf(subject, Calendar.Provider.Abstract);
+    assert.instanceOf(subject, Abstract);
   });
 
   test('#getAccount', function(done) {
@@ -81,29 +71,9 @@ suiteGroup('Provider.Local', function() {
     var events;
     var busytimes;
 
-    var addEvent;
-    var addTime;
-    var removeTime;
-
     setup(function() {
-      events = app.store('Event');
-      busytimes = app.store('Busytime');
-
-      var span = new Calendar.Timespan(
-        0, Infinity
-      );
-
-      controller.observeTime(span, function(e) {
-        switch (e.type) {
-          case 'add':
-            addTime = e.data;
-            addEvent = controller._eventsCache[addTime.eventId];
-            break;
-          case 'remove':
-            removeTime = e.data;
-            break;
-        }
-      });
+      events = storeFactory.get('Event');
+      busytimes = storeFactory.get('Busytime');
     });
 
     function find(eventId, done) {
@@ -139,7 +109,6 @@ suiteGroup('Provider.Local', function() {
           find(event._id, function(busytime, event) {
             done(function() {
               assert.deepEqual(event, event);
-              assert.hasProperties(addTime, busytime);
             });
           });
         });
@@ -237,6 +206,7 @@ suiteGroup('Provider.Local', function() {
         });
       });
     });
-
   });
+});
+
 });

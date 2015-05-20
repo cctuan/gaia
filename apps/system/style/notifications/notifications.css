@@ -1,4 +1,3 @@
-
 @keyframes toaster {
   0% {
     opacity: 0.15;
@@ -8,22 +7,7 @@
     border-right: 0.2rem solid transparent;
     border-top: 0.2rem solid white;
   }
-  10% {
-    width: 8.6rem;
-    background-color: transparent;
-    border-left: 0.2rem solid transparent;
-    border-right: 0.2rem solid transparent;
-    border-top: 0.2rem solid white;
-  }
-  30% {
-    opacity: 1;
-    width: 8.6rem;
-    background-color: transparent;
-    border-left: 0.2rem solid transparent;
-    border-right: 0.2rem solid transparent;
-    border-top: 0.2rem solid #B3F3FF;
-  }
-  60% {
+  50% {
     opacity: 1;
     width: 8.6rem;
     background-color: transparent;
@@ -48,6 +32,8 @@
   background-color: transparent;
   visibility: hidden;
   transform: translateY(-5rem);
+
+  /* This transition is used when hiding the toaster. */
   transition: transform ease .3s, background-color 0s ease .3s, visibility 0s ease .3s;
 }
 
@@ -58,10 +44,6 @@
   height: 5rem;
   width: 100%;
   position: relative;
-}
-
-.utility-tray #ambient-indicator {
-  top: 0;
 }
 
 #toaster-icon {
@@ -83,6 +65,7 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   font-weight: 400;
+  text-align: left;
 }
 
 .toaster-title {
@@ -96,7 +79,7 @@
 .toaster-detail {
   pointer-events: none;
   position: absolute;
-  bottom: .6rem;
+  top: 2.8rem;
   color: white;
   font-size: 1.4rem;
   overflow: hidden;
@@ -106,24 +89,13 @@
 
 #notification-toaster.displayed {
   transform: translateY(0);
-  transition: transform .2s ease 1.2s, background-color 0s ease 1.2s, visibility 0s ease 1.2s;
+  /* We keep the visibility transition to make Marionette tests easier to write. */
+  transition: transform .2s ease .4s, visibility 0s ease .4s;
   background-color: #00BCE2;
   visibility: visible;
 }
 
-#ambient-indicator {
-  position: absolute;
-  top: -.2rem;
-  height: .2rem;
-  width: 100%;
-  opacity: 0;
-  background-color: #00BCE2;
-  transform: translateY(-.2rem);
-  transition: opacity .5s ease .5s, transform 0s ease 1s, background-color 0s ease 1s;
-}
-
-#notification-toaster.displayed:after,
-#ambient-indicator:after {
+#notification-toaster.displayed:after {
   position: absolute;
   right: 0;
   left: 0;
@@ -142,34 +114,10 @@
 
 #notification-toaster.displayed:after {
   animation-name: toaster;
-  animation-duration: 1.2s;
+  animation-duration: .4s;
   border-color: #00BCE2;
   transform: translateY(.2rem);
-  transition: border-color 0s ease 1.2s;
-}
-
-#ambient-indicator.unread {
-  background-color: #006e86;
-  transform: translateY(0);
-  transition: background-color .3s ease .3s;
-  opacity: 1;
-}
-
-#ambient-indicator.small:after {
-  width: 8.6rem;
-}
-
-#ambient-indicator.medium:after {
-  width: 16.8rem;
-}
-
-#ambient-indicator.big:after {
-  width: 24.8rem;
-}
-
-#ambient-indicator.full:after {
-  width: 100%;
-  background-color: white;
+  transition: border-color 0s ease .4s;
 }
 
 #notification-bar {
@@ -182,24 +130,30 @@
 }
 
 #notification-bar .title-container {
-  line-height: 4.5rem;
-  margin-left: .7rem;
+  display: flex;
+  width: calc(100% - 3.7rem);
+  -moz-margin-start: .7rem;
   float: left;
+  font: italic 300 1.8rem/4.2rem auto;
+}
+
+#notification-bar .title {
+  flex: 1;
+  -moz-margin-end: .5rem;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 #notification-bar button {
-  float: right;
+  flex: initial;
+  width: auto;
   height: 4.5rem;
   padding: 0;
   border: 0;
   background: none;
-  text-align: right;
-  font-style: italic;
   color: #008eab;
-  font-size: 1.4rem;
-  font-weight: normal;
-  width: auto;
-  line-height: normal;
+  font: italic normal 1.3rem/1.3rem auto;
 }
 
 #notification-bar button[disabled] {
@@ -221,29 +175,29 @@
   overflow-x: hidden;
 }
 
-#desktop-notifications-container .notification {
+#notifications-container .notification {
   height: 6rem;
   padding: 0 1.5rem;
-  font: 1.8rem/1.8rem auto;
+  font: 1.53rem/1.8rem auto;
   color: #e7e7e7;
   overflow: hidden;
 
   border-bottom: .1rem solid rgba(255, 255, 255, .05);
 }
 
-#desktop-notifications-container .notification:active {
+#notifications-container .notification:active {
   background-color: rgba(52, 140, 158, .6);
 }
 
-#desktop-notifications-container .notification:first-child {
+#notifications-container .notification:first-child {
   border-top-color: black;
 }
 
-#desktop-notifications-container .notification div {
+#notifications-container .notification div {
   pointer-events: none;
 }
 
-#desktop-notifications-container .notification > img {
+#notifications-container .notification > img {
   float: left;
   display: block;
   width: 2.4rem;
@@ -252,7 +206,7 @@
   pointer-events: none;
 }
 
-#desktop-notifications-container .notification > div {
+#notifications-container .notification > div {
   width: calc(100% - 3.7rem);
   margin-left: 3.7rem;
   overflow: hidden;
@@ -260,24 +214,22 @@
   white-space: nowrap;
 }
 
-#desktop-notifications-container .notification > div.title-container {
+#notifications-container .notification > div.title-container {
   padding-top: 1.4rem;
-  font-size: 1.7rem;
+  font-size: 1.53rem;
   display: flex;
 }
 
-#desktop-notifications-container .notification > div.title-container .title {
+#notifications-container .notification > div.title-container .title {
   flex: 1;
-  margin-right: .5rem;
+  -moz-margin-end: .5rem;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
 }
 
-#desktop-notifications-container .notification > div.title-container .timestamp {
+#notifications-container .notification > div.title-container .timestamp {
   flex: initial;
-  top: -.2rem;
-  right: 1.5rem;
   padding: 0;
   max-width: 7.5rem;
   font-size: 1.4rem;
@@ -288,30 +240,37 @@
   white-space: nowrap;
 }
 
-#desktop-notifications-container .notification > div.detail {
+#notifications-container .notification > div.detail {
   font-size: 1.4rem;
   color: #858585;
 }
 
-#desktop-notifications-container .notification.snapback,
+#notifications-container .notification > div.detail .detail-content {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#notifications-container .notification.snapback,
 .notification-toaster.snapback {
-  transition: transform 0.3s ease-out;
+  transition: transform var(--transition-duration) ease-out;
   transform: translateX(0);
 }
 
-#desktop-notifications-container .notification.disappearing,
+#notifications-container .notification.disappearing,
+#notifications-container .notification.disappearing-via-clear-all,
 .notification-toaster.disappearing {
-  transition: transform 0.2s linear;
+  transition: transform var(--transition-duration) linear;
   transform: translateX(100%);
 }
 
-#desktop-notifications-container .notification.disappearing.left,
+#notifications-container .notification.disappearing.left,
 .notification-toaster.disappearing.left {
   transform: translateX(-100%);
 }
 
-#desktop-notifications-container .notification.disappearing ~ .notification {
-  transition: transform 0.3s linear;
+#notifications-container .notification.disappearing ~ .notification {
+  transition: transform var(--transition-duration) linear;
   transform: translateY(-6.2rem);
 }
 
@@ -327,46 +286,51 @@
 
 /* RTL View */
 
-html[dir="rtl"] .toaster-icon {
-  left: auto;
-  right: 1rem;
+#notifications-container .notification[data-predefined-dir="rtl"] > div.detail {
+  direction: rtl;
 }
 
-html[dir="rtl"] .notification-toaster > div,
-html[dir="rtl"] .fake-notification-toaster > div {
-  left: auto;
-  right: 5rem;
+#notifications-container .notification[data-predefined-dir="ltr"] > div.detail {
+  direction: ltr;
+}
+
+
+html[dir="rtl"] #toaster-icon{
+  left: unset;
+  right: 1.5rem;
+}
+
+html[dir="rtl"] #notification-container > div {
+  left: unset;
+  right: 5.6rem;
   text-align: right;
 }
 
-html[dir="rtl"] .notification-bar span {
-  margin-left: 0;
-  margin-right: 1.5rem;
-}
-
-html[dir="rtl"] #notification-bar button {
-  float: left;
-  margin-left: 1.5rem;
-  margin-right: 0;
-  text-align: left;
-}
-
-html[dir="rtl"] #desktop-notifications-container .notification > div {
-  margin-left: 0;
-  margin-right: 5rem;
-  text-align: right;
-}
-
-html[dir="rtl"] #desktop-notifications-container .notification > div.title-container .title {
-  margin-right: 0;
-  margin-left: .5rem;
-}
-
-html[dir="rtl"] #desktop-notifications-container .notification > div.title-container .timestamp {
-  left: 1.5rem;
-  right: auto;
-}
-
-html[dir="rtl"] #desktop-notifications-container .notification > img {
+html[dir="rtl"] #notification-bar .title-container {
   float: right;
+}
+
+html[dir="rtl"] #notifications-container .notification > img {
+  float: right;
+}
+
+html[dir="rtl"] #notifications-container .notification > div {
+  margin-left: unset;
+  margin-right: 3.7rem;
+}
+
+/*
+ * For the notification title, we need to use dir="auto" to display
+ * parenthesis and periods in their proper place. However, we still
+ * want the text to align right when in an RTL language, so we use
+ * the following override. See bug 1134453 and bug 1142925.
+ */
+html[dir="rtl"] #notifications-container .notification:not([data-predefined-dir="ltr"]) .title-container .title:-moz-dir(ltr) {
+  text-align: right;
+  -moz-margin-end: unset;
+  margin-left: 0.5rem;
+}
+
+html[dir="rtl"] #notifications-container .notification:not([data-predefined-dir="ltr"]) .detail-content:-moz-dir(ltr) {
+  text-align: right;
 }

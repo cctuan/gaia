@@ -1,3 +1,19 @@
+'use strict';
+/* global
+  CONFIG_MAX_IMAGE_PIXEL_SIZE,
+  CONFIG_REQUIRED_EXIF_PREVIEW_HEIGHT,
+  CONFIG_REQUIRED_EXIF_PREVIEW_WIDTH,
+  Downsample,
+  GestureDetector,
+  getImageSize,
+  getStorageIfAvailable,
+  getUnusedFilename,
+  MediaFrame,
+  MimeMapper,
+  NFC,
+  parseJPEGMetadata
+*/
+
 navigator.mozL10n.once(function() {
   var activity;         // The activity object we're handling
   var activityData;     // The data sent by the initiating app
@@ -11,56 +27,6 @@ navigator.mozL10n.once(function() {
   navigator.mozSetMessageHandler('activity', handleOpenActivity);
 
   function $(id) { return document.getElementById(id); }
-
-  // If we can't figure out the image size in megapixels, then we have to base
-  // our decision whether or not to display it on the file size. Note that
-  // this is a very, very imperfect test. imagesize.js has code to determine
-  // the image size for jpeg, png and gif images, so we only have to use this
-  // file size test for other image formats.
-  var MAX_FILE_SIZE = .5 * 1024 * 1024;
-
-  function handleOpenActivity(request) {
-    activity = request;
-    activityData = activity.source.data;
-
-    // Set up the UI, if it is not already set up
-    if (!frame) {
-
-      // Hook up the buttons
-      $('header').addEventListener('action', done);
-      $('save').addEventListener('click', save);
-
-      // And register event handlers for gestures
-      frame = new MediaFrame($('frame'), false, CONFIG_MAX_IMAGE_PIXEL_SIZE);
-
-      if (CONFIG_REQUIRED_EXIF_PREVIEW_WIDTH) {
-        frame.setMinimumPreviewSize(CONFIG_REQUIRED_EXIF_PREVIEW_WIDTH,
-                                    CONFIG_REQUIRED_EXIF_PREVIEW_HEIGHT);
-      }
-
-      var gestureDetector = new GestureDetector(frame.container);
-      gestureDetector.startDetecting();
-      frame.container.addEventListener('dbltap', handleDoubleTap);
-      frame.container.addEventListener('transform', handleTransform);
-      frame.container.addEventListener('pan', handlePan);
-      frame.container.addEventListener('swipe', handleSwipe);
-
-      window.addEventListener('resize', frame.resize.bind(frame));
-
-      // Report errors if we're passed an invalid image
-      frame.onerror = function invalid() {
-        displayError('imageinvalid');
-      };
-    }
-
-    // Display the filename in the header, if there was one
-    title = baseName(activityData.filename || '');
-    $('filename').textContent = title;
-
-    blob = activityData.blob;
-    open(blob);
-    setNFCSharing(true);
-  }
 
   // Display the specified blob, unless it is too big to display
   function open(blob) {
@@ -95,8 +61,9 @@ navigator.mozL10n.once(function() {
       // handle images that are quite a bit larger
       //
       var imagesizelimit = CONFIG_MAX_IMAGE_PIXEL_SIZE;
-      if (blob.type === 'image/jpeg')
+      if (blob.type === 'image/jpeg') {
         imagesizelimit *= Downsample.MAX_AREA_REDUCTION;
+      }
 
       //
       // Even if we can downsample an image while decoding it, we still
@@ -168,22 +135,72 @@ navigator.mozL10n.once(function() {
       }
     }
 
-    // Called when metadata parsing fails.
+    // Called if getImageSize parsing fails.
     function error(msg) {
       //
-      // This wasn't a JPEG, PNG, or GIF image.
+      // This wasn't a JPEG, PNG, GIF, or BMP image and we can't figure
+      // out the size of the image. Without the size, we can't pass the
+      // image to MediaFrame.displayImage().
       //
-      // If the file size isn't too large, try to display it anyway,
-      // and then display an error message if the frame.onerror
-      // function gets called.
+      // XXX: Currently, we know how to get the sizes of all the image
+      // types that this activity is registered to handle. If we add new
+      // image types to manifest.webapp, then we should update
+      // shared/js/media/image_size.js to compute the size or we should
+      // add code here to load the image into an offscreen <img> to
+      // determine its size (but only if the file size is not too large).
       //
-      if (blob.size < MAX_FILE_SIZE) {
-        frame.displayImage(blob);
-      }
-      else {
-        displayError('imagetoobig');
-      }
+      displayError('imageinvalid');
     }
+  }
+
+  function handleOpenActivity(request) {
+    activity = request;
+    activityData = activity.source.data;
+
+    // Set up the UI, if it is not already set up
+    if (!frame) {
+
+      // Hook up the buttons
+      $('header').addEventListener('action', done);
+      $('save').addEventListener('click', save);
+
+      // And register event handlers for gestures
+      frame = new MediaFrame($('frame'), false, CONFIG_MAX_IMAGE_PIXEL_SIZE);
+
+      if (CONFIG_REQUIRED_EXIF_PREVIEW_WIDTH) {
+        frame.setMinimumPreviewSize(CONFIG_REQUIRED_EXIF_PREVIEW_WIDTH,
+                                    CONFIG_REQUIRED_EXIF_PREVIEW_HEIGHT);
+      }
+
+      var gestureDetector = new GestureDetector(frame.container);
+      gestureDetector.startDetecting();
+      frame.container.addEventListener('dbltap', handleDoubleTap);
+      frame.container.addEventListener('transform', handleTransform);
+      frame.container.addEventListener('pan', handlePan);
+      frame.container.addEventListener('swipe', handleSwipe);
+
+      window.addEventListener('resize', frame.resize.bind(frame));
+      if (activityData.exitWhenHidden) {
+        window.addEventListener('visibilitychange', function() {
+          if (document.hidden) {
+            done();
+          }
+        });
+      }
+
+      // Report errors if we're passed an invalid image
+      frame.onerror = function invalid() {
+        displayError('imageinvalid');
+      };
+    }
+
+    // Display the filename in the header, if there was one
+    title = baseName(activityData.filename || '');
+    $('filename').textContent = title;
+
+    blob = activityData.blob;
+    open(blob);
+    NFC.share(blob);
   }
 
   function checkFilename() {
@@ -211,15 +228,16 @@ navigator.mozL10n.once(function() {
   function done() {
     activity.postResult({ saved: saved });
     activity = null;
-    setNFCSharing(false);
+    NFC.unshare();
   }
 
   function handleDoubleTap(e) {
     var scale;
-    if (frame.fit.scale > frame.fit.baseScale)
+    if (frame.fit.scale > frame.fit.baseScale) {
       scale = frame.fit.baseScale / frame.fit.scale;
-    else
+    } else {
       scale = 2;
+    }
 
     frame.zoom(scale, e.detail.clientX, e.detail.clientY, 200);
   }
@@ -237,8 +255,9 @@ navigator.mozL10n.once(function() {
   function handleSwipe(e) {
     var direction = e.detail.direction;
     var velocity = e.detail.vy;
-    if (direction === 'down' && velocity > 2)
+    if (direction === 'down' && velocity > 2) {
       done();
+    }
   }
 
   function save() {
@@ -253,7 +272,7 @@ navigator.mozL10n.once(function() {
         // to the invoking app
         saved = filename;
         // And tell the user
-        showBanner(navigator.mozL10n.get('saved', { filename: title }));
+        showBanner('saved', title);
       };
       savereq.onerror = function(e) {
         // XXX we don't report this to the user because it is hard to
@@ -275,8 +294,8 @@ navigator.mozL10n.once(function() {
     $('filename').textContent = $('filename').textContent;
   }
 
-  function showBanner(msg) {
-    $('message').textContent = msg;
+  function showBanner(msg, title) {
+    navigator.mozL10n.setAttributes($('message'), msg, {filename: title});
     $('banner').hidden = false;
     setTimeout(function() {
       $('banner').hidden = true;
@@ -286,24 +305,5 @@ navigator.mozL10n.once(function() {
   // Strip directories and just return the base filename
   function baseName(filename) {
     return filename.substring(filename.lastIndexOf('/') + 1);
-  }
-
-  function setNFCSharing(enable) {
-    if (!window.navigator.mozNfc) {
-      return;
-    }
-
-    if (enable) {
-      // If we have NFC, we need to put the callback to have shrinking UI.
-      window.navigator.mozNfc.onpeerready = function(event) {
-        var peer = event.peer;
-        if (peer) {
-          peer.sendFile(blob);
-        }
-      };
-    } else {
-      // We need to remove onpeerready while out of fullscreen view.
-      window.navigator.mozNfc.onpeerready = null;
-    }
   }
 });

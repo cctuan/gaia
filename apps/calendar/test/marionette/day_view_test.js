@@ -20,7 +20,7 @@ marionette('day view', function() {
 
   setup(function() {
     app = new Calendar(client);
-    app.launch({ hideSwipeHint: true });
+    app.launch();
     app.openDayView();
     day = app.day;
     month = app.month;
@@ -41,8 +41,7 @@ marionette('day view', function() {
         duration: 3
       });
       day.waitForDisplay();
-      // Scroll to top to make sure we could click the event element.
-      day.scrollTop = 0;
+      day.waitForHourScrollEnd(0);
     });
 
     test('click after first hour', function() {
@@ -56,7 +55,7 @@ marionette('day view', function() {
       );
     });
 
-    test('click after event end', function() {
+    test('double tap after event end', function() {
       // we need to actually grab the event position + height to avoid issues
       // with DST (see Bug 981441)
       var event = day.events[0];
@@ -65,7 +64,7 @@ marionette('day view', function() {
       var size = event.size();
 
       app.actions
-        .tap(body, position.x + 20, position.y + size.height + 20)
+        .doubleTap(body, position.x + 20, position.y + size.height + 20)
         .perform();
 
       // there is a delay between tap and view display
@@ -87,7 +86,6 @@ marionette('day view', function() {
     app.createEvent(eventData);
 
     var event = day.events[0];
-    var container = event.container;
 
     assert.equal(
       event.title.text(), eventData.title, 'display event title'
@@ -104,19 +102,19 @@ marionette('day view', function() {
       'should set bg color'
     );
 
-    var borderColor = container.cssProperty('border-left-color');
+    var borderColor = event.cssProperty('border-left-color');
     assert.ok(
       borderColor,
       'should set the border color'
     );
 
     assert.ok(
-      parseFloat(container.cssProperty('border-left-width')) > 0,
+      parseFloat(event.cssProperty('border-left-width')) > 0,
       'should have border'
     );
 
     assert.equal(
-      container.cssProperty('border-left-style'),
+      event.cssProperty('border-left-style'),
       'solid',
       'should have solid border'
     );
@@ -182,11 +180,12 @@ marionette('day view', function() {
   });
 
   test('current-time', function() {
+    day.waitForHourScrollEnd();
+
     var currentTime = day.currentTime;
 
-    assert.include(
-      currentTime.getAttribute('className'),
-      'active',
+    assert.ok(
+      currentTime.displayed(),
       'current-time should be active'
     );
 
@@ -195,19 +194,10 @@ marionette('day view', function() {
       'current time should be inside current hour range'
     );
 
-    var currentDisplayHour = day.currentDisplayHour;
-
-    if (intersect(currentTime, currentDisplayHour)) {
-      assert.ok(
-        !currentDisplayHour.displayed(),
-        'hour should be hidden if overlapping'
-      );
-    } else {
-      assert.ok(
-        currentDisplayHour.displayed(),
-        'hour should be displayed if not overlapping'
-      );
-    }
+    assert.ok(
+      !day.currentDisplayHour.displayed(),
+      'hour should be hidden if overlapping'
+    );
 
     function intersect(el1, el2) {
       var b1 = getBounds(el1);
@@ -226,13 +216,23 @@ marionette('day view', function() {
         return el.getBoundingClientRect();
       });
     }
+
+    // it should hide the currentTime if current day is not visible
+    app.swipeLeft();
+    client.waitFor(function() {
+      return !currentTime.displayed() && day.currentDisplayHour.displayed();
+    });
   });
 
   suite('animated scrolling', function() {
+    setup(function() {
+      day.waitForHourScrollEnd();
+    });
+
     test('today', function() {
       assert.equal(
         day.scrollTop,
-        day.getDistinationScrollTop(new Date().getHours() - 1),
+        day.getDestinationScrollTop(new Date().getHours() - 1),
         'scroll to the previous hour of current time'
       );
     });
@@ -250,9 +250,10 @@ marionette('day view', function() {
       selectedDay.click();
 
       app.openDayView();
+      day.waitForHourScrollEnd();
       assert.equal(
         day.scrollTop,
-        day.getDistinationScrollTop(8),
+        day.getDestinationScrollTop(8),
         'scroll to the 8AM element'
       );
     });
@@ -285,7 +286,7 @@ marionette('day view', function() {
 
       assert.equal(
         day.scrollTop,
-        day.getDistinationScrollTop(new Date().getHours() - 1),
+        day.getDestinationScrollTop(new Date().getHours() - 1),
         'scroll to the 8AM element'
       );
     });
@@ -307,14 +308,51 @@ marionette('day view', function() {
 
     test('switch to 24 hour format', function() {
       app.switch24HourTimeFormat();
-      assert.equal(day.sideBarHours[0].text(), '0');
-      assert.equal(day.sideBarHours[13].text(), '13');
-      assert.equal(day.sideBarHours[23].text(), '23');
+
+      // Settings changes are async, so we might need waitFor() the
+      // UI components to update.
+      client.waitFor(function() {
+        return day.sideBarHours[0].text() === '0' &&
+          day.sideBarHours[13].text() === '13' &&
+          day.sideBarHours[23].text() === '23';
+      });
 
       var now = new Date();
       var currentTime = pad(now.getHours()) + ':' + pad(now.getMinutes());
       assert.equal(day.currentTime.text(), currentTime);
     });
+  });
+
+  test('double tap all day + toggle all day', function() {
+    day.waitForHourScrollEnd();
+
+    day.actions
+      .doubleTap(day.activeAllDays[0], 150, 30)
+      .perform();
+
+    var event = app.editEvent;
+    event.waitForDisplay();
+    assert.ok(event.allDay, 'is all day event');
+    var oldStart = event.startTime;
+    var oldEnd = event.endTime;
+    event.allDay = false;
+    event.title = 'Foo';
+    client.waitFor(function() {
+      return event.startTime !== oldStart && event.endTime !== oldEnd;
+    });
+    var now = new Date();
+    var start = new Date(now.getTime());
+    start.setHours(now.getHours() + 1, 0, 0, 0);
+    var end = new Date(start.getTime());
+    end.setHours(start.getHours() + 1, 0, 0, 0);
+    var isToday = start.toISOString().slice(0, 10) === event.startDate;
+    var expectedStart = isToday ? pad(start.getHours()) + ':00:00' : '08:00:00';
+    var expectedEnd = isToday ? pad(end.getHours()) + ':00:00' : '09:00:00';
+    assert.equal(event.startTime, expectedStart, 'startTime');
+    assert.equal(event.endTime, expectedEnd, 'endTime');
+
+    event.save();
+    day.waitForDisplay();
   });
 
   function pad(n) {

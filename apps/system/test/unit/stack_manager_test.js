@@ -1,9 +1,10 @@
-/* global StackManager, AppWindow, AppWindowManager, Event, MocksHelper,
-          MockAppWindowManager, HomescreenLauncher, MockSheetsTransition */
+/* global StackManager, AppWindow, MockAppWindowManager, Event, MocksHelper,
+          MockService, HomescreenLauncher, MockSheetsTransition */
 'use strict';
 
 requireApp('system/js/stack_manager.js');
 requireApp('system/test/unit/mock_app_window.js');
+requireApp('system/shared/test/unit/mocks/mock_service.js');
 requireApp('system/test/unit/mock_app_window_manager.js');
 requireApp('system/test/unit/mock_homescreen_launcher.js');
 requireApp('system/test/unit/mock_layout_manager.js');
@@ -12,7 +13,7 @@ requireApp('system/test/unit/mock_sheets_transition.js');
 var mocksForStackManager = new MocksHelper([
   'AppWindow', 'AppWindowManager',
   'HomescreenLauncher', 'LayoutManager',
-  'SheetsTransition'
+  'SheetsTransition', 'Service'
 ]).init();
 
 suite('system/StackManager >', function() {
@@ -118,12 +119,14 @@ suite('system/StackManager >', function() {
     settings_sheet_1.groupID = settings.groupID;
     settings_sheet_2.groupID = settings.groupID;
     settings_sheet_3.groupID = settings.groupID;
+    window.appWindowManager = new MockAppWindowManager();
   });
 
   teardown(function() {
     this.sinon.clock.tick(800); // Making sure everything got broadcasted
     window.homescreenLauncher = undefined;
     StackManager.__clearAll();
+    MockService.currentApp = null;
   });
 
   function appLaunch(app, warm) {
@@ -161,12 +164,18 @@ suite('system/StackManager >', function() {
   }
 
   function home() {
-    window.dispatchEvent(new Event('home'));
+    window.dispatchEvent(new Event('homescreenopened'));
   }
 
-  function openAppFromCardView(app) {
+  function appOpening(app) {
     var evt = document.createEvent('CustomEvent');
     evt.initCustomEvent('appopening', true, false, app);
+    window.dispatchEvent(evt);
+  }
+
+  function appOpened(app) {
+    var evt = document.createEvent('CustomEvent');
+    evt.initCustomEvent('appopened', true, false, app);
     window.dispatchEvent(evt);
   }
 
@@ -200,7 +209,7 @@ suite('system/StackManager >', function() {
       setup(function() {
         appLaunch(settings);
         appLaunch(operatorVariant);
-        MockAppWindowManager.mActiveApp = operatorVariant;
+        MockService.currentApp = operatorVariant;
 
         this.sinon.stub(settings, 'getActiveWindow').returns(null);
       });
@@ -229,6 +238,13 @@ suite('system/StackManager >', function() {
     teardown(function() {
       StackManager.__clearAll();
     });
+  });
+
+  test('_didntMove by default is true', function() {
+    appLaunch(dialer);
+    this.sinon.stub(dialer, 'setNFCFocus');
+    StackManager.commit();
+    assert.isTrue(dialer.setNFCFocus.calledWith(true));
   });
 
   suite('Cards View Events', function() {
@@ -305,7 +321,9 @@ suite('system/StackManager >', function() {
     suite('> goNext()', function() {
       setup(function() {
         StackManager.goPrev();
+        assert.isFalse(StackManager._didntMove);
         StackManager.goPrev();
+        assert.isFalse(StackManager._didntMove);
       });
 
       test('should move forward in the stack without modifying it', function() {
@@ -340,11 +358,26 @@ suite('system/StackManager >', function() {
       test('should do nothing when we\'re at the top of the stack',
       function() {
         StackManager.goNext();
+        assert.isFalse(StackManager._didntMove);
         StackManager.goNext();
+        assert.isTrue(StackManager._didntMove);
         assert.deepEqual(StackManager.getCurrent().config, settings.config);
         StackManager.goNext();
         assert.deepEqual(StackManager.getCurrent().config, settings.config);
       });
+    });
+
+    test('going back to the start app', function() {
+      var onSheetsGestureEnd = this.sinon.spy();
+      window.addEventListener('sheets-gesture-end', onSheetsGestureEnd);
+      StackManager.goPrev();
+      StackManager.goNext();
+      assert.isTrue(StackManager._didntMove);
+      StackManager.commit();
+      sinon.assert.calledOnce(onSheetsGestureEnd);
+      this.sinon.clock.tick(800);
+      sinon.assert.calledOnce(onSheetsGestureEnd);
+      window.removeEventListener('sheets-gesture-end', onSheetsGestureEnd);
     });
 
     suite('> blasting through history', function() {
@@ -361,11 +394,13 @@ suite('system/StackManager >', function() {
         contactCancelQueuedShow = this.sinon.stub(contact, 'cancelQueuedShow');
         settingsQueueHide = this.sinon.stub(settings, 'queueHide');
 
-        sendStopRecordingRequest = this.sinon.stub(AppWindowManager,
+        sendStopRecordingRequest = this.sinon.stub(window.appWindowManager,
                                                    'sendStopRecordingRequest');
 
         StackManager.goPrev();
+        assert.isFalse(StackManager._didntMove);
         StackManager.goPrev();
+        assert.isFalse(StackManager._didntMove);
       });
 
       test('it should flag the next active app', function() {
@@ -400,6 +435,7 @@ suite('system/StackManager >', function() {
         setup(function() {
           StackManager.goNext();
           StackManager.goNext();
+          assert.isTrue(StackManager._didntMove);
         });
 
         test('it should just cleanup the transition classes', function() {
@@ -439,6 +475,14 @@ suite('system/StackManager >', function() {
 
     test('it should become the current stack item', function() {
       assert.deepEqual(StackManager.getCurrent().config, dialer.config);
+    });
+
+    test('it should set the position when opened', function() {
+      var fakePosition = 10;
+      assert.equal(StackManager.position, 0);
+      this.sinon.stub(StackManager, '_indexOfInstanceID').returns(fakePosition);
+      appOpened(dialer);
+      assert.equal(StackManager.position, fakePosition);
     });
 
     suite('then another app is launched', function() {
@@ -687,7 +731,7 @@ suite('system/StackManager >', function() {
     appLaunch(dialer);
     appLaunch(contact);
     appLaunch(settings);
-    openAppFromCardView(dialer);
+    appOpening(dialer);
     assert.deepEqual(StackManager.getCurrent().config, dialer.config);
   });
 

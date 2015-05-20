@@ -1,8 +1,6 @@
-/* global it, assert:true, describe, beforeEach */
-/* global window, navigator, process, __dirname */
+/* global assert:true, it, describe, beforeEach */
+/* global navigator, __dirname */
 'use strict';
-
-var assert = require('assert') || window.assert;
 
 if (typeof navigator !== 'undefined') {
   var L10n = navigator.mozL10n._getInternalAPI();
@@ -10,9 +8,8 @@ if (typeof navigator !== 'undefined') {
   var path =
     'app://sharedtest.gaiamobile.org/test/unit/l10n/lib/context';
 } else {
-  var Context = process.env.L20N_COV ?
-    require('../../../build/cov/lib/l20n/context').Context
-    : require('../../../lib/l20n/context').Context;
+  var assert = require('assert');
+  var Context = require('../../../src/lib/context').Context;
   var path = __dirname;
 }
 
@@ -102,14 +99,14 @@ describe('A loading, ready context', function() {
     assert.doesNotThrow(function(){
       ctx.getEntity('foo');
     });
-    assert.strictEqual(ctx.getEntity('foo'), 'Foo en-US');
+    assert.strictEqual(ctx.getEntity('foo').value, 'Foo en-US');
   });
 
   it('should not throw on getEntity of an unknown entity', function() {
     assert.doesNotThrow(function(){
       ctx.getEntity('missing');
     });
-    assert.strictEqual(ctx.getEntity('missing'), null);
+    assert.strictEqual(ctx.getEntity('missing'), '');
   });
 
   it('should not throw on requestLocales', function(done) {

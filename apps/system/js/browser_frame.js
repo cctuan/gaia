@@ -15,9 +15,9 @@
  * @class  BrowserFrame
  */
 
-(function(window) {
+(function(exports) {
   var nextId = 0;
-  window.BrowserFrame = function BrowserFrame() {
+  var BrowserFrame = function BrowserFrame() {
     this.element = null;
     this._id = nextId++;
     // All arguments are values to createFrame
@@ -33,7 +33,6 @@
   // property of Browser or prefix them with underscores.
   function createFrame(config, frame) {
     var browser = frame || document.createElement('iframe');
-    browser.setAttribute('mozallowfullscreen', 'true');
 
     // Most apps currently need to be hosted in a special 'mozbrowser' iframe.
     // They also need to be marked as 'mozapp' to be recognized as apps by the
@@ -45,8 +44,13 @@
     // window.open method.
     browser.name = config.window_name || 'main';
 
-    if (config.oop)
+    if (config.oop) {
       browser.setAttribute('remote', 'true');
+    }
+
+    if (config.isPrivate) {
+      browser.setAttribute('mozprivatebrowsing', 'true');
+    }
 
     if (config.manifestURL) {
       browser.setAttribute('mozapp', config.manifestURL);
@@ -62,10 +66,11 @@
       browser.setAttribute('parentapp', config.parentApp);
     }
 
-    if (config.useAsyncPanZoom) {
-      // XXX: Move this dataset assignment into app window object.
-      browser.dataset.useAsyncPanZoom = true;
-      browser.setAttribute('mozasyncpanzoom', 'true');
+    if (config.isInputMethod) {
+      browser.setAttribute('mozpasspointerevents', 'true');
+      browser.setAttribute('ignoreuserfocus', 'true');
+    } else {
+      browser.setAttribute('mozallowfullscreen', 'true');
     }
 
     setMozAppType(browser, config);
@@ -77,6 +82,7 @@
       browser.dataset.url = config.url;
     }
 
+    /*jshint validthis: true */
     browser.id = this.CLASS_NAME + this._id;
 
     browser.classList.add(this.CLASS_NAME);
@@ -84,7 +90,7 @@
     this.config = config;
 
     this.element = browser;
-  };
+  }
 
   function setMozAppType(iframe, config) {
     // XXX: Those urls needs to be built dynamically.
@@ -106,6 +112,10 @@
       /* If this frame corresponds to search, set mozapptype=search
        */
       iframe.setAttribute('mozapptype', 'search');
+    } else if (config.isInputMethod) {
+      iframe.setAttribute('mozapptype', 'inputmethod');
     }
   }
-}(this));
+
+  exports.BrowserFrame = BrowserFrame;
+}(window));

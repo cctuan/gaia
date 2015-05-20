@@ -1,10 +1,11 @@
+/* global MediaUtils,Tagged,VideoUtils */
 /**
  * ThumbnailItem is view object for a single video data. It renders video with
- * the ThumbnailItem.Template. Before use it, The template should be
- * initialized. ThumbnailItem keeps the referenced video data, while dispatching
- * tap event, it supplies the video data as the argument. ThumbnailItem wraps
- * the dom event to its owned addTapListener. When we need to change the
- * behavior to trigger tap, we may just change the implementation layer here.
+ * ThumbnailItem.view. ThumbnailItem keeps the referenced video data, while
+ * dispatching tap event, it supplies the video data as the argument.
+ * ThumbnailItem wraps the dom event to its owned addTapListener. When we need
+ * to change the behavior to trigger tap, we may just change the implementation
+ * layer here.
  *
  * If we need to mark a thumbnail as selected or context, we need to add/remove
  * the CSS classes of htmlNode property which is created within constructor.
@@ -38,6 +39,8 @@
  * Global Variables:
  *   titleMaxLines: the maximum lines of title field. The default value is 2.
  */
+'use strict';
+
 function ThumbnailItem(videoData) {
   if (!videoData) {
     throw new Error('videoData should not be null or undefined.');
@@ -72,27 +75,19 @@ function ThumbnailItem(videoData) {
     _this.htmlNode = domNode;
     // This is the element that displays the image blob
     _this.posterNode = domNode.querySelector('.img');
-    // query details
     _this.detailNode = domNode.querySelector('.details');
-    // query title
     _this.titleNode = domNode.querySelector('.title');
-    // query unwatched.
     _this.unwatchedNode = domNode.querySelector('.unwatched');
+    _this.sizeNode = domNode.querySelector('.size-text');
   }
 
   // the main function to render everything to UI.
   function render() {
-    if (!ThumbnailItem.Template) {
-      throw new Error('Template is needed while rendering');
-    }
     // render title
     var duration = '';
     if (isFinite(_this.data.metadata.duration)) {
       duration = MediaUtils.formatDuration(_this.data.metadata.duration);
     }
-    // render size
-    var sizeText = isFinite(_this.data.size) ?
-                   MediaUtils.formatSize(_this.data.size) : '';
     // render type
     var videoType = '';
     if (_this.data.type) {
@@ -101,11 +96,10 @@ function ThumbnailItem(videoData) {
     }
 
     // popular html text
-    var htmlText = ThumbnailItem.Template.interpolate({
+    var htmlText = ThumbnailItem.view({
       'title': _this.data.metadata.title,
-      'duration-text': duration,
-      'size-text': sizeText,
-      'type-text': videoType
+      'durationText': duration,
+      'typeText': videoType
     });
 
     convertToDOM(htmlText);
@@ -124,6 +118,13 @@ function ThumbnailItem(videoData) {
 
     // add click event listeners.
     _this.htmlNode.addEventListener('click', dispatchClick);
+
+    // Insert the video size with a localized version of "KB" or "MB".
+    // If the l10n is not ready, then do nothing now, and we'll be localized
+    // when the db is ready or when the locale changes
+    if (navigator.mozL10n.readyState === 'complete') {
+      _this.localize();
+    }
   }
 
   function dispatchClick() {
@@ -138,6 +139,23 @@ function ThumbnailItem(videoData) {
 }
 
 ThumbnailItem.titleMaxLines = 2;
+
+ThumbnailItem.view = function({title, durationText, typeText}) {
+  return Tagged.escapeHTML `<li class="thumbnail" role="option">
+      <div class="inner">
+        <div class="unwatched"></div>
+        <div class="img" role="presentation"></div>
+        <div class="details">
+          <span class="title">${title}</span>
+          <span class="duration-text after line-break">${durationText}</span>
+          <span class="size-type-group">
+            <span class="size-text after"></span>
+            <span class="type-text after">${typeText}</span>
+          </span>
+        </div>
+      </div>
+    </li>`;
+};
 
 ThumbnailItem.prototype.addTapListener = function(listener) {
   if (!listener) {
@@ -190,7 +208,12 @@ ThumbnailItem.prototype.updateTitleText = function() {
   this.titleNode.textContent = VideoUtils.getTruncated(this.data.metadata.title,
                                         {
                                           node: this.titleNode,
-                                          maxLine: ThumbnailItem.titleMaxLines,
-                                          ellipsisIndex: 0
+                                          maxLine: ThumbnailItem.titleMaxLines
                                         });
+};
+
+ThumbnailItem.prototype.localize = function() {
+  if (this.sizeNode && isFinite(this.data.size)) {
+    this.sizeNode.textContent = MediaUtils.formatSize(this.data.size);
+  }
 };

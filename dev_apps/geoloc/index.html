@@ -12,7 +12,8 @@
     <script type="application/javascript" src="js/geoloc.js"></script>
 
     <!-- localization -->
-    <link rel="manifest" href="manifest.webapp">
+    <meta name="defaultLanguage" content="en-US">
+    <meta name="availableLanguages" content="en-US">
     <link rel="localization" href="locales/geoloc.{locale}.properties">
     <link rel="localization" href="/shared/locales/date/date.{locale}.properties">
     <script src="shared/js/l10n.js" type="text/javascript" charset="utf-8"></script>
@@ -27,6 +28,7 @@
 
     <section role="region">
       <div class="bb-docs">
+        <button id="btnGet" data-l10n-id="geoloc-get">Get</button>
         <button id="btnStart" data-l10n-id="geoloc-start">Start</button>
         <button id="btnStop" data-l10n-id="geoloc-stop">Stop</button>
         <button id="btnClear" data-l10n-id="geoloc-clear">Clear</button>

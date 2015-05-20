@@ -1,34 +1,28 @@
-/*global Factory */
+define(function(require) {
+'use strict';
 
-requireLib('calc.js');
-requireLib('db.js');
-requireLib('store/abstract.js');
-requireLib('store/alarm.js');
+var Abstract = require('store/abstract');
+var Calc = require('common/calc');
+var Factory = require('test/support/factory');
+var Responder = require('common/responder');
+var notificationsController = require('controllers/notifications');
 
 suite('store/alarm', function() {
-  'use strict';
-
+  var core;
   var subject;
   var db;
-  var app;
-  var controller;
-
 
   setup(function(done) {
-    app = testSupport.calendar.app();
-    db = app.db;
-    controller = app.alarmController;
-    subject = db.getStore('Alarm');
+    core = testSupport.calendar.core();
+    db = core.db;
+    subject = core.storeFactory.get('Alarm');
 
-    db.open(function(err) {
-      assert.ok(!err);
-      done();
-    });
+    db.open(done);
   });
 
   teardown(function(done) {
     testSupport.calendar.clearStore(
-      subject.db,
+      core.db,
       ['alarms'],
       done
     );
@@ -42,9 +36,7 @@ suite('store/alarm', function() {
     suite('existing', function() {
       var alarms;
       var busytimeId = 'xfoo';
-      var busytime = {
-        _id: busytimeId
-      };
+      var busytime = { _id: busytimeId };
 
       setup(function(done) {
         alarms = [];
@@ -122,17 +114,26 @@ suite('store/alarm', function() {
 
   suite('#_addDependents', function() {
     var worksQueue = 0;
+    var auto;
+    var originalWork;
 
     setup(function() {
       worksQueue = 0;
+      auto = subject.autoQueue;
+      originalWork = subject.workQueue;
       subject.autoQueue = true;
       subject.workQueue = function() {
         worksQueue++;
       };
     });
 
+    teardown(function() {
+      subject.autoQueue = auto;
+      subject.workQueue = originalWork;
+    });
+
     test('after persist transaction', function(done) {
-      var trans = subject.db.transaction('alarms', 'readwrite');
+      var trans = core.db.transaction('alarms', 'readwrite');
 
       subject.persist({}, trans);
       subject.persist({}, trans);
@@ -148,8 +149,7 @@ suite('store/alarm', function() {
   });
 
   test('initialization', function() {
-    assert.instanceOf(subject, Calendar.Store.Abstract);
-    assert.equal(subject.db, db);
+    assert.instanceOf(subject, Abstract);
     assert.deepEqual(subject._cached, {});
   });
 
@@ -163,7 +163,7 @@ suite('store/alarm', function() {
 
       if (floating) {
         record.startDate.offset = 0;
-        record.startDate.tzid = Calendar.Calc.FLOATING;
+        record.startDate.tzid = Calc.FLOATING;
       }
 
       subject.persist(record, done);
@@ -174,13 +174,12 @@ suite('store/alarm', function() {
     var getAllResults = [];
     var added = [];
     var lastId = 0;
-
     var now = new Date(2018, 0, 1);
     var realApi;
-    var mockApi = {
 
+    var mockApi = {
       getAll: function() {
-        var req = new Calendar.Responder();
+        var req = new Responder();
 
         setTimeout(function() {
           req.result = getAllResults.concat([]);
@@ -193,7 +192,6 @@ suite('store/alarm', function() {
           }
 
           req.emit('success', event);
-
         }, 1);
 
         return req;
@@ -201,7 +199,7 @@ suite('store/alarm', function() {
 
       add: function(date, tz, data) {
         added.push(Array.prototype.slice.call(arguments));
-        var req = new Calendar.Responder();
+        var req = new Responder();
 
         setTimeout(function() {
           lastId++;
@@ -211,7 +209,6 @@ suite('store/alarm', function() {
           }
 
           req.emit('success', lastId);
-
         }, 1);
 
         return req;
@@ -226,17 +223,24 @@ suite('store/alarm', function() {
       navigator.mozAlarms = realApi;
     });
 
-    var handleAlarm;
+    var allAlarms, handleAlarm, onAlarm;
 
     setup(function() {
+      allAlarms = [];
       handleAlarm = null;
       added.length = 0;
       getAllResults.length = 0;
       navigator.mozAlarms = mockApi;
-
-      controller.handleAlarm = function() {
+      onAlarm = notificationsController.onAlarm;
+      notificationsController.onAlarm = function() {
         handleAlarm = arguments;
+        allAlarms.push(handleAlarm);
       };
+    });
+
+    teardown(function() {
+      // Restore notificationsController.onAlarm
+      notificationsController.onAlarm = onAlarm;
     });
 
     suite('without alarm api', function() {
@@ -251,11 +255,16 @@ suite('store/alarm', function() {
     suite('alarm in the past', function() {
       var now = new Date();
       now.setMilliseconds(-1);
-
       add(now, 'busyMe');
 
+      // Bug 857284 - We should only fire one alarm when there are multiple
+      // valid alarms for a single event.
+      var duplicate = new Date();
+      duplicate.setMilliseconds(-61);
+      add(duplicate, 'busyMe');
+
       setup(function(done) {
-        subject.workQueue(done);
+        subject.workQueue(() => done());
       });
 
       test('passing alarm directly to controller', function() {
@@ -263,6 +272,9 @@ suite('store/alarm', function() {
 
         // verify right alarm is sent
         assert.equal(alarm.busytimeId, 'busyMe');
+
+        // verify only one alarm sent
+        assert.lengthOf(allAlarms, 1);
       });
     });
 
@@ -277,11 +289,11 @@ suite('store/alarm', function() {
           })
         });
 
-        subject.workQueue(now, done);
+        subject.workQueue(now, () => done());
       });
 
       test('after', function() {
-        assert.length(added, 0);
+        assert.lengthOf(added, 0);
       });
     });
 
@@ -292,11 +304,12 @@ suite('store/alarm', function() {
         getAllResults.push({
           data: { _randomField: true }
         });
-        subject.workQueue(now, done);
+
+        subject.workQueue(now, () => done());
       });
 
       test('after complete', function() {
-        assert.length(added, 1);
+        assert.lengthOf(added, 1);
 
         assert.deepEqual(
           added[0][0],
@@ -310,18 +323,17 @@ suite('store/alarm', function() {
       add(new Date(2018, 0, 3), 3);
 
       setup(function(done) {
-        subject.workQueue(now, done);
+        subject.workQueue(now, () => done());
       });
 
       test('after complete', function() {
-        assert.length(added, 1);
+        assert.lengthOf(added, 1);
 
         assert.deepEqual(
           added[0][0],
           new Date(2018, 0, 3)
         );
       });
-
     });
 
     suite('initial add', function() {
@@ -337,7 +349,7 @@ suite('store/alarm', function() {
       add(new Date(2018, 0, 3), 3);
 
       setup(function(done) {
-        subject.workQueue(now, done);
+        subject.workQueue(now, () => done());
       });
 
       /*
@@ -377,7 +389,7 @@ suite('store/alarm', function() {
       */
 
       test('after complete', function() {
-        assert.length(added, 2);
+        assert.lengthOf(added, 2);
 
         assert.deepEqual(added[0][0], new Date(2018, 0, 1, 5));
         assert.equal(
@@ -420,7 +432,7 @@ suite('store/alarm', function() {
     */
 
     });
-
   });
+});
 
 });

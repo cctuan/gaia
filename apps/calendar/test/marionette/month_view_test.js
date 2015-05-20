@@ -13,17 +13,15 @@ marionette('month view', function() {
       // Do not require the B2G-desktop app window to have focus (as per the
       // system window manager) in order for it to do focus-related things.
       'focusmanager.testmode': true,
-      // We should disable LockScreen in the correct way.
-      'lockscreen.enabled': false
     }
   });
 
   setup(function() {
     app = new Calendar(client);
-    app.launch({ hideSwipeHint: true });
+    app.launch();
   });
 
-  test('#months-day-view scroll', function() {
+  test('#month-day-agenda scroll', function() {
     // Create a lot of events so we can scroll so fun!
     for (var i = 0; i < 5; i++) {
       app.createEvent({
@@ -86,7 +84,17 @@ marionette('month view', function() {
     }
 
     // Either the first or last day chronologically must be
-    // outside of the current month.
+    // outside of the current month (except for in February!).
+
+    // Swipe to next month if it's February.
+    var monthDay = app.monthDay;
+    var date = monthDay.date;
+    date = date.toLowerCase();
+    if (date.indexOf('feb') !== -1) {
+      // Swipe to another month.
+      app.swipeLeft();
+    }
+
     var month = app.month;
     var daySquares = month.daySquares;
     assert.isTrue(daySquares.some(isOutsideMonthWithGrayText));
@@ -167,7 +175,38 @@ marionette('month view', function() {
     assert.include(text, 'Launch', 'should show title');
     assert.include(event.text(), 'Alderaan', 'should show location');
   });
+
+  test('double tap', function() {
+    var month = app.month;
+    month.actions.doubleTap(month.currentDay).perform();
+
+    var editEvent = app.editEvent;
+    editEvent.waitForDisplay();
+    var now = new Date();
+    var start = new Date(now.getTime());
+    start.setHours(now.getHours() + 1, 0, 0, 0);
+    var end = new Date(start.getTime());
+    end.setHours(start.getHours() + 1, 0, 0, 0);
+    assert.equal(editEvent.startDate, toIso(start), 'startDate');
+    assert.equal(editEvent.endDate, toIso(end), 'endDate');
+    assert.equal(editEvent.startTime, toTime(start), 'startTime');
+    assert.equal(editEvent.endTime, toTime(end), 'endTime');
+  });
 });
+
+function toIso(date) {
+  return date.getFullYear() + '-' + pad(date.getMonth() + 1) + '-' +
+    pad(date.getDate());
+}
+
+function pad(num) {
+  return num > 9 ? num : '0' + num;
+}
+
+function toTime(date) {
+  return pad(date.getHours()) + ':' + pad(date.getMinutes()) + ':' +
+    pad(date.getSeconds());
+}
 
 function dayName(num) {
   return [

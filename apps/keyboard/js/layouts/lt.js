@@ -5,6 +5,7 @@ Keyboards.lt = {
   imEngine: 'latin',
   types: ['text', 'url', 'email', 'password'],
   autoCorrectLanguage: 'lt',
+  lang: 'lt',
   alt: {
     a: 'ą',
     c: 'č',
@@ -15,7 +16,7 @@ Keyboards.lt = {
     l: '£',
     y: '¥',
     z: 'ž',
-    '.': ',–?!;:„“'
+    '.': ',–?!;:„“…'
   },
   keys: [
     [
@@ -38,11 +39,13 @@ Keyboards.lt = {
   ],
   pages: [undefined, {
     alt: {
-      '"': '„“',
       '-': '–',
-      '$': '€ £ ¥ R$',
-      '?': '¿',
-      '!': '¡'
+      '$': [ '€', '£', '¢', '¥'],
+      '"': ['„', '“', '”'],
+      '\'':['‘', '’'],
+      '?': ['¿'],
+      '!': ['¡'],
+      '+': ['-', '×', '÷', '±']
     },
     // These are based on the en layout.
     keys: [
@@ -66,7 +69,7 @@ Keyboards.lt = {
             value: ','
           }
         }, { value: ':' }, { value: ';' }, { value: '"' },
-        { value: '\'' }, { value: '?' }, { value: '!' },
+        { value: '\'' }, { value: '!' }, { value: '?' },
         { value: '⌫', ratio: 1.5, keyCode: KeyEvent.DOM_VK_BACK_SPACE }
       ], [
         { value: '&nbsp', ratio: 8, keyCode: KeyboardEvent.DOM_VK_SPACE },

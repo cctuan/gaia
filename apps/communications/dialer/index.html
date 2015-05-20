@@ -7,15 +7,17 @@
     <title>Dialer</title>
 
     <!-- Localization -->
-    <link rel="manifest" href="../manifest.webapp">
+    <meta name="defaultLanguage" content="en-US">
+    <meta name="availableLanguages" content="en-US">
     <link rel="localization" href="locales/dialer.{locale}.properties">
     <link rel="localization" href="locales/shared.{locale}.properties">
-    <link rel="localization" href="../contacts/locales/contacts.{locale}.properties">
     <link rel="localization" href="/shared/locales/date/date.{locale}.properties">
-    <link rel="localization" href="/shared/locales/sim_picker/sim_picker.{locale}.properties">
     <link rel="localization" href="/shared/locales/voicemail/voicemail.{locale}.properties">
     <link rel="localization" href="/shared/locales/keypad/keypad.{locale}.properties">
     <link rel="localization" href="/shared/locales/phone_types/phone_types.{locale}.properties">
+    <link rel="localization" href="/shared/locales/telephony/telephony.{locale}.properties">
+    <link rel="localization" href="/shared/elements/gaia_menu/locales/gaia_menu.{locale}.properties">
+    <link rel="localization" href="/shared/elements/gaia_sim_picker/locales/gaia_sim_picker.{locale}.properties">
 
     <!-- CSS -->
     <link rel="stylesheet" type="text/css" href="/shared/style/animations.css">
@@ -28,28 +30,28 @@
     <link rel="stylesheet" type="text/css" href="/shared/style/dialer/overlay.css">
 
     <link rel="stylesheet" type="text/css" href="/shared/style/tabs.css">
-    <link rel="stylesheet" type="text/css" href="/shared/style/sim_picker.css">
 
-    <link rel="stylesheet" type="text/css" href="/shared/elements/gaia-theme/style.css">
-    <link rel="stylesheet" type="text/css" href="/shared/elements/gaia-icons/style.css">
+    <link rel="stylesheet" type="text/css" href="app://theme.gaiamobile.org/shared/elements/gaia-theme/gaia-theme.css">
+    <link rel="stylesheet" type="text/css" href="/shared/elements/gaia-icons/gaia-icons.css">
+
+    <link rel="stylesheet" type="text/css" href="/shared/style/option_menu.css">
 
     <!-- JS -->
+    <script defer src="/shared/js/l10n.js"></script>
+    <script defer src="/shared/js/l10n_date.js"></script>
     <script defer src="/shared/js/lazy_loader.js"></script>
     <script defer src="/shared/js/font_size_utils.js"></script>
-    <script defer src="/shared/js/lazy_l10n.js"></script>
     <script defer src="/dialer/js/index.js"></script>
 
     <script defer src="/shared/js/dialer/utils.js"></script>
     <script defer src="/shared/js/dialer/tone_player.js"></script>
+    <script defer src="/shared/js/dialer/dtmf_tone.js"></script>
     <script defer src="/shared/js/dialer/keypad.js"></script>
     <script defer src="/shared/js/dialer/font_size_manager.js"></script>
 
     <script defer src="/dialer/js/dialer.js"></script>
     <script defer src="/dialer/js/call_log_db.js"></script>
     <script defer src="/shared/js/multi_sim_action_button.js"></script>
-
-    <!-- for perf-measurement related utilities -->
-    <script defer src='/shared/js/performance_testing_helper.js'></script>
 
     <!-- Lazy load all the things:
     <link rel="stylesheet" type="text/css" href="/shared/style/action_menu.css">
@@ -63,14 +65,16 @@
     <link rel="stylesheet" type="text/css" href="/shared/style/contacts/contacts_buttons.css">
     <link rel="stylesheet" type="text/css" href="/shared/style/contacts.css">
     <link rel="stylesheet" type="text/css" href="/dialer/style/buttons.css">
+    <link rel="stylesheet" type="text/css" href="/shared/elements/gaia_menu/style.css">
+    <link rel="stylesheet" type="text/css" href="/shared/elements/gaia_sim_picker/style.css">
+    <script defer src="/shared/elements/gaia_menu/script.js"></script>
+    <script defer src="/shared/elements/gaia_sim_picker/script.js"></script>
     <script defer src="/shared/js/accessibility_helper.js"></script>
     <script defer src="/shared/js/async_storage.js"></script>
-    <script defer src="/shared/js/l10n.js"></script>
-    <script defer src="/shared/js/l10n_date.js"></script>
+    <script defer src="/shared/js/component_utils.js"></script>
     <script defer src="/shared/js/mobile_operator.js"></script>
     <script defer src="/shared/js/notification_helper.js"></script>
     <script defer src="/shared/js/option_menu.js"></script>
-    <script defer src="/shared/js/sim_picker.js"></script>
     <script defer src="/shared/js/simple_phone_matcher.js"></script>
     <script defer src="/shared/js/settings_listener.js"></script>
     <script defer src="/shared/js/confirm.js"></script>
@@ -83,6 +87,7 @@
     <script defer src="/shared/js/sim_settings_helper.js"></script>
     <script defer src="/shared/js/dialer/voicemail.js"></script>
     <script defer src="/shared/js/dialer/contacts.js"></script>
+    <script defer src="/shared/js/dialer/telephony_messages.js"></script>
     <script defer src="/shared/js/contacts/contacts_buttons.js"></script>
     <script defer src="/shared/js/custom_dialog.js"></script>
     <script defer src="/dialer/js/contact_data_manager.js"></script>
@@ -92,10 +97,11 @@
     <script defer src="/dialer/js/mmi_ui.js"></script>
     <script defer src="/shared/js/icc_helper.js"></script>
     <script defer src="/shared/elements/config.js"></script>
-    <script defer src="/shared/elements/gaia-header/dist/script.js"></script>
+    <script defer src="/shared/elements/gaia-header/dist/gaia-header.js"></script>
     <script defer src="/shared/js/text_normalizer.js"></script>
     <script defer src="/shared/js/contacts/utilities/templates.js"></script>
     <script defer src="/shared/js/contacts/sms_integration.js"></script>
+    <script defer src="/shared/js/tagged.js"></script>
     -->
 
     <link rel="import" href="elements/edit-mode.html">
@@ -103,7 +109,6 @@
     <link rel="import" href="/shared/elements/contacts/contact_in_overlay.html">
     <link rel="import" href="/shared/elements/contacts/contact_list_overlay.html">
     <link rel="import" href="/shared/elements/confirmation-message.html">
-    <link rel="import" href="/shared/elements/sim_picker.html">
     <link rel="import" href="/contacts/elements/phone_details.html">
     <link rel="import" href="/contacts/elements/email_details.html">
   </head>
@@ -140,14 +145,6 @@
           </section>
           <section is="call-info-view" id="call-info-view" role="region" hidden></section>
         </div>
-        <form role="dialog" data-type="confirm" id="call-log-upgrading" class="hide">
-          <section>
-            <div role="status">
-              <span id="call-log-upgrade-percent" class="loading-header">0%</span>
-              <progress id="call-log-upgrade-progress" class="pack-activity" value="0" max="100"></progress>
-            </div>
-          </section>
-        </form>
       </li>
       <li role="presentation" class="view" id="contacts-view">
         <a id="option-contacts" role="tab" aria-controls="iframe-contacts-container" href="#contacts-view" class="icon icon-contacts" data-l10n-id="contacts" aria-selected="false"></a>
@@ -157,23 +154,23 @@
       <li role="presentation" id="keyboard-view">
         <a id="option-keypad" role="tab" aria-controls="keypad-panel" href="#keyboard-view" class="icon icon-keypad" data-l10n-id="keypad" aria-selected="true"></a>
         <div id="keypad-panel" role="tabpanel" class="bb-tabpanel" aria-labelledby="option-keypad">
-          <div id="phone-number-view-container">
+          <div id="phone-number-view-container" dir="ltr">
             <div class="phone-number-view-wrapper-input">
-              <input id="phone-number-view" type="text" class="phone-number-font font-light" readonly="readonly" data-l10n-id="phoneNumberInput">
+              <input id="phone-number-view" type="text" class="phone-number-font font-light textfield" readonly="readonly" data-l10n-id="phoneNumberInput">
             </div>
             <button id="keypad-delete" class="reset-button" data-value="delete" data-l10n-id="keypadDelete">
             </button>
           </div>
           <section id="suggestion-bar" class="suggestion-bar hide">
-            <div role="button" is="contact-in-overlay" class="js-suggestion-item contact-item"></div>
-            <div role="button" id="suggestion-count" class="suggestion-count more"></div>
+            <div role="button" is="contact-in-overlay" class="js-suggestion-item contact-item bb-button"></div>
+            <div role="button" id="suggestion-count" class="suggestion-count more bb-button"></div>
           </section>
-          <button role="button" is="contact-in-overlay" id="contact-in-overlay-template" class="js-suggestion-item contact-item" hidden></button>
+          <button role="button" is="contact-in-overlay" id="contact-in-overlay-template" class="js-suggestion-item contact-item bb-button" hidden></button>
 
           <article id="keyboard-container">
-            <section id="keypad">
+            <section id="keypad" dir="ltr">
               <div class="keypad-row">
-                <div class="keypad-key" role="key" data-value="1" data-voicemail="true">
+                <div class="keypad-key" role="key" data-value="1">
                   <span>1</span>
                   <em class="keypad-subicon voicemail" data-l10n-id="voiceMailKey"></em>
                 </div>
@@ -228,7 +225,7 @@
               </div>
             </section>
             <section id="keypad-callbar">
-              <button id="keypad-callbar-add-contact" data-value="add-contact" class="reset-button keypad-callbar-button icon-add-contact" data-l10n-id="dialerAddContact" disabled></button>
+              <button id="keypad-callbar-add-contact" data-value="add-contact" class="reset-button keypad-callbar-button icon-add-contact disable-when-dialog-animates" data-l10n-id="dialerAddContact" disabled></button>
               <button id="keypad-callbar-call-action" class="reset-button" data-value="make-call" data-l10n-id="makeCall">
                 <div class="js-sim-indication"></div>
               </button>
@@ -240,7 +237,9 @@
 
     <form is="edit-mode" id="edit-mode" role="dialog" data-l10n-id="callLogEditDialog" data-type="edit" hidden></form>
 
-    <form is="sim-picker" id="sim-picker" role="dialog" data-type="action" hidden></form>
+    <form is="add-contact-action-menu" id="add-contact-action-menu" role="dialog" data-l10n-id="dialerAddContactDialog" data-type="action" hidden></form>
+
+    <gaia-sim-picker id="sim-picker" tabindex="-1"></gaia-sim-picker>
 
     <form is="confirmation-message" id="confirmation-message" class="hide no-opacity" role="dialog" data-type="confirm"></form>
 
@@ -263,7 +262,7 @@
       </section>
       <form id="response" role="region">
         <p>
-          <input id="response-text" type="text" data-l10n-id="type-your-response" placeholder="Type your selection..." dir="auto" required disabled>
+          <input id="response-text" type="text" data-l10n-id="type-your-response" placeholder="Type your selection..." required disabled>
           <button id="response-text-reset" type="reset" data-l10n-id="clear-all-text"> Clear-all-text </button>
         </p>
       </form>

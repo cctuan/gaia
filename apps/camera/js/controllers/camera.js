@@ -27,6 +27,7 @@ function CameraController(app) {
   this.settings = app.settings;
   this.activity = app.activity;
   this.hdrDisabled = this.settings.hdr.get('disabled');
+  this.notification = app.views.notification;
   this.l10nGet = app.l10nGet;
   this.configure();
   this.bindEvents();
@@ -49,12 +50,15 @@ CameraController.prototype.bindEvents = function() {
   camera.on('facesdetected', app.firer('camera:facesdetected'));
   camera.on('willrecord', app.firer('camera:willrecord'));
   camera.on('configured', app.firer('camera:configured'));
+  camera.on('requesting', app.firer('camera:requesting'));
   camera.on('change:recording', app.setter('recording'));
   camera.on('newcamera', app.firer('camera:newcamera'));
   camera.on('newimage', app.firer('camera:newimage'));
   camera.on('newvideo', app.firer('camera:newvideo'));
   camera.on('shutter', app.firer('camera:shutter'));
   camera.on('loaded', app.firer('camera:loaded'));
+  camera.on('closed', this.onCameraClosed);
+  camera.on('error', app.firer('camera:error'));
   camera.on('ready', app.firer('ready'));
   camera.on('busy', app.firer('busy'));
 
@@ -62,16 +66,18 @@ CameraController.prototype.bindEvents = function() {
   app.on('viewfinder:focuspointchanged', this.onFocusPointChanged);
   app.on('change:batteryStatus', this.onBatteryStatusChange);
   app.on('settings:configured', this.onSettingsConfigured);
-  app.on('previewgallery:opened', this.shutdownCamera);
+  app.on('previewgallery:opened', this.onGalleryOpened);
   app.on('previewgallery:closed', this.onGalleryClosed);
   app.on('stoprecording', this.camera.stopRecording);
   app.on('storage:volumechanged', this.onStorageVolumeChanged);
   app.on('storage:changed', this.onStorageChanged);
   app.on('activity:pick', this.onPickActivity);
+  app.on('keydown:capture', this.onCaptureKey);
+  app.on('keydown:focus', this.onFocusKey);
   app.on('timer:ended', this.capture);
-  app.on('visible', this.camera.load);
+  app.on('visible', this.onVisible);
   app.on('capture', this.capture);
-  app.on('hidden', this.onHidden);
+  app.on('hidden', this.shutdownCamera);
 
   // Settings
   settings.recorderProfiles.on('change:selected', this.updateRecorderProfile);
@@ -84,6 +90,56 @@ CameraController.prototype.bindEvents = function() {
   settings.hdr.on('change:selected', this.onHDRChange);
 
   debug('events bound');
+};
+
+/**
+ * Check to see if we're still in the preview-gallery
+ * and if so, prevent the camera app from loading the
+ * hardware.
+*/
+CameraController.prototype.onVisible = function() {
+  if (this.galleryOpen) {
+    return;
+  }
+  this.camera.load();
+};
+
+/**
+ * Take picture or start/end recording
+ * when a capture hardware key is invoked.
+ *
+ * Calling `.preventDefault()` prevents
+ * the default system operation
+ * (eg. changing volume level). We
+ * only call it when capture request
+ * succeeds.
+ *
+ * We don't want to .preventDefault() when
+ * the preview-gallery is open as the
+ * user may want to change the volume
+ * of a video being played back.
+ *
+ * @param  {Event} e
+ * @private
+ */
+CameraController.prototype.onCaptureKey = function(e) {
+  debug('on capture key', e);
+  var ignore = this.app.get('timerActive') ||
+    this.app.get('confirmViewVisible');
+  if (ignore) { return e.preventDefault(); }
+  if (this.capture() !== false) { e.preventDefault(); }
+};
+
+/**
+ * Focus the camera when a focus
+ * hardware key is invoked.
+ *
+ * @param  {Event} e
+ * @private
+ */
+CameraController.prototype.onFocusKey = function(e) {
+  debug('on focus key', e);
+  this.camera.focus.focus();
 };
 
 /**
@@ -154,7 +210,7 @@ CameraController.prototype.capture = function() {
   }
 
   var position = this.app.geolocation.position;
-  this.camera.capture({ position: position });
+  return this.camera.capture({ position: position });
 };
 
 /**
@@ -209,6 +265,7 @@ CameraController.prototype.showSizeLimitAlert = function() {
 CameraController.prototype.setMode = function(mode) {
   debug('set mode: %s', mode);
   var self = this;
+  var l10nId;
 
   // Abort if didn't change.
   //
@@ -222,6 +279,14 @@ CameraController.prototype.setMode = function(mode) {
     debug('mode didn\'t change');
     return;
   }
+
+  if (mode == 'video') {
+    l10nId = 'Video-Mode';
+  }
+  else {
+    l10nId = 'Photo-Mode';
+  }
+  this.notification.display({ text: l10nId });
 
   this.setFlashMode();
   this.app.emit('camera:willchange');
@@ -341,13 +406,6 @@ CameraController.prototype.setFlashMode = function() {
   this.camera.setFlashMode(flashSetting.selected('key'));
 };
 
-CameraController.prototype.onHidden = function() {
-  debug('app hidden');
-  this.camera.stopRecording();
-  this.camera.set('focus', 'none');
-  this.camera.release();
-};
-
 CameraController.prototype.setISO = function() {
   if (!this.settings.isoModes.get('disabled')) {
     this.camera.setISOMode(this.settings.isoModes.selected('key'));
@@ -416,10 +474,25 @@ CameraController.prototype.onFocusPointChanged = function(focusPoint) {
 };
 
 CameraController.prototype.shutdownCamera = function() {
-  this.camera.stopRecording();
-  this.camera.set('previewActive', false);
-  this.camera.set('focus', 'none');
-  this.camera.release();
+  this.camera.shutdown();
+};
+
+/**
+ * Camera hardware can be closed after a failure or after app request
+ * It reboots the application in the case of failure
+ *
+ * @private
+ */
+CameraController.prototype.onCameraClosed = function(reason) {
+  reason = reason || 'SystemFailure';
+  if (reason === 'SystemFailure') {
+    this.app.emit('reboot');
+  }
+};
+
+CameraController.prototype.onGalleryOpened = function() {
+  this.galleryOpen = true;
+  this.shutdownCamera();
 };
 
 /**
@@ -434,10 +507,11 @@ CameraController.prototype.shutdownCamera = function() {
  *
  * @private
  */
-CameraController.prototype.onGalleryClosed = function() {
+CameraController.prototype.onGalleryClosed = function(reason) {
+  this.galleryOpen = false;
   if (this.app.hidden) { return; }
   this.app.showSpinner();
-  this.camera.load(this.app.clearSpinner);
+  this.camera.load();
 };
 
 /**
@@ -471,7 +545,7 @@ CameraController.prototype.updateZoomForMako = function() {
     // stream does not automatically reflect the current zoom value.
     self.settings.zoom.set('useZoomPreviewAdjustment', true);
     self.camera.set('maxHardwareZoom', maxHardwareZoom);
-    self.camera.emit('zoomconfigured');
+    self.camera.emit('zoomconfigured', self.camera.getZoom());
     debug('zoom reconfigured for mako');
   }
 };

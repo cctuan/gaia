@@ -1,8 +1,9 @@
 define(
   [
-    'rdcommon/log',
+    'logic',
     '../date',
     '../syncbase',
+    '../allback',
     '../db/mail_rep',
     'activesync/codepages/AirSync',
     'activesync/codepages/AirSyncBase',
@@ -16,9 +17,10 @@ define(
     'exports'
   ],
   function(
-    $log,
+    logic,
     $date,
     $sync,
+    allback,
     mailRep,
     $AirSync,
     $AirSyncBase,
@@ -108,10 +110,12 @@ function lazyConnection(cbIndex, fn, failString) {
 }
 
 
-function ActiveSyncFolderConn(account, storage, _parentLog) {
+function ActiveSyncFolderConn(account, storage) {
   this._account = account;
   this._storage = storage;
-  this._LOG = LOGFAB.ActiveSyncFolderConn(this, _parentLog, storage.folderId);
+  logic.defineScope(this, 'ActiveSyncFolderConn',
+                    { folderId: storage.folderId,
+                      accountId: account.id });
 
   this.folderMeta = storage.folderMeta;
 
@@ -362,7 +366,7 @@ ActiveSyncFolderConn.prototype = {
           else {
             filterType = Type.NoFilter;
           }
-          folderConn._LOG.inferFilterType(filterType);
+          logic(folderConn, 'inferFilterType', { filterType: filterType });
           callback(null, filterType);
         });
         return;
@@ -373,7 +377,7 @@ ActiveSyncFolderConn.prototype = {
         // round-trip where we'd normally get a zero syncKey from the server.
         folderConn.syncKey = '0';
       }
-      folderConn._LOG.inferFilterType(filterType);
+      logic(folderConn, 'inferFilterType', { filterType: filterType });
       callback(null, filterType);
     });
   }),
@@ -782,6 +786,7 @@ ActiveSyncFolderConn.prototype = {
               break;
             case asb.FileReference:
             case em.AttName:
+            case em.Att0Id:
               attachment.part = attachDataText;
               break;
             case asb.EstimatedDataSize:
@@ -793,10 +798,6 @@ ActiveSyncFolderConn.prototype = {
               break;
             case asb.IsInline:
               isInline = (attachDataText === '1');
-              break;
-            case asb.FileReference:
-            case em.Att0Id:
-              attachment.part = attachData.children[0].textContent;
               break;
             }
           }
@@ -844,44 +845,30 @@ ActiveSyncFolderConn.prototype = {
     if (this._account.conn.currentVersion.lt('12.0'))
       return this._syncBodies(headers, callback);
 
-    var anyErr,
-        pending = 1,
-        downloadsNeeded = 0,
+    var downloadsNeeded = 0,
         folderConn = this;
 
-    function next(err) {
-      if (err && !anyErr)
-        anyErr = err;
-
-      if (!--pending) {
-        folderConn._storage.runAfterDeferredCalls(function() {
-          callback(anyErr, /* number downloaded */ downloadsNeeded - pending);
-        });
-      }
-    }
-
+    var latch = allback.latch();
     for (var i = 0; i < headers.length; i++) {
+      var header = headers[i];
       // We obviously can't do anything with null header references.
       // To avoid redundant work, we also don't want to do any fetching if we
       // already have a snippet.  This could happen because of the extreme
       // potential for a caller to spam multiple requests at us before we
       // service any of them.  (Callers should only have one or two outstanding
       // jobs of this and do their own suppression tracking, but bugs happen.)
-      if (!headers[i] || headers[i].snippet !== null) {
+      if (!header || header.snippet !== null) {
         continue;
       }
 
-      pending++;
       // This isn't absolutely guaranteed to be 100% correct, but is good enough
       // for indicating to the caller that we did some work.
       downloadsNeeded++;
-      this.downloadBodyReps(headers[i], options, next);
+      this.downloadBodyReps(header, options, latch.defer(header.suid));
     }
-
-    // by having one pending item always this handles the case of not having any
-    // snippets needing a download and also returning in the next tick of the
-    // event loop.
-    window.setZeroTimeout(next);
+    latch.then(function(results) {
+      callback(allback.extractErrFromCallbackArgs(results), downloadsNeeded);
+    });
   },
 
   downloadBodyReps: lazyConnection(1, function(header, options, callback) {
@@ -1024,20 +1011,8 @@ ActiveSyncFolderConn.prototype = {
         return;
       }
 
-      var status, anyErr,
-          i = 0,
-          pending = 1;
-
-      function next(err) {
-        if (err && !anyErr)
-          anyErr = err;
-
-        if (!--pending) {
-          folderConn._storage.runAfterDeferredCalls(function() {
-            callback(anyErr);
-          });
-        }
-      }
+      var latch = allback.latch();
+      var iHeader = 0;
 
       var e = new $wbxml.EventParser();
       var base = [as.Sync, as.Collections, as.Collection];
@@ -1045,27 +1020,30 @@ ActiveSyncFolderConn.prototype = {
         folderConn.syncKey = node.children[0].textContent;
       });
       e.addEventListener(base.concat(as.Status), function(node) {
-        status = node.children[0].textContent;
+        var status = node.children[0].textContent;
+        if (status !== asEnum.Status.Success) {
+          latch.defer('status')('unknown');
+        }
       });
       e.addEventListener(base.concat(as.Responses, as.Fetch,
                                      as.ApplicationData, em.Body),
                          function(node) {
         // We assume the response is in the same order as the request!
-        var header = headers[i++];
+        var header = headers[iHeader++];
         var bodyContent = node.children[0].textContent;
+        var latchCallback = latch.defer(header.suid);
 
-        pending++;
         folderConn._storage.getMessageBody(header.suid, header.date,
                                            function(body) {
-          folderConn._updateBody(header, body, bodyContent, false, next);
+          folderConn._updateBody(header, body, bodyContent, false,
+                                 latchCallback);
         });
       });
       e.run(aResponse);
 
-      if (status !== asEnum.Status.Success)
-        return next('unknown');
-
-      next(null);
+      latch.then(function(results) {
+        callback(allback.extractErrFromCallbackArgs(results));
+      });
     });
   },
 
@@ -1091,7 +1069,7 @@ ActiveSyncFolderConn.prototype = {
 
     var type = snippetOnly ? 'plain' : bodyRep.type;
     var data = $mailchew.processMessageContent(bodyContent, type, !snippetOnly,
-                                               true, this._LOG);
+                                               true);
 
     header.snippet = data.snippet;
     bodyRep.isDownloaded = !snippetOnly;
@@ -1105,10 +1083,12 @@ ActiveSyncFolderConn.prototype = {
       }
     };
 
+    var latch = allback.latch();
     this._storage.updateMessageHeader(header.date, header.id, false, header,
-                                      bodyInfo);
-    this._storage.updateMessageBody(header, bodyInfo, {}, event);
-    this._storage.runAfterDeferredCalls(callback.bind(null, null, bodyInfo));
+                                      bodyInfo, latch.defer('header'));
+    this._storage.updateMessageBody(header, bodyInfo, {}, event,
+                                    latch.defer('body'));
+    latch.then(callback.bind(null, null, bodyInfo, /* flushed */ false));
   },
 
   sync: lazyConnection(1, function asfc_sync(accuracyStamp, doneCallback,
@@ -1118,7 +1098,7 @@ ActiveSyncFolderConn.prototype = {
         changedMessages = 0,
         deletedMessages = 0;
 
-    this._LOG.sync_begin(null, null, null);
+    logic(this, 'sync_begin');
     var self = this;
     this._enumerateFolderChanges(function (error, added, changed, deleted,
                                            moreAvailable) {
@@ -1129,17 +1109,22 @@ ActiveSyncFolderConn.prototype = {
           // If we got a bad sync key, we'll end up creating a new connection,
           // so just clear out the old storage to make this connection unusable.
           folderConn._storage = null;
-          folderConn._LOG.sync_end(null, null, null);
+          logic(folderConn, 'sync_end', {
+		    full: null, changed: null, deleted: null
+		  });
         });
         return;
       }
       else if (error) {
         // Sync is over!
-        folderConn._LOG.sync_end(null, null, null);
+        logic(folderConn, 'sync_end', {
+		  full: null, changed: null, deleted: null
+        });
         doneCallback(error);
         return;
       }
 
+      var latch = allback.latch();
       for (var iter in Iterator(added)) {
         var message = iter[1];
         // If we already have this message, it's probably because we moved it as
@@ -1148,8 +1133,8 @@ ActiveSyncFolderConn.prototype = {
         if (storage.hasMessageWithServerId(message.header.srvid))
           continue;
 
-        storage.addMessageHeader(message.header, message.body);
-        storage.addMessageBody(message.header, message.body);
+        storage.addMessageHeader(message.header, message.body, latch.defer());
+        storage.addMessageBody(message.header, message.body, latch.defer());
         addedMessages++;
       }
 
@@ -1175,7 +1160,7 @@ ActiveSyncFolderConn.prototype = {
         // Previously, this callback was called without safeguards in place
         // to prevent issues caused by the message variable changing,
         // so it is now bound to the function.
-        }.bind(null, message), /* body hint */ null);
+        }.bind(null, message), /* body hint */ null, latch.defer());
         changedMessages++;
         // XXX: update bodies
       }
@@ -1187,7 +1172,7 @@ ActiveSyncFolderConn.prototype = {
         if (!storage.hasMessageWithServerId(messageGuid))
           continue;
 
-        storage.deleteMessageByServerId(messageGuid);
+        storage.deleteMessageByServerId(messageGuid, latch.defer());
         deletedMessages++;
       }
 
@@ -1195,14 +1180,17 @@ ActiveSyncFolderConn.prototype = {
         var messagesSeen = addedMessages + changedMessages + deletedMessages;
 
         // Do not report completion of sync until all of our operations have
-        // been persisted to our in-memory database.  (We do not wait for
-        // things to hit the disk.)
-        storage.runAfterDeferredCalls(function() {
+        // been persisted to our in-memory database.  We tell this via their
+        // callbacks having completed.
+        latch.then(function() {
           // Note: For the second argument here, we report the number of
           // messages we saw that *changed*. This differs from IMAP, which
           // reports the number of messages it *saw*.
-          folderConn._LOG.sync_end(addedMessages, changedMessages,
-                                   deletedMessages);
+          logic(folderConn, 'sync_end', {
+            full: addedMessages,
+            changed: changedMessages,
+            deleted: deletedMessages
+          });
           storage.markSyncRange($sync.OLDEST_SYNC_DATE, accuracyStamp, 'XXX',
                                 accuracyStamp);
           doneCallback(null, null, messagesSeen);
@@ -1389,14 +1377,15 @@ ActiveSyncFolderConn.prototype = {
   }),
 };
 
-function ActiveSyncFolderSyncer(account, folderStorage, _parentLog) {
+function ActiveSyncFolderSyncer(account, folderStorage) {
   this._account = account;
   this.folderStorage = folderStorage;
 
-  this._LOG = LOGFAB.ActiveSyncFolderSyncer(this, _parentLog,
-                                            folderStorage.folderId);
+  logic.defineScope(this, 'ActiveSyncFolderSyncer',
+                    { accountId: account.id,
+                      folderId: folderStorage.folderId });
 
-  this.folderConn = new ActiveSyncFolderConn(account, folderStorage, this._LOG);
+  this.folderConn = new ActiveSyncFolderConn(account, folderStorage);
 }
 exports.ActiveSyncFolderSyncer = ActiveSyncFolderSyncer;
 ActiveSyncFolderSyncer.prototype = {
@@ -1493,34 +1482,7 @@ ActiveSyncFolderSyncer.prototype = {
 
   shutdown: function() {
     this.folderConn.shutdown();
-    this._LOG.__die();
-  },
+  }
 };
-
-var LOGFAB = exports.LOGFAB = $log.register($module, {
-  ActiveSyncFolderConn: {
-    type: $log.CONNECTION,
-    subtype: $log.CLIENT,
-    events: {
-      inferFilterType: { filterType: false },
-    },
-    asyncJobs: {
-      sync: {
-        newMessages: true, changedMessages: true, deletedMessages: true,
-      },
-    },
-    errors: {
-      htmlParseError: { ex: $log.EXCEPTION },
-      htmlSnippetError: { ex: $log.EXCEPTION },
-      textChewError: { ex: $log.EXCEPTION },
-      textSnippetError: { ex: $log.EXCEPTION },
-    },
-  },
-  ActiveSyncFolderSyncer: {
-    type: $log.DATABASE,
-    events: {
-    }
-  },
-});
 
 }); // end define

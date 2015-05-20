@@ -1,13 +1,13 @@
-/*global Factory */
+define(function(require) {
+'use strict';
 
-// Timespan is always loaded but not in the test
-requireLib('timespan.js');
+var Calc = require('common/calc');
+var EventMutations = require('event_mutations');
+var Factory = require('test/support/factory');
+var core = require('core');
 
-suiteGroup('EventMutations', function() {
-  'use strict';
-
+suite('EventMutations', function() {
   var subject;
-  var app;
   var db;
 
   var controller;
@@ -17,21 +17,22 @@ suiteGroup('EventMutations', function() {
   var alarmStore;
   var componentStore;
   var shouldDisplay;
+  var storeFactory;
 
   setup(function(done) {
-    subject = Calendar.EventMutations;
-    app = testSupport.calendar.app();
-    db = app.db;
-    controller = app.timeController;
+    subject = EventMutations;
+    db = core.db;
+    controller = core.timeController;
     shouldDisplay = controller._shouldDisplayBusytime;
     controller._shouldDisplayBusytime = function() {
       return true;
     };
 
-    eventStore = db.getStore('Event');
-    busytimeStore = db.getStore('Busytime');
-    alarmStore = db.getStore('Alarm');
-    componentStore = db.getStore('IcalComponent');
+    storeFactory = core.storeFactory;
+    eventStore = storeFactory.get('Event');
+    busytimeStore = storeFactory.get('Busytime');
+    alarmStore = storeFactory.get('Alarm');
+    componentStore = storeFactory.get('IcalComponent');
 
     db.open(done);
   });
@@ -53,33 +54,6 @@ suiteGroup('EventMutations', function() {
     );
   });
 
-  var addTime;
-  var addEvent;
-  var removeTime;
-
-  setup(function() {
-    addTime = null;
-    addEvent = null;
-    removeTime = null;
-
-    var span = new Calendar.Timespan(
-      0, Infinity
-    );
-
-    controller.observe();
-    controller.observeTime(span, function(e) {
-      switch (e.type) {
-        case 'add':
-          addTime = e.data;
-          addEvent = controller._eventsCache[addTime.eventId];
-          break;
-        case 'remove':
-          removeTime = e.data;
-          break;
-      }
-    });
-  });
-
   suite('#create', function() {
 
     var event;
@@ -93,12 +67,12 @@ suiteGroup('EventMutations', function() {
       });
 
       // Set the event to start and end in the past
-      event.remote.start = Calendar.Calc.dateToTransport(
+      event.remote.start = Calc.dateToTransport(
         new Date(Date.now() - 2 * 60 * 60 * 1000)
       );
 
       // Ending one hour in the future
-      event.remote.end = Calendar.Calc.dateToTransport(
+      event.remote.end = Calc.dateToTransport(
         new Date(Date.now() - 1 * 60 * 60 * 1000)
       );
 
@@ -108,14 +82,6 @@ suiteGroup('EventMutations', function() {
       });
 
       mutation.commit(done);
-
-      // verify that we sent to controller
-      assert.ok(addEvent, 'sent controller event');
-      assert.ok(addTime, 'sent controller time');
-
-      // check we sent the right event over.
-      assert.hasProperties(addEvent, event, 'controller event');
-      assert.equal(addTime.eventId, event._id, 'controller time');
     });
 
     test('event', function(done) {
@@ -186,12 +152,12 @@ suiteGroup('EventMutations', function() {
       event.remote.foo = true;
 
       // Starting one hour in the past
-      event.remote.start = Calendar.Calc.dateToTransport(
+      event.remote.start = Calc.dateToTransport(
         new Date(Date.now() - 1 * 60 * 60 * 1000)
       );
 
       // Ending one hour in the future
-      event.remote.end = Calendar.Calc.dateToTransport(
+      event.remote.end = Calc.dateToTransport(
         new Date(Date.now() + 1 * 60 * 60 * 1000)
       );
 
@@ -212,21 +178,7 @@ suiteGroup('EventMutations', function() {
         icalComponent: component
       });
 
-      addTime = addEvent = removeTime = null;
       mutation.commit(done);
-    });
-
-    test('controller events', function() {
-      // verify we sent the controller stuff before
-      // fully sending to the db.
-      assert.ok(addTime, 'controller time');
-      assert.ok(addEvent, 'controller event');
-      assert.ok(removeTime, 'controller removed time');
-
-      assert.hasProperties(addTime, {
-        start: event.remote.start,
-        end: event.remote.end
-      });
     });
 
     test('event', function(done) {
@@ -280,5 +232,6 @@ suiteGroup('EventMutations', function() {
       });
     });
   });
+});
 
 });

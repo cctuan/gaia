@@ -1,26 +1,32 @@
-/* globals CallsHandler, CallScreen, FontSizeManager, LazyL10n */
+/* globals CallsHandler, CallScreen, ConferenceGroupUI, FontSizeManager,
+           LazyL10n */
 
 /* exported ConferenceGroupHandler */
 
 'use strict';
-
+/**
+ * Manages and handles conference call logic.
+ * Exposes the following functionality:
+ *  - To add and to remove calls to and from the ongoing conference call details
+ *     information overlay.
+ *  - To be signaled by other actors that a conference call has ended.
+ *  - To check if the conference call details information overlay is shown.
+ *  - To get the current conference call duration.
+ */
 var ConferenceGroupHandler = (function() {
+
+  /**
+   * Object initialization.
+   */
+  var bdiCount = document.createElement('bdi');
   var groupLine = document.getElementById('group-call');
   var groupLabel = document.getElementById('group-call-label');
-  var groupDetails = document.getElementById('group-call-details');
-  var groupDetailsHeader = groupDetails.querySelector('header');
+  groupLabel.appendChild(bdiCount);
   // FIXME/bug 1007148: Refactor duration element structure
   var groupDuration = document.querySelector('#group-call > .duration');
   var groupDurationChildNode = groupDuration.querySelector('span');
   var groupTotalDurationChildNode =
     groupDuration.querySelector('.total-duration');
-  var mergeButton = groupLine.querySelector('.merge-button');
-  mergeButton.onclick = function(evt) {
-    if (evt) {
-      evt.stopPropagation();
-    }
-    CallsHandler.mergeConferenceGroupWithActiveCall();
-  };
 
   var telephony = window.navigator.mozTelephony;
   if (telephony.conferenceGroup) {
@@ -29,16 +35,23 @@ var ConferenceGroupHandler = (function() {
     telephony.conferenceGroup.onerror = onConferenceError;
   }
 
+  /**
+   * Private helper functions.
+   */
+
   function onCallsChanged() {
     var calls = telephony.conferenceGroup.calls;
     CallScreen.updateCallsDisplay();
+    // Hide the conference call participant list overlay if the conference call
+    //  has ended.
     if (!calls.length) {
-      CallScreen.hideGroupDetails();
+      ConferenceGroupUI.hideGroupDetails();
     }
 
     LazyL10n.get(function localized(_) {
-      groupDetailsHeader.textContent = groupLabel.textContent =
-        _('conferenceCall', {n: calls.length});
+      var groupDetailsHeaderText = _('conferenceCall', {n: calls.length});
+      bdiCount.textContent = groupDetailsHeaderText;
+      ConferenceGroupUI.setGroupDetailsHeader(bdiCount.textContent);
     });
 
     // When hanging up phones on conferenceGroup.calls.length >= 2,
@@ -60,7 +73,6 @@ var ConferenceGroupHandler = (function() {
     groupLine.hidden = false;
     groupLine.classList.remove('ended');
     groupLine.classList.remove('held');
-    groupDurationChildNode.textContent = null;
     CallScreen.createTicker(groupDuration);
     CallScreen.setCallerContactImage();
   }
@@ -111,4 +123,34 @@ var ConferenceGroupHandler = (function() {
       CallScreen.showStatusMessage(errorMsg);
     });
   }
+
+  /**
+   * Publicly exposed API functions.
+   */
+
+  function signalConferenceEnded() {
+    ConferenceGroupUI.markCallsAsEnded();
+  }
+
+  function addToGroupDetails(node) {
+    ConferenceGroupUI.addCall(node);
+  }
+
+  function removeFromGroupDetails(node) {
+    ConferenceGroupUI.removeCall(node);
+  }
+
+  function isGroupDetailsShown() {
+    return ConferenceGroupUI.isGroupDetailsShown();
+  }
+
+  return {
+    addToGroupDetails: addToGroupDetails,
+    removeFromGroupDetails: removeFromGroupDetails,
+    signalConferenceEnded: signalConferenceEnded,
+    isGroupDetailsShown: isGroupDetailsShown,
+    get currentDuration() {
+      return groupDurationChildNode.textContent;
+    }
+  };
 })();

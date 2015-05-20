@@ -5,6 +5,7 @@ Keyboards['es-Americas'] = {
   imEngine: 'latin',
   types: ['text', 'url', 'email', 'password'],
   autoCorrectLanguage: 'es',
+  lang: 'es',
   alt: {
     a: 'áªàâäåãāæ',
     c: 'ç',
@@ -13,6 +14,7 @@ Keyboards['es-Americas'] = {
     o: 'óºöòôōœøɵ',
     u: 'úüùûū',
     s: '$ßš',
+    S: '$Š',
     l: '£ l·l',
     n: 'ń',
     y: '¥',
@@ -39,18 +41,20 @@ Keyboards['es-Americas'] = {
   ],
   pages: [undefined, {
     alt: {
-      '$': '€ £ ¥',
-      '0': 'º',
-      '1': '1º 1ª',
-      '2': '2º 2ª',
-      '3': '3º 3ª',
-      '4': '4º 4ª',
-      '5': '5º 5ª',
-      '6': '6º 6ª',
-      '7': '7º 7ª',
-      '8': '8º 8ª',
-      '9': '9º 9ª',
-      '.': '·'
+      '$': ['€', '£', '¢', '¥'],
+      '0': ['º'],
+      '1': ['1º', '1ª'],
+      '2': ['2º', '2ª'],
+      '3': ['3º', '3ª'],
+      '4': ['4º', '4ª'],
+      '5': ['5º', '5ª'],
+      '6': ['6º', '6ª'],
+      '7': ['7º', '7ª'],
+      '8': ['8º', '8ª'],
+      '9': ['9º', '9ª'],
+      '.': ['·'],
+      '"': ['“', '”'],
+      '\'':['‘', '’'],
     },
     // These are based on the es layout.
     keys: [
@@ -74,7 +78,7 @@ Keyboards['es-Americas'] = {
           }
         },
         { value: '¿' }, { value: '?' }, { value: '¡' }, { value: '!' },
-        { value: '\"' }, { value: '\'' },
+        { value: '"' }, { value: '\'' },
         { value: '⌫', ratio: 1.5, keyCode: KeyEvent.DOM_VK_BACK_SPACE }
       ], [
         { value: '&nbsp', ratio: 8, keyCode: KeyboardEvent.DOM_VK_SPACE },
@@ -82,6 +86,9 @@ Keyboards['es-Americas'] = {
       ]
     ]
   }, {
+    alt: {
+      '+': ['-', '×', '÷', '±']
+    },
     keys: [
       [
         { value: '[' }, { value: ']' }, { value: '{' }, { value: '}' },
@@ -99,7 +106,7 @@ Keyboards['es-Americas'] = {
         },
         {value: '*' }, { value: '¿' }, { value: '?' },
         { value: '¡' }, { value: '!' },
-        { value: '\"' }, { value: '\'' },
+        { value: '"' }, { value: '\'' },
         { value: '⌫', ratio: 1.5, keyCode: KeyEvent.DOM_VK_BACK_SPACE }
       ], [
         { value: '&nbsp', ratio: 8, keyCode: KeyboardEvent.DOM_VK_SPACE },

@@ -1,6 +1,7 @@
 'use strict';
 /* global GaiaGrid */
 
+require('/shared/js/url_helper.js');
 require('/shared/elements/gaia_grid/js/grid_icon_renderer.js');
 require('/shared/elements/gaia_grid/js/grid_layout.js');
 require('/shared/elements/gaia_grid/js/grid_view.js');
@@ -31,6 +32,58 @@ suite('GridItem', function() {
     };
 
     subject.renderIconFromSrc('/style/icons/Blank.png');
+  });
+
+  test('basic auth in icon urls', function() {
+    var subject = new GaiaGrid.GridItem();
+    subject.app = {
+      origin: 'some:user@mozilla.org'
+    };
+
+    var result = subject.closestIconFromList({
+      100: '/icon.png'
+    });
+    assert.equal(result, 'some:user@mozilla.org/icon.png');
+  });
+
+  test('scale doesn\'t affect style width', function() {
+    var subject = new GaiaGrid.GridItem();
+
+    subject.grid.config.element =
+      { appendChild: function() {}, offsetWidth: 333 };
+    subject.updateTitle = function() {};
+    subject.renderIcon = function() {};
+
+    subject.render();
+
+    var width1 = subject.element.style.width;
+
+    subject.element = null;
+    subject.scale = 2;
+    subject.render();
+
+    var width2 = subject.element.style.width;
+
+    assert.equal(width1, width2);
+  });
+
+  test('Detect W3C web app manifest icons format', function() {
+    var icons = [];
+    window.WebManifestHelper = {
+      'iconURLForSize': function() {}
+    };
+    var stubIconURLForSize = sinon.stub(window.WebManifestHelper,
+      'iconURLForSize', function() {
+        return new URL('http://example.com/icon.png');
+      });
+    var subject = new GaiaGrid.GridItem();
+    subject.app = {
+      'manifestURL': 'http://example.com/manifest.json'
+    };
+    var result = subject.closestIconFromList(icons);
+    assert.equal(result, 'http://example.com/icon.png');
+    stubIconURLForSize.restore();
+    window.WebManifestHelper = undefined;
   });
 
 });

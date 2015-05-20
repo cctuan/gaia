@@ -1,8 +1,11 @@
+/* exported formatTime, createListElement */
+/* global AlbumArtCache, LazyLoader, Normalizer */
 'use strict';
 
 function formatTime(secs) {
-  if (isNaN(secs))
+  if (isNaN(secs)) {
     return;
+  }
 
   secs = Math.floor(secs);
 
@@ -25,63 +28,163 @@ function formatTime(secs) {
   return formatedTime;
 }
 
-// The Javascript implementation of Java’s String.hashCode() method.
-function hash(str) {
-  var hash = 0;
-  if (str.length === 0) return hash;
-  for (var i = 0; i < str.length; i++) {
-    var c = str.charCodeAt(i);
-    hash = ((hash << 5) - hash) + c;
-    hash = hash & hash; // Convert to 32-bit integer
-  }
-  return hash;
-}
+// In Music, visually we have three styles of list
+// Here we use one function to create different style lists
+function createListElement(option, data, index, highlight) {
+  var li = document.createElement('li');
+  li.className = 'list-item';
+  li.setAttribute('role', 'presentation');
 
-function generateDefaultThumbnailURL(metadata) {
-  // If metadata does not contain both album and artist, then use title instead.
-  var infoForHash = (!metadata.album && !metadata.artist) ?
-    metadata.title : metadata.album + metadata.artist;
-  var hashedNumber = (Math.abs(hash(infoForHash)) % 10) + 1;
+  var a = document.createElement('a');
+  a.dataset.index = index;
+  a.dataset.option = option;
+  a.setAttribute('role', 'option');
 
-  return '/style/images/AlbumArt' + hashedNumber + '_small.png';
-}
+  var titleBdi;
 
-// Fetch the cover art for a given file and return it as a Blob. If there's no
-// embedded cover art, grab the appropriate placeholder image instead. XXX: This
-// function is a bit convoluted, and we could stand to simplify things here,
-// e.g. by merging placeholder art with embedded art and/or storing cover art
-// on the sdcard.
-function getAlbumArtBlob(fileinfo, callback) {
-  var getBlob = function(url, callback) {
-    var xhr = new XMLHttpRequest();
-    xhr.open('GET', url, true);
-    xhr.responseType = 'blob';
+  li.appendChild(a);
 
-    xhr.onload = function() {
-      callback(null, xhr.response);
-    };
-    // I don't think onerror usually gets called, but let's play it safe.
-    xhr.onerror = function() {
-      callback('error', null);
-    };
+  function highlightText(result, text) {
+    var textContent = result.textContent;
+    var textLowerCased = textContent.toLocaleLowerCase();
+    var index = Normalizer.toAscii(textLowerCased).indexOf(text);
 
-    // Bad local URLs throw in send() for some reason.
-    try {
-      xhr.send();
-    } catch (e) {
-      callback(e, null);
+    if (index >= 0) {
+      var innerHTML = textContent.substring(0, index) +
+                      '<span class="search-highlight">' +
+                      textContent.substring(index, index + text.length) +
+                      '</span>' +
+                      textContent.substring(index + text.length);
+
+      result.innerHTML = innerHTML;
     }
-  };
+  }
 
-  if ('picture' in fileinfo.metadata) {
-    getThumbnailURL(fileinfo, function(url) {
-      if (!url)
-        return callback(null, null);
-      getBlob(url, callback);
-    });
+  switch (option) {
+    case 'playlist':
+      titleBdi = document.createElement('bdi');
+      titleBdi.className = 'list-playlist-title';
+      if (data.metadata.l10nId) {
+        titleBdi.textContent = navigator.mozL10n.get(data.metadata.l10nId);
+        titleBdi.dataset.l10nId = data.metadata.l10nId;
+      } else {
+        titleBdi.textContent =
+          data.metadata.title || navigator.mozL10n.get('unknownTitle');
+        titleBdi.dataset.l10nId =
+          data.metadata.title ? '' : 'unknownTitle';
+      }
+
+      a.dataset.keyRange = 'all';
+      a.dataset.option = data.option;
+
+      a.appendChild(titleBdi);
+
+      if (index === 0) {
+        var shuffleIcon = document.createElement('div');
+        shuffleIcon.className = 'list-playlist-icon';
+        shuffleIcon.dataset.icon = 'shuffle';
+        a.appendChild(shuffleIcon);
+      }
+
+      break;
+
+    case 'artist':
+    case 'album':
+    case 'title':
+      var artistBdi;
+      // Use background image instead of creating img elements can reduce
+      // the amount of total elements in the DOM tree, it can save memory
+      // and gecko can render the elements faster as well.
+      LazyLoader.load('js/metadata/album_art_cache.js', function() {
+        AlbumArtCache.getCoverURL(data).then(function(url) {
+          li.style.backgroundImage = 'url(' + url + ')';
+        });
+      });
+
+      if (option === 'artist') {
+        artistBdi = document.createElement('bdi');
+        artistBdi.className = 'list-single-title';
+        artistBdi.textContent =
+          data.metadata.artist || navigator.mozL10n.get('unknownArtist');
+        artistBdi.dataset.l10nId =
+          data.metadata.artist ? '' : 'unknownArtist';
+
+        // Highlight the text when the highlight argument is passed
+        // This should only happens when we are creating searched results
+        if (highlight) {
+          highlightText(artistBdi, highlight);
+        }
+
+        a.appendChild(artistBdi);
+      } else {
+        var albumOrTitleBdi = document.createElement('bdi');
+        artistBdi = document.createElement('bdi');
+        albumOrTitleBdi.className = 'list-main-title';
+        artistBdi.className = 'list-sub-title';
+        if (option === 'album') {
+          albumOrTitleBdi.textContent =
+            data.metadata.album || navigator.mozL10n.get('unknownAlbum');
+          albumOrTitleBdi.dataset.l10nId =
+            data.metadata.album ? '' : 'unknownAlbum';
+        } else {
+          albumOrTitleBdi.textContent =
+            data.metadata.title || navigator.mozL10n.get('unknownTitle');
+          albumOrTitleBdi.dataset.l10nId =
+            data.metadata.title ? '' : 'unknownTitle';
+        }
+        artistBdi.textContent =
+          data.metadata.artist || navigator.mozL10n.get('unknownArtist');
+        artistBdi.dataset.l10nId =
+          data.metadata.artist ? '' : 'unknownArtist';
+
+        // Highlight the text when the highlight argument is passed
+        // This should only happens when we are creating searched results
+        if (highlight) {
+          highlightText(albumOrTitleBdi, highlight);
+        }
+
+        a.appendChild(albumOrTitleBdi);
+        a.appendChild(artistBdi);
+      }
+
+      a.dataset.keyRange = data.metadata[option];
+      a.dataset.option = option;
+
+      break;
+
+    case 'song':
+    case 'song-index':
+      var songTitle =
+        data.metadata.title || navigator.mozL10n.get('unknownTitle');
+
+      var indexBdi = document.createElement('bdi');
+      indexBdi.className = 'list-song-index';
+      // 'song-index' mean we want the index and not the track #
+      if (option === 'song-index') {
+        indexBdi.textContent = index + 1;
+      } else {
+        var trackNum = data.metadata.tracknum;
+        if (data.metadata.discnum && data.multidisc) {
+          trackNum = data.metadata.discnum + '.' +
+            (trackNum < 10 ? '0' + trackNum : trackNum);
+        }
+        indexBdi.textContent = trackNum;
+      }
+
+      titleBdi = document.createElement('bdi');
+      titleBdi.className = 'list-song-title';
+      titleBdi.textContent = songTitle;
+      titleBdi.dataset.l10nId = data.metadata.title ? '' : 'unknownTitle';
+
+      var lengthBdi = document.createElement('bdi');
+      lengthBdi.className = 'list-song-length';
+
+      a.appendChild(indexBdi);
+      a.appendChild(titleBdi);
+      a.appendChild(lengthBdi);
+
+      break;
   }
-  else {
-    var url = generateDefaultThumbnailURL(fileinfo.metadata);
-    getBlob(url, callback);
-  }
+
+  return li;
 }

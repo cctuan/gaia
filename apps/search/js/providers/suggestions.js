@@ -1,20 +1,43 @@
 (function() {
 
   'use strict';
-  /* global eme, Promise, Provider, Search */
+  /* globals Promise, Provider, Search, MetricsHelper */
+  /* globals LazyLoader */
+  /* globals SearchProvider */
 
-  var ANNOTATION_REGEX = /\[*(.+?)\]*/g;
+  var suggestionsWrapper = document.getElementById('suggestions-wrapper');
+  var suggestionsProvider = document.getElementById('suggestions-provider');
+  var suggestionsSelect = document.getElementById('suggestions-select');
 
-  function deannotate(match, p1) {
-    return p1;
+  function providerUpdated() {
+
+    navigator.mozL10n.setAttributes(suggestionsProvider, 'search-header', {
+      provider: SearchProvider('title').toUpperCase()
+    });
+
+    var providers = SearchProvider.providers();
+    var selectFragment = document.createDocumentFragment();
+    var optionNode = document.createElement('option');
+
+    Object.keys(providers).forEach(provider => {
+      var option = optionNode.cloneNode();
+      option.value = provider;
+      option.text = providers[provider].title;
+      if (provider === SearchProvider.selected()) {
+        option.selected = true;
+      }
+      selectFragment.appendChild(option);
+    });
+
+    suggestionsSelect.innerHTML = '';
+    suggestionsSelect.appendChild(selectFragment);
   }
 
-  function getSuggestionText(item) {
-    return item.replace(ANNOTATION_REGEX, deannotate);
+  function encodeTerms(str, search) {
+    return str.replace('{searchTerms}', encodeURIComponent(search));
   }
 
-  function Suggestions(eme) {
-  }
+  function Suggestions() {}
 
   Suggestions.prototype = {
 
@@ -22,45 +45,63 @@
 
     name: 'Suggestions',
 
-    remote: true,
+    currentSearch: null,
 
-    init: function(config) {
+    init: function() {
+      this.metrics = new MetricsHelper();
+      this.metrics.init();
+
       Provider.prototype.init.apply(this, arguments);
-      eme.init();
+
+      suggestionsSelect.addEventListener('change', function(e) {
+        SearchProvider.setProvider(e.target.value);
+      });
+
+      SearchProvider.ready().then(() => {
+        providerUpdated();
+        SearchProvider.providerUpdated(() => {
+          providerUpdated();
+          this.redoSearch();
+        });
+      });
+    },
+
+    redoSearch: function() {
+      if (!this.currentSearch) {
+        return;
+      }
+      this.search(this.currentSearch).then(results => {
+        this.render(results);
+      });
     },
 
     click: function(e) {
-      var suggestion = e.target && e.target.dataset.suggestion;
-      if (suggestion) {
-       Search.setInput(suggestion);
-      }
+      this.metrics.report('websearch', SearchProvider('title'));
+      var suggestion = e.target.dataset.suggestion;
+      var url = encodeTerms(SearchProvider('searchUrl'), suggestion);
+      Search.navigate(url);
     },
 
-    search: function(input) {
-      return new Promise((resolve, reject) => {
-        this.clear();
-        if (!eme.api.Search) {
-          reject();
-          return;
-        }
+    search: function(input, preventRemote) {
 
-        this.request = eme.api.Search.suggestions({
-          'query': input
-        });
+      this.currentSearch = preventRemote ? null : input;
+      this.render([input]);
 
-        this.request.then((data) => {
-          var items = data.response;
-          if (items && items.length) {
-            // The E.me API can return the query as a suggestion
-            // Filter this out
-            var matchingIndex = items.indexOf(input);
-            if (matchingIndex !== -1) {
-              items.splice(matchingIndex, 1);
-            }
-          }
-          resolve(items);
-        }, (reason) => {
-          reject();
+      if (!navigator.onLine || preventRemote) {
+        return Promise.resolve([input]);
+      }
+
+      suggestionsWrapper.dataset.loading = true;
+
+      return SearchProvider.ready().then(() => {
+        return new Promise((resolve, reject) => {
+          var url = encodeTerms(SearchProvider('suggestUrl'), input);
+          LazyLoader.getJSON(url, true).then(result => {
+            var results = result[1];
+            // We add an item to search the entered term as well
+            results.unshift(input);
+            resolve(results);
+          });
         });
       });
     },
@@ -70,24 +111,27 @@
       ul.setAttribute('role', 'listbox');
 
       items.forEach(function each(item) {
-        var text = getSuggestionText(item);
         var li = document.createElement('li');
-        li.dataset.suggestion = li.textContent = text;
+        li.dataset.suggestion = li.textContent = item;
         li.setAttribute('role', 'option');
-        // Can not simply read the text since we also have the bullet
-        // character that the screen reader should avoid.
-        li.setAttribute('aria-label', text);
         ul.appendChild(li);
       });
 
-      this.clear();
+      suggestionsWrapper.dataset.loading = false;
+      this.container.innerHTML = '';
+
       if (ul.childNodes.length) {
         this.container.appendChild(ul);
       }
+    },
+
+    clear: function() {
+      Provider.prototype.clear.apply(this, arguments);
+      this.currentSearch = null;
     }
 
   };
 
-  Search.provider(new Suggestions(window.eme));
+  Search.provider(new Suggestions());
 
 }());

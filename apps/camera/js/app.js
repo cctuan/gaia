@@ -1,9 +1,6 @@
 define(function(require, exports, module) {
 'use strict';
 
-// For perf-measurement related utilities
-require('performance-testing-helper');
-
 /**
  * Dependencies
  */
@@ -52,6 +49,7 @@ function App(options) {
   this.pinch = options.pinch || new Pinch(this.el); // Test hook
   this.require = options.require || window.requirejs; // Test hook
   this.LoadingView = options.LoadingView || LoadingView; // test hook
+  this.orientation = options.orientation || orientation; // test hook
   this.inSecureMode = (this.win.location.hash === '#secure');
   this.controllers = options.controllers;
   this.geolocation = options.geolocation;
@@ -78,14 +76,14 @@ App.prototype.boot = function() {
   this.initializeViews();
   this.runControllers();
 
-  // PERFORMANCE EVENT (1): moz-chrome-dom-loaded
+  // PERFORMANCE MARKER (1): navigationLoaded
   // Designates that the app's *core* chrome or navigation interface
   // exists in the DOM and is marked as ready to be displayed.
-  // PERFORMANCE EVENT (2): moz-chrome-interactive
+  // PERFORMANCE MARKER (2): navigationInteractive
   // Designates that the app's *core* chrome or navigation interface
   // has its events bound and is ready for user interaction.
-  this.dispatchEvent('moz-chrome-dom-loaded');
-  this.dispatchEvent('moz-chrome-interactive');
+  window.performance.mark('navigationLoaded');
+  window.performance.mark('navigationInteractive');
 
   this.injectViews();
   this.booted = true;
@@ -110,8 +108,8 @@ App.prototype.runControllers = function() {
   this.controllers.activity(this);
   this.controllers.camera(this);
   this.controllers.viewfinder(this);
-  this.controllers.controls(this);
   this.controllers.hud(this);
+  this.controllers.controls(this);
   debug('controllers run');
 };
 
@@ -163,10 +161,12 @@ App.prototype.bindEvents = function() {
   // App
   this.once('storage:checked:healthy', this.geolocationWatch);
   this.once('viewfinder:visible', this.onCriticalPathDone);
+  this.once('camera:error', this.onCriticalPathDone);
   this.on('camera:willchange', this.firer('busy'));
   this.on('ready', this.clearSpinner);
   this.on('visible', this.onVisible);
   this.on('hidden', this.onHidden);
+  this.on('reboot', this.onReboot);
   this.on('busy', this.onBusy);
 
   // Pinch
@@ -182,7 +182,9 @@ App.prototype.bindEvents = function() {
   // we bind to window.onlocalized in order not to depend
   // on l10n.js loading (which is lazy). See bug 999132
   bind(this.win, 'localized', this.firer('localized'));
+
   bind(this.win, 'beforeunload', this.onBeforeUnload);
+  bind(this.win, 'keydown', this.onKeyDown);
   bind(this.el, 'click', this.onClick);
   debug('events bound');
 };
@@ -197,7 +199,8 @@ App.prototype.bindEvents = function() {
  */
 App.prototype.onVisible = function() {
   this.geolocationWatch();
-  orientation.start();
+  this.orientation.start();
+  this.orientation.lock();
   debug('visible');
 };
 
@@ -209,9 +212,21 @@ App.prototype.onVisible = function() {
  */
 App.prototype.onHidden = function() {
   this.geolocation.stopWatching();
-  orientation.stop();
+  this.orientation.stop();
   debug('hidden');
 };
+
+
+/**
+ * Reboots the application
+ *
+ * @private
+ */
+App.prototype.onReboot = function() {
+  debug('reboot');
+  window.location.reload();
+};
+
 
 /**
  * Emit a click event that other
@@ -230,13 +245,13 @@ App.prototype.onClick = function() {
  * @private
  */
 App.prototype.onCriticalPathDone = function() {
+  if (this.criticalPathDone) { return; }
   debug('critical path done');
-
-  // PERFORMANCE EVENT (3): moz-app-visually-complete
+  // PERFORMANCE MARKER (3): visuallyLoaded
   // Designates that the app is visually loaded (e.g.: all of the
   // "above-the-fold" content exists in the DOM and is marked as
   // ready to be displayed).
-  this.dispatchEvent('moz-app-visually-complete');
+  window.performance.mark('visuallyLoaded');
 
   // Load non-critical modules
   this.listenForStopRecordingEvent();
@@ -253,23 +268,24 @@ App.prototype.loadLazyModules = function() {
 
   this.loadL10n(done());
   this.loadLazyControllers(done());
+  this.once('storage:checked', done());
 
   // All done
   done(function() {
     debug('app fully loaded');
 
-    // PERFORMANCE EVENT (4): moz-content-interactive
+    // PERFORMANCE MARKER (4): contentInteractive
     // Designates that the app has its events bound for the minimum
     // set of functionality to allow the user to interact with the
     // "above-the-fold" content.
-    self.dispatchEvent('moz-content-interactive');
+    window.performance.mark('contentInteractive');
 
-    // PERFORMANCE EVENT (5): moz-app-loaded
+    // PERFORMANCE MARKER (5): fullyLoaded
     // Designates that the app is *completely* loaded and all relevant
     // "below-the-fold" content exists in the DOM, is marked visible,
     // has its events bound and is ready for user interaction. All
     // required startup background processing should be complete.
-    self.dispatchEvent('moz-app-loaded');
+    window.performance.mark('fullyLoaded');
     self.perf.loaded = Date.now();
     self.loaded = true;
     self.emit('loaded');
@@ -324,7 +340,6 @@ App.prototype.onVisibilityChange = function() {
  * @private
  */
 App.prototype.onBeforeUnload = function() {
-  this.views.viewfinder.stopStream();
   this.emit('beforeunload');
   debug('beforeunload');
 };
@@ -382,6 +397,12 @@ App.prototype.l10nGet = function(key) {
  */
 App.prototype.showSpinner = function(key) {
   debug('show loading type: %s', key);
+
+  var view = this.views.loading;
+  if (view) {
+    return;
+  }
+
   var ms = this.settings.spinnerTimeouts.get(key) || 0;
   var self = this;
 
@@ -471,5 +492,25 @@ App.prototype.listenForStopRecordingEvent = function() {
   stopRecordingEvent.start();
   addEventListener('stoprecording', this.firer('stoprecording'));
 };
+
+
+/**
+ * When the device's hardware keys
+ * are pressed we emit a global
+ * app event that other controllers
+ * can respond to.
+ *
+ * TIP: Check config.js for the map
+ * of key names to types.
+ *
+ * @param  {Event} e
+ * @private
+ */
+App.prototype.onKeyDown = function(e) {
+  var key = e.key.toLowerCase();
+  var type = this.settings.keyDownEvents.get(key);
+  if (type) { this.emit('keydown:' + type, e); }
+};
+
 
 });

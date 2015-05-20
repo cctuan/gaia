@@ -1,4 +1,4 @@
-/* globals BaseUI, CardsHelper, TrustedUIManager */
+/* globals BaseUI, CardsHelper, Tagged */
 
 /* exported Card */
 
@@ -7,6 +7,11 @@
 (function(exports) {
 
   var _id = 0;
+
+  /* Corresponds to the icon size in the footer.
+   * Used to determine the proper icon size from the manifest.
+   */
+  const CARD_FOOTER_ICON_SIZE = 40;
 
   /**
    * A card in a card view, representing a single app
@@ -48,6 +53,20 @@
   Card.prototype.element = null;
 
   /**
+   * CSS visibility value to show/hide close button for this app
+   * @type {String}
+   * @memberof Card.prototype
+   */
+  Card.prototype.closeButtonVisibility = 'hidden';
+
+  /**
+   * CSS visibility value to show/hide favorite button for this app
+   * @type {String}
+   * @memberof Card.prototype
+   */
+  Card.prototype.favoriteButtonVisibility = 'hidden';
+
+  /**
    * Debugging helper to output a useful string representation of an instance.
    * @memberOf Card.prototype
   */
@@ -65,41 +84,44 @@
     return this.manager.useAppScreenshotPreviews;
   };
 
+
   /**
    * Template string representing the innerHTML of the instance's element
    * @memberOf Card.prototype
    */
-  Card.prototype._template =
-    '<div class="screenshotView" data-l10n-id="openCard" role="button"></div>' +
-    '<div class="appIconView" style="background-image:{iconValue}"></div>' +
-    '' +
-    '<div class="titles">' +
-    ' <h1 id="{titleId}" class="title">{title}</h1>' +
-    ' <p class="subtitle">{subTitle}</p>' +
-    '</div>' +
-    '' +
-    '<footer class="card-tray">'+
-    ' <button class="appIcon" data-l10n-id="openCard" ' +
-    '   data-button-action="select"></button>' +
-    ' <menu class="buttonbar">' +
-    '   <button class="close-button" data-l10n-id="closeCard" ' +
-    '     data-button-action="close" role="button" ' +
-    '     style="visibility: {closeButtonVisibility}"></button>' +
-    '  <button class="favorite-button" data-button-action="favorite" ' +
-    '    role="button" ' +
-    '    style="visibility: {favoriteButtonVisibility}"></button>' +
-    ' </menu>' +
-    '</footer>';
+  Card.prototype.template = function() {
+    return Tagged.escapeHTML `<div class="titles">
+     <h1 id="${this.titleId}" dir="auto" class="title">${this.title}</h1>
+     <p class="subtitle">
+      <span class="subtitle-url">${this.subTitle}</span>
+     </p>
+    </div>
+
+    <div class="screenshotView bb-button" data-l10n-id="openCard"
+      role="link"></div>
+    <div class="privateOverlay"></div>
+    <div class="appIconView" style="background-image:${this.iconValue}"></div>
+
+    <footer class="card-tray">
+     <button class="appIcon" data-l10n-id="openCard"
+       data-button-action="select" aria-hidden="true"></button>
+     <menu class="buttonbar">
+       <button class="close-button bb-button" data-l10n-id="closeCard"
+         data-button-action="close" role="button"
+         style="visibility: ${this.closeButtonVisibility}"></button>
+      <button class="favorite-button bb-button"
+        data-button-action="favorite" role="button"
+        style="visibility: ${this.favoriteButtonVisibility}"></button>
+     </menu>
+    </footer>`;
+  };
 
   /**
    * Card html view - builds the innerHTML for a card element
    * @memberOf Card.prototype
    */
   Card.prototype.view = function c_view() {
-    var viewData = this;
-    return this._template.replace(/\{([^\}]+)\}/g, function(m, key) {
-        return viewData[key];
-    });
+    return this.template();
   };
 
   /**
@@ -109,32 +131,50 @@
   Card.prototype._populateViewData = function() {
     var app = this.app;
     this.title = (app.isBrowser() && app.title) ? app.title : app.name;
+    this.sslState = app.getSSLState();
     this.subTitle = '';
     this.iconValue = '';
     this.closeButtonVisibility = 'visible';
     this.viewClassList = ['card', 'appIconPreview'];
     this.titleId = 'card-title-' + this.instanceID;
 
+    if (app.isPrivate) {
+      this.viewClassList.push('private');
+    }
+
     // app icon overlays screenshot by default
     // and will be removed if/when we display the screenshot
-    var iconURI = CardsHelper.getIconURIForApp(this.app);
+    var size = CARD_FOOTER_ICON_SIZE * window.devicePixelRatio;
+    var iconURI = CardsHelper.getIconURIForApp(this.app, size);
     if (iconURI) {
-        this.iconValue = 'url(' + iconURI + ')';
+      this.iconValue = 'url(' + iconURI + ')';
     }
 
     var origin = app.origin;
-    var popupFrame;
     var frameForScreenshot = app.getFrameForScreenshot();
+    var displayUrl = '';
 
-    if (frameForScreenshot &&
+    if (app.isBrowser()) {
+      displayUrl = app.config.url || origin;
+      // Do not display the URL when browsing an app page. This is
+      // encountered for use-cases like the private browser splash page.
+      if (displayUrl.startsWith('app://')) {
+        displayUrl = false;
+      }
+
+    } else if(frameForScreenshot &&
         CardsHelper.getOffOrigin(frameForScreenshot.src, origin)) {
-      this.subTitle = CardsHelper.getOffOrigin(
-                        frameForScreenshot.src, origin);
+      displayUrl = CardsHelper.getOffOrigin(frameForScreenshot.src, origin);
+    }
+    if (displayUrl) {
+      this.subTitle = this.getDisplayURLString(displayUrl);
+      this.viewClassList.push('show-subtitle');
     }
 
-    if (TrustedUIManager.hasTrustedUI(app.origin)) {
-      popupFrame = TrustedUIManager.getDialogFromOrigin(app.origin);
-      this.title = CardsHelper.escapeHTML(popupFrame.name || '', true);
+    var topMostWindow = app.getTopMostWindow();
+    if (topMostWindow && topMostWindow.CLASS_NAME === 'TrustedWindow') {
+      var name = topMostWindow.name;
+      this.title = name || '';
       this.viewClassList.push('trustedui');
     } else if (!this.app.killable()) {
       // unclosable app
@@ -149,19 +189,13 @@
     var windowWidth = this.manager.windowWidth || window.innerWidth;
     var offset = this.position - this.manager.position;
     var positionX = deltaX + offset * (windowWidth * 0.55);
-    var appliedX = positionX;
-
-    var rightLimit =  windowWidth / 2 + windowWidth * 0.24 - 0.001;
-    appliedX = Math.min(appliedX, rightLimit);
-    appliedX = Math.max(appliedX, -1 * rightLimit);
 
     this.element.dataset.positionX = positionX;
-    this.element.dataset.keepLayerDelta = Math.abs(positionX - appliedX);
 
     var style = { transform: '' };
 
     if (deltaX || offset) {
-      style.transform = 'translateX(' + appliedX + 'px)';
+      style.transform = 'translateX(' + positionX + 'px)';
     }
 
     if (deltaY) {
@@ -192,6 +226,13 @@
     elem.innerHTML = this.view();
 
     // Label the card by title (for screen reader).
+    elem.setAttribute('aria-labelledby', this.titleId);
+    // define role group for the card (for screen reader).
+    elem.setAttribute('role', 'group');
+    // Indicate security state where applicable & available
+    if (this.sslState) {
+      elem.dataset.ssl = this.sslState;
+    }
     elem.setAttribute('aria-labelledby', this.titleId);
 
     this.viewClassList.forEach(function(cls) {
@@ -285,44 +326,25 @@
       this.iconButton.style.backgroundImage = this.iconValue;
     }
 
-    // Handling cards in different orientations
-    var degree = app.rotatingDegree;
-    var isLandscape = (degree == 90 || degree == 270);
-
-    // Rotate screenshotView if needed
-    screenshotView.classList.add('rotate-' + degree);
-
     if (isIconPreview) {
       return;
     }
 
-    if (isLandscape) {
-      // We must exchange width and height if it's landscape mode
-      var width = elem.clientHeight;
-      var height = elem.clientWidth;
-      screenshotView.style.width = width + 'px';
-      screenshotView.style.height = height + 'px';
-      screenshotView.style.left = ((height - width) / 2) + 'px';
-      screenshotView.style.top = ((width - height) / 2) + 'px';
-    }
-
-    // If we have a cached screenshot, use that first
-    var cachedLayer = app.requestScreenshotURL();
-
-    if (cachedLayer && app.isActive()) {
+    // Use a cached screenshot if we have one for the active app
+    var cachedLayer;
+    if (app.isActive()) {
+      // will be null or blob url
+      cachedLayer = app.requestScreenshotURL();
       screenshotView.classList.toggle('fullscreen',
                                       app.isFullScreen());
-      screenshotView.classList.toggle('maximized',
+      if (app.appChrome) {
+        screenshotView.classList.toggle('maximized',
                                       app.appChrome.isMaximized());
-      screenshotView.style.backgroundImage =
-        'url(' + cachedLayer + '),' +
-        '-moz-element(#' + this.app.instanceID + ')';
-    } else {
-      screenshotView.style.backgroundImage =
-        'url(none),' +
-        '-moz-element(#' + this.app.instanceID + ')';
+      }
     }
-
+    screenshotView.style.backgroundImage =
+      (cachedLayer ? 'url(' + cachedLayer + ')' : 'none' ) + ',' +
+      '-moz-element(#' + this.app.instanceID + ')';
   };
 
   Card.prototype._fetchElements = function c__fetchElements() {
@@ -331,7 +353,19 @@
     this.iconButton = this.element.querySelector('.appIcon');
   };
 
+  Card.prototype.getDisplayURLString = function(url) {
+    // truncation/simplification of URL for card display
+    var anURL;
+    try {
+      anURL = this.app ? new URL(url, this.app.origin) : new URL(url);
+    } catch (e) {
+      // return as-is if url was not valid
+      return url;
+    }
+    var displayString = url.substring(url.indexOf(anURL.host));
+    return displayString;
+  };
+
   return (exports.Card = Card);
 
 })(window);
-

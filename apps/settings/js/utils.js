@@ -1,6 +1,7 @@
-/* -*- Mode: js; js-indent-level: 2; indent-tabs-mode: nil -*- */
-/* vim: set shiftwidth=2 tabstop=2 autoindent cindent expandtab: */
-
+/* global MozActivity, LazyLoader, DsdsSettings, SupportedNetworkTypeHelper */
+/* exported reopenSettings, openLink, openDialog,
+            openIncompatibleSettingsDialog, DeviceStorageHelper,
+            sanitizeAddress, getIccByIndex */
 'use strict';
 
 /**
@@ -19,6 +20,7 @@ function reopenSettings() {
  */
 
 function openLink(url) {
+  /* jshint -W031 */
   if (url.startsWith('tel:')) { // dial a phone number
     new MozActivity({
       name: 'dial',
@@ -39,8 +41,9 @@ function openLink(url) {
  */
 
 function openDialog(dialogID, onSubmit, onReset) {
-  if ('#' + dialogID == Settings.currentPanel)
+  if ('#' + dialogID === Settings.currentPanel) {
     return;
+  }
 
   var origin = Settings.currentPanel;
 
@@ -51,8 +54,9 @@ function openDialog(dialogID, onSubmit, onReset) {
   var submit = dialog.querySelector('[type=submit]');
   if (submit) {
     submit.onclick = function onsubmit() {
-      if (typeof onSubmit === 'function')
+      if (typeof onSubmit === 'function') {
         (onSubmit.bind(dialog))();
+      }
       Settings.currentPanel = origin; // hide dialog box
     };
   }
@@ -60,8 +64,9 @@ function openDialog(dialogID, onSubmit, onReset) {
   var reset = dialog.querySelector('[type=reset]');
   if (reset) {
     reset.onclick = function onreset() {
-      if (typeof onReset === 'function')
+      if (typeof onReset === 'function') {
         (onReset.bind(dialog))();
+      }
       Settings.currentPanel = origin; // hide dialog box
     };
   }
@@ -91,19 +96,19 @@ function openIncompatibleSettingsDialog(dialogId, newSetting,
   var messageL10n =
     messageL10nMap[newSetting] && messageL10nMap[newSetting][oldSetting];
 
-  var dialogElement = document.querySelector('.incompatible-settings-dialog'),
-    dialogHead = document.querySelector('.is-warning-head'),
-    dialogMessage = document.querySelector('.is-warning-message'),
-    okBtn = document.querySelector('.incompatible-settings-ok-btn'),
-    cancelBtn = document.querySelector('.incompatible-settings-cancel-btn'),
-    mozL10n = navigator.mozL10n;
+  var dialogElement = document.querySelector('.incompatible-settings-dialog');
+  var dialogHead = document.querySelector('.is-warning-head');
+  var dialogMessage = document.querySelector('.is-warning-message');
+  var okBtn = document.querySelector('.incompatible-settings-ok-btn');
+  var cancelBtn = document.querySelector('.incompatible-settings-cancel-btn');
 
   dialogHead.setAttribute('data-l10n-id', headerL10n);
   dialogMessage.setAttribute('data-l10n-id', messageL10n);
 
   // User has requested enable the feature so the old feature
   // must be disabled
-  function onEnable() {
+  function onEnable(evt) {
+    evt.preventDefault();
     var lock = Settings.mozSettings.createLock();
     var cset = {};
 
@@ -118,7 +123,8 @@ function openIncompatibleSettingsDialog(dialogId, newSetting,
     }
   }
 
-  function onCancel() {
+  function onCancel(evt) {
+    evt.preventDefault();
     var lock = Settings.mozSettings.createLock();
     var cset = {};
 
@@ -145,47 +151,29 @@ function openIncompatibleSettingsDialog(dialogId, newSetting,
 }
 
 /**
- * JSON loader
- */
-
-function loadJSON(href, callback) {
-  if (!callback)
-    return;
-  var xhr = new XMLHttpRequest();
-  xhr.onerror = function() {
-    console.error('Failed to fetch file: ' + href, xhr.statusText);
-  };
-  xhr.onload = function() {
-    callback(xhr.response);
-  };
-  xhr.open('GET', href, true); // async
-  xhr.responseType = 'json';
-  xhr.send();
-}
-
-/**
  * Helper class for formatting file size strings
  * required by *_storage.js
  */
 
 var FileSizeFormatter = (function FileSizeFormatter(fixed) {
-  function getReadableFileSize(size, digits) { // in: size in Bytes
-    if (size === undefined)
+  function getReadableFileSize(bytes, digits) { // in: size in Bytes
+    if (bytes === undefined) {
       return {};
-
-    var units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB'];
-    var i = 0;
-    while (size >= 1024) {
-      size /= 1024;
-      ++i;
     }
 
-    var sizeString = size.toFixed(digits || 0);
-    var sizeDecimal = parseFloat(sizeString);
+    var units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB'];
+    var size, e;
+    if (bytes) {
+      e = Math.floor(Math.log(bytes) / Math.log(1024));
+      size = (bytes / Math.pow(1024, e)).toFixed(digits || 0);
+    } else {
+      e = 0;
+      size = '0';
+    }
 
     return {
-      size: sizeDecimal,
-      unit: units[i]
+      size: size,
+      unit: units[e]
     };
   }
 
@@ -204,8 +192,8 @@ var DeviceStorageHelper = (function DeviceStorageHelper() {
       return;
     }
 
-    // KB - 3 KB (nearest ones), MB, GB - 1.2 MB (nearest tenth)
-    var fixedDigits = (size < 1024 * 1024) ? 0 : 1;
+    // KB - 3 KB (nearest ones), MB, GB - 1.29 MB (nearest hundredth)
+    var fixedDigits = (size < 1024 * 1024) ? 0 : 2;
     var sizeInfo = FileSizeFormatter.getReadableFileSize(size, fixedDigits);
 
     var _ = navigator.mozL10n.get;
@@ -221,23 +209,6 @@ var DeviceStorageHelper = (function DeviceStorageHelper() {
     showFormatedSize: showFormatedSize
   };
 })();
-
-/**
- * Connectivity accessors
- */
-var getMobileConnection = function() {
-  var mobileConnection = navigator.mozMobileConnections &&
-      navigator.mozMobileConnections[0];
-
-  if (mobileConnection && mobileConnection.data) {
-    return mobileConnection;
-  }
-  return null;
-};
-
-var getBluetooth = function() {
-  return navigator.mozBluetooth;
-};
 
 /**
  * The function returns an object of the supporting state of category of network
@@ -286,7 +257,7 @@ var getBluetooth = function() {
   };
 
   exports.getSupportedNetworkInfo = getSupportedNetworkInfo;
-})(this);
+})(window);
 
 function isIP(address) {
   return /^\d+\.\d+\.\d+\.\d+$/.test(address);

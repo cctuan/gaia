@@ -6,9 +6,10 @@
     <meta name="theme-color" content="#00b7b7">
     <title>Messages</title>
     <!--App Style root.css-->
-    <link rel="stylesheet" type="text/css" href="style/root.css">
+    <link rel="stylesheet" type="text/css" href="views/shared/style/root.css">
     <!-- Stable Building blocks -->
     <link rel="stylesheet" type="text/css" href="shared/style/action_menu.css">
+    <link rel="stylesheet" type="text/css" href="shared/style/option_menu.css">
     <link rel="stylesheet" type="text/css" href="shared/style/buttons.css">
     <link rel="stylesheet" type="text/css" href="shared/style/confirm.css">
     <link rel="stylesheet" type="text/css" href="shared/style/edit_mode.css">
@@ -17,32 +18,53 @@
     <link rel="stylesheet" type="text/css" href="shared/style/lists.css">
     <link rel="stylesheet" type="text/css" href="shared/style/progress_activity.css">
     <link rel="stylesheet" type="text/css" href="shared/style/status.css">
-    <link rel="stylesheet" type="text/css" href="shared/style/sim_picker.css">
+    <link rel="stylesheet" type="text/css" href="shared/style/tabs.css" >
+    <link rel="stylesheet" type="text/css" href="shared/elements/gaia-icons/gaia-icons.css">
     <!-- App styles -->
-    <link rel="stylesheet" type="text/css" href="style/common.css">
-    <link rel="stylesheet" type="text/css" href="style/sms.css">
-    <link rel="stylesheet" type="text/css" href="style/message.css">
-    <link rel="stylesheet" type="text/css" href="style/notification.css">
-    <link rel="stylesheet" type="text/css" href="style/report_view.css">
-    <link rel="stylesheet" type="text/css" href="style/attachment.css">
-    <link rel="stylesheet" type="text/css" href="style/composer.css">
+    <link rel="stylesheet" type="text/css" href="views/shared/style/sms.css">
+    <link rel="stylesheet" type="text/css" href="views/shared/style/edit-mode.css">
+    <link rel="stylesheet" type="text/css" href="views/shared/style/notification.css">
+    <link rel="stylesheet" type="text/css" href="views/shared/style/common.css">
+    <link rel="stylesheet" type="text/css" href="views/shared/style/composer.css">
+    <link rel="stylesheet" type="text/css" href="views/conversation/style/message.css">
+    <link rel="stylesheet" type="text/css" href="views/conversation/style/report_view.css">
+    <link rel="stylesheet" type="text/css" href="views/conversation/style/attachment.css">
+    <link rel="stylesheet" type="text/css" href="views/conversation/style/conversation.css">
+    <link rel="stylesheet" type="text/css" href="views/conversation/style/edit-mode.css">
+    <link rel="stylesheet" type="text/css" href="views/new_message/style/new_message.css">
+    <link rel="stylesheet" type="text/css" href="views/new_message/style/recipients.css">
+    <link rel="stylesheet" type="text/css" href="views/inbox/style/inbox.css">
+    <link rel="stylesheet" type="text/css" href="views/inbox/style/edit-mode.css">
     <!-- Localization -->
-    <link rel="manifest" href="manifest.webapp">
+    <meta name="defaultLanguage" content="en-US">
+    <meta name="availableLanguages" content="en-US">
     <link rel="localization" href="locales/sms.{locale}.properties">
     <link rel="localization" href="/shared/locales/date/date.{locale}.properties">
-    <link rel="localization" href="/shared/locales/sim_picker/sim_picker.{locale}.properties">
+    <!-- Firefox Desktop shims -->
+    <script defer src="desktop-mock/navigator_moz_icc_manager.js"></script>
+    <script defer src="desktop-mock/navigator_moz_settings.js"></script>
+    <script defer src="desktop-mock/navigator_moz_mobilemessage.js"></script>
+    <script defer src="desktop-mock/navigator_moz_contacts.js"></script>
+    <script defer src="desktop-mock/async_storage.js"></script>
     <!-- Web Components -->
     <script defer src="/shared/elements/config.js"></script>
-    <script defer src="/shared/elements/gaia-header/dist/script.js"></script>
-    <link rel="stylesheet" type="text/css" href="/shared/elements/gaia-theme/style.css" />
-    <!-- <link rel="stylesheet" type="text/css" href="/shared/elements/gaia-icons/style.css" /> -->
+    <link rel="stylesheet" type="text/css" href="app://theme.gaiamobile.org/shared/elements/gaia-theme/gaia-theme.css" />
+    <script async src="/shared/elements/gaia-header/dist/gaia-header.js"></script>
+    <link rel="localization" href="/shared/elements/gaia_menu/locales/gaia_menu.{locale}.properties">
+    <link rel="localization" href="/shared/elements/gaia_sim_picker/locales/gaia_sim_picker.{locale}.properties">
+    <!--
+    <script defer src="shared/js/component_utils.js"></script>
+    <script defer src="shared/elements/gaia_menu/script.js"></script>
+    <script defer src="shared/elements/gaia_sim_picker/script.js"></script>
+    <link rel="stylesheet" type="text/css" href="shared/elements/gaia_menu/style.css">
+    <link rel="stylesheet" type="text/css" href="shared/elements/gaia_sim_picker/style.css">
+    -->
     <!-- Shared code -->
     <script defer src="shared/js/l10n.js"></script>
     <script defer src="shared/js/l10n_date.js"></script>
     <!-- Should be removed while gecko support navigator.mozHour12 API -->
     <script defer src="shared/js/date_time_helper.js"></script>
     <script defer src="shared/js/template.js"></script>
-    <script defer src="shared/js/performance_testing_helper.js"></script>
     <script defer src="shared/js/async_storage.js"></script>
     <script defer src="shared/js/lazy_loader.js"></script>
     <script defer src="shared/js/sticky_header.js"></script>
@@ -50,18 +72,19 @@
     <script defer src="shared/js/fb/fb_request.js"></script>
     <script defer src="shared/js/fb/fb_data_reader.js"></script>
     <script defer src="shared/js/fb/fb_reader_utils.js"></script>
-    <script defer src="js/navigation.js"></script>
-    <script defer src="js/event_dispatcher.js"></script>
-    <script defer src="js/time_headers.js"></script>
-    <script defer src="js/contacts.js"></script>
-    <script defer src="js/drafts.js"></script>
-    <script defer src="js/threads.js"></script>
-    <script defer src="js/thread_list_ui.js"></script>
-    <script defer src="js/utils.js"></script>
-    <script defer src="js/settings.js"></script>
-    <script defer src="js/message_manager.js"></script>
-    <script defer src="js/app.js"></script>
-    <script defer src="js/startup.js"></script>
+    <script defer src="shared/js/event_dispatcher.js"></script>
+    <script defer src="views/shared/js/navigation.js"></script>
+    <script defer src="views/shared/js/inter_instance_event_dispatcher.js"></script>
+    <script defer src="views/shared/js/time_headers.js"></script>
+    <script defer src="views/shared/js/contacts.js"></script>
+    <script defer src="services/js/drafts.js"></script>
+    <script defer src="services/js/threads.js"></script>
+    <script defer src="views/shared/js/utils.js"></script>
+    <script defer src="views/inbox/js/inbox.js"></script>
+    <script defer src="views/shared/js/settings.js"></script>
+    <script defer src="services/js/message_manager.js"></script>
+    <script defer src="views/shared/js/app.js"></script>
+    <script defer src="views/shared/js/startup.js"></script>
     <!-- Lazy load scripts
     <script defer src="shared/js/notification_helper.js"></script>
     <script defer src="shared/js/gesture_detector.js"></script>
@@ -69,49 +92,51 @@
     <script defer src="shared/js/mime_mapper.js"></script>
     <script defer src="shared/js/mobile_operator.js"></script>
     <script defer src="shared/js/settings_listener.js"></script>
-    <script defer src="shared/js/sim_picker.js"></script>
     <script defer src="shared/js/multi_sim_action_button.js"></script>
     <script defer src="shared/js/option_menu.js"></script>
     <script defer src="shared/js/image_utils.js"></script>
-    <script defer src="js/errors.js"></script>
-    <script defer src="js/shared_components.js"></script>
-    <script defer src="js/dialog.js"></script>
-    <script defer src="js/error_dialog.js"></script>
-    <script defer src="js/task_runner.js"></script>
-    <script defer src="js/silent_sms.js"></script>
-    <script defer src="js/recipients.js"></script>
-    <script defer src="js/attachment.js"></script>
-    <script defer src="js/attachment_renderer.js"></script>
-    <script defer src="js/attachment_menu.js"></script>
-    <script defer src="js/thread_ui.js"></script>
-    <script defer src="js/compose.js"></script>
-    <script defer src="js/waiting_screen.js"></script>
-    <script defer src="js/activity_picker.js"></script>
-    <script defer src="js/wbmp.js"></script>
-    <script defer src="js/smil.js"></script>
-    <script defer src="js/link_helper.js"></script>
-    <script defer src="js/link_action_handler.js"></script>
-    <script defer src="js/notify.js"></script>
-    <script defer src="js/activity_handler.js"></script>
-    <script defer src="js/contact_renderer.js"></script>
-    <script defer src="js/information.js"></script>
+    <script defer src="views/shared/js/errors.js"></script>
+    <script defer src="views/shared/js/shared_components.js"></script>
+    <script defer src="views/shared/js/dialog.js"></script>
+    <script defer src="views/shared/js/error_dialog.js"></script>
+    <script defer src="views/shared/js/task_runner.js"></script>
+    <script defer src="views/shared/js/silent_sms.js"></script>
+    <script defer src="views/conversation/js/recipients.js"></script>
+    <script defer src="views/conversation/js/attachment.js"></script>
+    <script defer src="views/conversation/js/attachment_renderer.js"></script>
+    <script defer src="views/conversation/js/conversation.js"></script>
+    <script defer src="views/conversation/js/subject_composer.js"></script>
+    <script defer src="views/conversation/js/compose.js"></script>
+    <script defer src="views/shared/js/waiting_screen.js"></script>
+    <script defer src="views/shared/js/activity_picker.js"></script>
+    <script defer src="views/shared/js/wbmp.js"></script>
+    <script defer src="views/shared/js/smil.js"></script>
+    <script defer src="views/conversation/js/link_helper.js"></script>
+    <script defer src="views/conversation/js/link_action_handler.js"></script>
+    <script defer src="views/shared/js/notify.js"></script>
+    <script defer src="views/shared/js/activity_handler.js"></script>
+    <script defer src="views/shared/js/contact_renderer.js"></script>
+    <script defer src="views/conversation/js/information.js"></script>
     -->
-    <!-- Elements -->
-    <link rel="import" href="/shared/elements/sim_picker.html">
   </head>
 
   <body role="application" class="skin-comms theme-communications">
     <article id="main-wrapper" class="wrapper" data-position='right'>
-      <section id="thread-list" class="panel" role="region">
-        <gaia-header class="view-header regular-header">
-          <h1 data-l10n-id="messages">Messages</h1>
-          <a href="#composer" id="icon-add" data-icon="compose"></a>
-          <a id="threads-options-icon" data-icon="more"></a>
+      <section id="thread-list" class="panel default-panel" role="region">
+        <!-- title-start and title-end indicates the button widths respectively
+          at the start and end of the line -->
+        <!-- see https://github.com/gaia-components/gaia-header/ for more information -->
+        <!-- WARNING: the actual value depends on the actual CSS being used in gaia-header -->
+        <gaia-header class="view-header regular-header" title-start="0" title-end="100">
+          <h1 data-l10n-id="messages"></h1>
+          <a href="#composer" id="threads-composer-link" data-icon="compose"></a>
+          <a id="threads-options-button" data-icon="more"></a>
+          <a id="threads-settings-button" data-icon="settings"></a>
         </gaia-header>
         <article id="threads-container" class="view-body edit-container" data-type="list">
         </article>
 
-        <div id="threads-no-messages" class="hide">
+        <div id="threads-no-messages">
           <div id="no-result-message">
             <p data-l10n-id="noMessages-title">No messages</p>
             <p data-l10n-id="noMessages-text">Start communicating now</p>
@@ -120,14 +145,21 @@
 
         <form id="threads-edit-form" role="dialog" data-type="edit">
           <section role="region" class="theme-settings">
-            <gaia-header id="threads-edit-header" action="close">
-              <h1 id="threads-edit-mode" data-l10n-id="selectThreads-title">Select</h1>
+            <gaia-header id="threads-edit-header" action="close" no-font-fit>
+              <h1 id="threads-edit-mode" data-l10n-id="selectThreads-title"></h1>
               <button id="threads-check-uncheck-all-button" class="edit-button" data-l10n-id="select-all"></button>
             </gaia-header>
           </section>
-          <menu>
-            <button id="threads-delete-button" data-l10n-id="delete">delete</button>
-          </menu>
+          <div class="bottom-tab" role="region" >
+            <ul class="bb-tablist">
+              <li role="presentation">
+                <button id="threads-delete-button" class="disable-when-dialog-animates" data-action="delete-button"></button>
+              </li>
+              <li role="presentation">
+                <button id="threads-read-unread-button" data-action="mark-as-read"></button>
+              </li>
+            </ul>
+          </div>
         </form>
 
         <section id="threads-draft-saved-banner" class="hide" role="status">
@@ -137,8 +169,8 @@
         <div id="sticky"></div>
       </section>
 
-      <section id="thread-messages" class="panel" role="region" aria-hidden="true">
-        <gaia-header id="messages-header" class="view-header regular-header" action="back">
+      <section id="thread-messages" class="panel editable-select-mode" role="region" aria-hidden="true">
+        <gaia-header id="messages-header" class="view-header regular-header" action="back" no-font-fit>
           <h1 id="messages-header-text" aria-hidden="true"></h1>
           <button id="messages-call-number-button" data-icon="call" class="hide"></button>
           <button id="messages-options-button" data-icon="more"></button>
@@ -181,6 +213,11 @@
                      class="hide">
               <p></p>
             </section>
+            <section id="messages-sms-counter-notice"
+                     role="notification"
+                     class="hide">
+              <p></p>
+            </section>
             <section id="messages-convert-notice"
                     role="notification"
                     class="hide">
@@ -194,65 +231,37 @@
             <section id="messages-new-message-notice"
                     role="notification"
                     class="hide">
-              <div>
+              <div class="text-container">
                 <div data-l10n-id="new-message-notice-text">You have new messages</div>
                 <div class="contact">Contact</div>
               </div>
-              <div>
+              <div class="button-container">
                 <button class="notice-button" data-l10n-id="new-message-notice-a-text">read it</button>
               </div>
             </section>
           </div>
         </div>
-        <article id="information-participants" class="view-body article-list hide" data-type="list">
-          <ul class="contact-list"></ul>
-        </article>
-        <article id="information-report" class="view-body article-list report-view hide" data-type="list">
-          <div class="description">
-            <p class="type"></p>
-            <p class="subject"></p>
-          </div>
-          <div class="sent-detail">
-            <p class="datetime l10n-contains-date"></p>
-            <div class="status-container">
-              <span class="status"></span>
-              <aside></aside>
-            </div>
-          </div>
-          <span class="contact-title"></span>
-          <ul class="contact-list"></ul>
-          <div class="received-detail">
-            <div class="sent-timestamp-label">
-              <span data-l10n-id="message-sent"></span>
-              <span class="sent-timeStamp l10n-contains-date"></span>
-            </div>
-            <div>
-              <span data-l10n-id="message-received"></span>
-              <span class="received-timeStamp l10n-contains-date"></span>
-            </div>
-          </div>
-          <div class="sim-info hide">
-            <span data-l10n-id="message-via"></span>
-            <span class="sim-detail"></span>
-          </div>
-          <div class="size-block">
-            <span data-l10n-id="message-size-was"></span>
-            <span class="size"></span>
-          </div>
-        </article>
         <article id="composer-container" class="view-body">
           <div class="flex-composer">
             <div id="messages-container" data-type="list" class="article-list"></div>
             <form id="messages-compose-form" role="search" class="bottom" data-message-type="sms">
-              <section class="top-composer-section">
-                 <div id="messages-subject-input" contentEditable="true"
-                      class="placeholder js-l10n-placeholder"
-                      data-max-length="40" role="textbox" aria-multiline="false">
-                 </div>
-                 <span id="subject-mms-label" data-l10n-id="mms-label">MMS</span>
+              <section class="mms-label-line">
+                <section class="subject-composer js-subject-composer hide">
+                  <div contentEditable="true" class="subject-composer-input"
+                       role="textbox"
+                       aria-multiline="false">
+                  </div>
+                  <div class="subject-composer-placeholder"
+                       data-l10n-id="messagesSubjectInput_placeholder">
+                  </div>
+                </section>
+                <span class="mms-label"
+                      data-l10n-id="mms-label">MMS</span>
               </section>
-              <section class="bottom-composer-section">
-                <button id="messages-attach-button" aria-label="Add attachment" data-l10n-id="attach-button" type="button"></button>
+              <section class="content-composer">
+                <div class="messages-attach-container">
+                  <button id="messages-attach-button" aria-label="Add attachment" data-l10n-id="attach-button" type="button"></button>
+                </div>
                 <div class="composer-message-input-container">
                   <div id="messages-input" contentEditable="true" name="message"
                        x-inputmode="-moz-sms" class="js-l10n-placeholder"
@@ -260,8 +269,8 @@
                   </div>
                 </div>
                 <div class="composer-button-container">
-                  <span id="messages-counter-label" data-counter="" data-l10n-id="mms-label">MMS</span>
-                  <button id="messages-send-button" class="icon" aria-label="send" data-l10n-id="send-button" type="submit">
+                  <span class="message-counter js-message-counter"></span>
+                  <button id="messages-send-button" class="icon" aria-label="Send" data-l10n-id="send-button" type="submit">
                     <div class="js-sim-indication sim-indication" data-l10n-id="send-button-sim-indication"></div>
                   </button>
                 </div>
@@ -271,18 +280,66 @@
         </article>
         <form role="dialog" id="messages-edit-form" data-type="edit" >
           <section role="region" class="theme-settings">
-            <gaia-header id="messages-edit-header" action="close">
-              <h1 id="messages-edit-mode" data-l10n-id="deleteMessages-title">Delete Messages</h1>
+            <gaia-header id="messages-edit-header" action="close" no-font-fit>
+              <h1 id="messages-edit-mode" data-l10n-id="deleteMessages-title"></h1>
               <button id="messages-check-uncheck-all-button" class="edit-button" data-l10n-id="select-all"></button>
             </gaia-header>
           </section>
-          <menu>
-            <button id="messages-delete-button" data-l10n-id="delete">delete</button>
-          </menu>
+          <div class="bottom-tab" role="region" >
+            <ul class="bb-tablist">
+              <li role="presentation">
+                <button id="messages-delete-button" class="disable-when-dialog-animates" data-action="delete-button"></button>
+              </li>
+            </ul>
+          </div>
         </form>
         <section id="messages-recipient-suggestions" class="article-list hide" data-type="list">
-          <ul class="contact-list" role="listbox"></ul>
+          <ul class="contact-list recipient-suggestions-list" role="listbox"></ul>
         </section>
+      </section>
+
+      <section id="information-participants" class="panel hide" role="region">
+        <gaia-header id="information-group-header" class="header" action="back" no-font-fit>
+          <h1 data-l10n-id="participant" class="header-text"></h1>
+        </gaia-header>
+        <article class="view-body article-list" data-type="list">
+          <ul class="contact-list"></ul>
+        </article>
+      </section>
+
+      <section id="information-report" class="panel hide" role="region">
+        <gaia-header id="information-report-header" class="header" action="close" no-font-fit>
+          <h1 data-l10n-id="message-report"></h1>
+        </gaia-header>
+        <article class="view-body article-list report-view container" data-type="list">
+          <div class="description">
+            <p class="type"></p>
+            <p class="subject">
+              <span data-l10n-id="message-subject"></span>
+              <span class="detail"></span>
+            </p>
+            <p class="sent-block">
+              <span class="sent-title"></span>
+              <span class="sent-timestamp l10n-contains-date detail"></span>
+            </p>
+            <p class="received-block">
+              <span data-l10n-id="message-received"></span>
+              <span class="received-timestamp l10n-contains-date detail"></span>
+            </p>
+            <p class="size-block">
+              <span data-l10n-id="message-size-was"></span>
+              <span class="size detail"></span>
+            </p>
+            <p class="sim-info hide">
+              <span data-l10n-id="message-via"></span>
+              <span class="sim-detail detail"></span>
+            </p>
+          </div>
+          <span class="contact-title"></span>
+          <ul class="contact-list"></ul>
+          <button class="resend-btn" data-l10n-id="message-resend">
+          </button>
+        </article>
       </section>
     </article>
 
@@ -297,20 +354,6 @@
       </form>
     </article>
 
-    <menu id="attachment-options-menu" class="hide" tabindex="-1">
-      <div>
-        <form id="attachment-options" role="dialog" data-type="action">
-          <header></header>
-          <menu>
-            <button id="attachment-options-view"></button>
-            <button id="attachment-options-remove"></button>
-            <button id="attachment-options-replace"></button>
-            <button id="attachment-options-cancel" data-l10n-id="cancel"></button>
-          </menu>
-        </form>
-      </div>
-    </menu>
-
     <!--
       -  Templates
       -->
@@ -318,13 +361,25 @@
     <div id="contact-suggestion-tmpl" class="hide">
       <!--
       <li role="presentation">
-        <a class="suggestion" role="option"
+        <a class="suggestion js-contact-info" role="option"
           data-number="${number}" data-source="contacts" data-name="${name}"
           data-type="${type}" data-carrier="${carrier}">
           ${photoHTML}
-          <p class="name">${nameHTML}</p>
+          <p class="name"><bdi class="ellipsis-dir-fix">${nameHTML}</bdi></p>
           <p class="number">${phoneDetailsHTML}</p>
         </a>
+      </li>
+      -->
+    </div>
+
+    <div id="contact-report-tmpl" class="hide">
+      <!--
+      <li>
+        <div class="js-contact-info">
+          ${photoHTML}
+          <p class="name"><bdi class="ellipsis-dir-fix">${nameHTML}</bdi></p>
+          <p class="number">${phoneDetailsHTML}</p>
+        </div>
       </li>
       -->
     </div>
@@ -338,7 +393,7 @@
         ${photoHTML}
         <p class="name">${phoneDetailsHTML}</p>
         <p class="number">
-          <span data-l10n-id="${type}">Unknown Contact</span>
+          <span data-l10n-id="unknown-contact-title">Unknown Contact</span>
         </p>
      </a>
     </li>
@@ -349,7 +404,7 @@
       <!--
       <div class="contact-header">
         ${photoHTML}
-        <p class="name">${name}</p>
+        <p class="name"><bdi class="ellipsis-dir-fix">${name}</bdi></p>
         <p class="details">${phoneDetailsHTML}</p>
       </div>
       -->
@@ -371,30 +426,21 @@
 
     <div id="messages-number-tmpl" class="hide">
       <!--
-      <a class="suggestion" data-number="${number}" data-source="manual" data-name="${number}">
-        <p class="name">${number}</p>
+      <a class="suggestion js-contact-info" data-number="${number}" data-source="manual" data-name="${number}">
+        <p class="name"><bdi class="ellipsis-dir-fix">${number}</bdi></p>
       </a>
       -->
     </div>
 
     <div id="information-report-tmpl" class="hide">
       <!--
-      <p class="${deliveryClass}">
-        <span data-l10n-id="message-delivered"></span>
-        <span class="l10n-contains-date" data-l10n-id="${deliveryL10n}"
-              data-l10n-date="${deliveryTimestamp}"
-              data-l10n-date-format12="${messageL10nDateFormat12}"
-              data-l10n-date-format24="${messageL10nDateFormat24}"
-              >${deliveryDateL10n}</span>
-      </p>
-      <p class="${readClass}">
-        <span data-l10n-id="message-read-title"></span>
-        <span class="l10n-contains-date" data-l10n-id="${readL10n}"
-              data-l10n-date="${readTimestamp}"
-              data-l10n-date-format12="${messageL10nDateFormat12}"
-              data-l10n-date-format24="${messageL10nDateFormat24}"
-              >${readDateL10n}</span>
-      </p>
+      <span class="icon"></span>
+      <span data-l10n-id="${titleL10n}"></span>
+      <span class="timestamp l10n-contains-date"
+            data-l10n-date="${timestamp}"
+            data-l10n-date-format12="${messageL10nDateFormat12}"
+            data-l10n-date-format24="${messageL10nDateFormat24}"
+            >${reportDateL10n}</span>
       -->
     </div>
 
@@ -434,7 +480,7 @@
           ${subject}
         </h1>
         <div class="message-content">
-          <p>${bodyHTML}</p>
+          <p class="message-content-body" tabindex="-1">${bodyHTML}</p>
           <div class="message-details">
             ${simInformationHTML}
             <time data-time-update="true" data-time-only="true" data-time="${timestamp}"></time>
@@ -471,14 +517,16 @@
       </label>
       <a href="${hash}">
         <aside role="note" data-l10n-id="${iconLabel}" class="icon icon-unread icon-draft"></aside>
-        <aside role="img" data-l10n-id="contact-photo" aria-label="Contact photo" class="pack-end empty">
+        <aside class="pack-end threadlist-item-picture"
+               role="img" aria-label="Contact photo"
+               data-l10n-id="contact-photo">
           <span data-type="img"></span>
         </aside>
-        <p class="name">${number}</p>
+        <p class="threadlist-item-title"><bdi class="ellipsis-dir-fix">${number}</bdi></p>
         <p class="summary">
           <time data-time-update="true" data-time-only="true" data-time="${timestamp}"></time>
           <span class="mms-icon" data-l10n-id="mms-label">MMS</span>
-          <span class="body-text">${bodyHTML}</span>
+          <span dir="auto" class="body-text ellipsis-dir-fix">${bodyHTML}</span>
         </p>
       </a>
       -->
@@ -489,7 +537,7 @@
       <span class="${className}" x-inputmode="verbatim"
         contenteditable="${editable}" role="${role}"
         data-number="${number}" data-source="${source}" data-name="${name}"
-        data-carrier="${carrier}" data-type="${type}">
+        data-carrier="${carrier}" data-type="${type}" dir="auto">
         ${name}
       </span>
       -->
@@ -497,10 +545,10 @@
 
     <div id="attachment-nopreview-tmpl" class="hide">
       <!--
-      <div class="attachment ${errorClass}">
+      <div class="attachment ${errorClass}" data-attachment-type="${type}">
         <div class="thumbnail-placeholder ${type}-placeholder">
         </div>
-        <div class="size-indicator" data-l10n-id="${sizeL10nId}" data-l10n-args="${sizeL10nArgs}"></div>
+        <div class="js-size-indicator size-indicator" data-l10n-id="${sizeL10nId}" data-l10n-args="${sizeL10nArgs}"></div>
       </div>
       <div class="file-name">${fileName}</div>
       -->
@@ -510,7 +558,7 @@
       <!--
       <div class="attachment">
         <div class="thumbnail"></div>
-        <div class="size-indicator" data-l10n-id="${sizeL10nId}" data-l10n-args="${sizeL10nArgs}"></div>
+        <div class="js-size-indicator size-indicator" data-l10n-id="${sizeL10nId}" data-l10n-args="${sizeL10nArgs}"></div>
       </div>
       <div class="file-name">${fileName}</div>
       -->
@@ -522,10 +570,10 @@
         <meta name="viewport" content="width=device-width, user-scalable=no, initial-scale=1">
         <meta charset="utf-8">
         <base href="${baseURL}">
-        <link rel="stylesheet" type="text/css" href="style/attachment_draft.css">
-        <link rel="stylesheet" type="text/css" href="style/attachment.css">
+        <link rel="stylesheet" type="text/css" href="views/conversation/style/attachment_draft.css">
+        <link rel="stylesheet" type="text/css" href="views/conversation/style/attachment.css">
       </head>
-      <body class="attachment-draft">${baseHTML}</body>
+      <body class="attachment-draft ${cssClass}">${baseHTML}</body>
       -->
     </div>
 
@@ -533,23 +581,35 @@
       Please, don't change template markup alignment, it's done this way to
       remove any whitespace symbols between inline elements.
     -->
-    <div id="phone-details-tmpl">
+    <div id="phone-details-tmpl" class="hide">
       <!--
-      <span class="phone-details ${hasTypeClass} ${hasCarrierClass}">
-        <span class="phone-type phone-details-item"
-              data-l10n-id="${type}">${type}</span><span
-              class="phone-type-separator phone-details-item"
-              data-l10n-id="phone-type-separator"></span><span
-              class="phone-number phone-details-item">${number}</span><span
-              class="phone-carrier-separator phone-details-item"
-              data-l10n-id="phone-carrier-separator"></span><span
-              class="phone-carrier phone-details-item">${carrier}</span>
+      <span class="${hasTypeClass} ${hasCarrierClass}"><span
+            dir="auto" class="phone-type"
+            data-l10n-id="${type}">${type}</span><span
+            class="phone-type-separator"
+            data-l10n-id="phone-type-separator"></span><span
+            class="phone-number" dir="ltr">${number}</span><span
+            class="phone-carrier-separator"
+            data-l10n-id="phone-carrier-separator"></span><span
+            class="phone-carrier" dir="auto">${carrier}</span>
       </span>
       -->
     </div>
 
+    <div id="messages-group-header-tmpl" class="hide">
+      <!--
+      <span class="group-header-title"><bdi class="ellipsis-dir-fix">${name}</bdi>&nbsp;<bdi dir="ltr">(+${participantCount})</bdi></span>
+      -->
+    </div>
+
+    <div id="messages-header-tmpl" class="hide">
+      <!--
+      <bdi class="ellipsis-dir-fix">${name}</bdi>
+      -->
+    </div>
+
     <article>
-      <form is="sim-picker" id="sim-picker" role="dialog" data-type="action" tabindex="-1" hidden></form>
+      <gaia-sim-picker id="sim-picker" tabindex="-1"></gaia-sim-picker>
     </article>
   </body>
 </html>

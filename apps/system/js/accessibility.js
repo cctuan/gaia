@@ -1,5 +1,6 @@
 'use strict';
 /* global SettingsListener */
+/* global AccessibilityQuicknavMenu */
 
 (function(exports) {
 
@@ -44,6 +45,12 @@
     CONTRAST_CAP: 0.6,
 
     /**
+     * Timeout (in milliseconds) between when a vc-change event fires
+     * and when interaction hints (if any) are spoken
+     */
+    HINTS_TIMEOUT: 2000,
+
+    /**
      * Current counter for button presses in short succession.
      * @type {Number}
      * @memberof Accessibility.prototype
@@ -56,7 +63,7 @@
      * @memberof Accessibility.prototype
      */
     expectedEvent: {
-      type: 'volume-up-button-press',
+      type: 'volumeup',
       timeStamp: 0
     },
 
@@ -92,7 +99,8 @@
     sounds: {
       clickedAudio: null,
       vcKeyAudio: null,
-      vcMoveAudio: null
+      vcMoveAudio: null,
+      noMoveAudio: null
     },
 
     /**
@@ -103,7 +111,8 @@
     soundURLs: {
       clickedAudio: './resources/sounds/screen_reader_clicked.ogg',
       vcKeyAudio: './resources/sounds/screen_reader_virtual_cursor_key.ogg',
-      vcMoveAudio: './resources/sounds/screen_reader_virtual_cursor_move.ogg'
+      vcMoveAudio: './resources/sounds/screen_reader_virtual_cursor_move.ogg',
+      noMoveAudio: './resources/sounds/screen_reader_no_move.ogg'
     },
 
     /**
@@ -117,7 +126,10 @@
       this.speechSynthesizer = speechSynthesizer;
 
       window.addEventListener('mozChromeEvent', this);
+      window.addEventListener('volumeup', this);
+      window.addEventListener('volumedown', this);
       window.addEventListener('logohidden', this);
+      window.addEventListener('screenchange', this);
 
       // Attach all observers.
       Object.keys(this.settings).forEach(function attach(settingKey) {
@@ -142,7 +154,8 @@
                   'layers.effect.grayscale': aValue ?
                     this.settings['accessibility.colors.grayscale'] : false,
                   'layers.effect.contrast': aValue ?
-                    this.settings['accessibility.colors.contrast'] : '0.0'
+                    this.settings['accessibility.colors.contrast'] *
+                    this.CONTRAST_CAP : '0.0'
                 });
                 break;
 
@@ -180,7 +193,7 @@
      */
     reset: function ar_resetEvent() {
       this.expectedEvent = {
-        type: 'volume-up-button-press',
+        type: 'volumeup',
         timeStamp: 0
       };
       this.counter = 0;
@@ -198,24 +211,25 @@
     },
 
     /**
-     * Handle volume up and volume down mozChromeEvents.
-     * @param  {Object} aEvent a mozChromeEvent object.
+     * Handle volumeup and volumedown events generated from HardwareButtons.
+     * @param  {Object} aEvent a high-level key event object generated from
+     * HardwareButtons.
      * @memberof Accessibility.prototype
      */
     handleVolumeButtonPress: function ar_handleVolumeButtonPress(aEvent) {
-      var type = aEvent.detail.type;
+      var type = aEvent.type;
       var timeStamp = aEvent.timeStamp;
       var expectedEvent = this.expectedEvent;
       if (type !== expectedEvent.type || timeStamp > expectedEvent.timeStamp) {
         this.reset();
-        if (type !== 'volume-up-button-press') {
+        if (type !== 'volumeup') {
           return;
         }
       }
 
       this.expectedEvent = {
-        type: type === 'volume-up-button-press' ? 'volume-down-button-press' :
-          'volume-up-button-press',
+        type: type === 'volumeup' ? 'volumedown' :
+          'volumeup',
         timeStamp: timeStamp + this.REPEAT_INTERVAL
       };
 
@@ -226,14 +240,14 @@
       this.reset();
 
       if (!this.isSpeaking && timeStamp > this.expectedCompleteTimeStamp) {
-        this.speechSynthesizer.cancel();
+        this.cancelSpeech();
         this.announceScreenReader(function onEnd() {
           this.resetSpeaking(timeStamp + this.REPEAT_BUTTON_PRESS);
         }.bind(this));
         return;
       }
 
-      this.speechSynthesizer.cancel();
+      this.cancelSpeech();
       this.resetSpeaking();
       SettingsListener.getSettingsLock().set({
         'accessibility.screenreader':
@@ -277,11 +291,28 @@
     },
 
     /**
+     * Start a timeout that waits to display hints
+     * @memberof Accessibility.prototype
+     */
+    setHintsTimeout: function ar_setHintsTimeout(aHints) {
+      clearTimeout(this.hintsTimer);
+      this.hintsTimer = setTimeout(function onHintsTimeout() {
+        this.isSpeakingHints = true;
+        this.speak(aHints, function onSpeakHintsEnd() {
+          this.isSpeakingHints = false;
+        }.bind(this), {
+          enqueue: true
+        });
+      }.bind(this), this.HINTS_TIMEOUT);
+    },
+
+    /**
      * Handle accessfu mozChromeEvent.
      * @param  {Object} accessfu details object.
      * @memberof Accessibility.prototype
      */
     handleAccessFuOutput: function ar_handleAccessFuOutput(aDetails) {
+      this.cancelHints();
       var options = aDetails.options || {};
       window.dispatchEvent(new CustomEvent('accessibility-action'));
       switch (aDetails.eventType) {
@@ -297,11 +328,39 @@
             return;
           }
           break;
+        case 'no-move':
+          this._playSound('noMoveAudio');
+          return;
       }
 
-      this.speak(aDetails.data, null, {
+      this.speak(aDetails.data, function hintsCallback() {
+        if (options.hints) {
+          this.setHintsTimeout(options.hints);
+        }
+      }.bind(this), {
         enqueue: options.enqueue
       });
+    },
+
+    handleAccessFuControl: function ar_handleAccessFuControls(aDetails) {
+      this.cancelHints();
+      if (aDetails.eventType === 'quicknav-menu') {
+        if (!this.quicknav) {
+          this.quicknav = new AccessibilityQuicknavMenu();
+        }
+        this.quicknav.show();
+      }
+    },
+
+    /**
+     * Listen for screen change events and stop speaking if the
+     * screen is disabled (in 'off' state)
+     * @memberof Accessibility.prototype
+     */
+    handleScreenChange: function ar_handleScreenChange(aDetail){
+      if(!aDetail.screenEnabled){
+        this.cancelHints();
+      }
     },
 
     /**
@@ -317,12 +376,15 @@
     },
 
     /**
-     * Handle a mozChromeEvent event.
-     * @param  {Object} aEvent mozChromeEvent.
+     * Handle event.
+     * @param  {Object} aEvent mozChromeEvent/logohidden/volumeup/volumedown.
      * @memberof Accessibility.prototype
      */
     handleEvent: function ar_handleEvent(aEvent) {
       switch (aEvent.type) {
+        case 'screenchange':
+          this.handleScreenChange(aEvent.detail);
+          break;
         case 'logohidden':
           this.activateScreen();
           break;
@@ -331,12 +393,27 @@
             case 'accessibility-output':
               this.handleAccessFuOutput(JSON.parse(aEvent.detail.details));
               break;
-            case 'volume-up-button-press':
-            case 'volume-down-button-press':
-              this.handleVolumeButtonPress(aEvent);
+            case 'accessibility-control':
+              this.handleAccessFuControl(JSON.parse(aEvent.detail.details));
               break;
           }
           break;
+        case 'volumeup':
+        case 'volumedown':
+          this.handleVolumeButtonPress(aEvent);
+          break;
+      }
+    },
+
+    /**
+     * Check for Hints speech/timer and clear.
+     * @memberof Accessibility.prototype
+     */
+    cancelHints: function ar_cancelHints() {
+      clearTimeout(this.hintsTimer);
+      if(this.isSpeakingHints){
+        this.cancelSpeech();
+        this.isSpeakingHints = false;
       }
     },
 
@@ -366,6 +443,14 @@
     speak: function ar_speak(aData, aCallback, aOptions = {}) {
       this.speechSynthesizer.speak(aData, aOptions, this.rate, this.volume,
         aCallback);
+    },
+
+    /**
+     * Cancel any utterances currently being spoken by speechSynthesis.
+     * @memberof Accessibility.prototype
+     */
+    cancelSpeech: function ar_cancelSpeech() {
+      this.speechSynthesizer.cancel();
     }
   };
 
@@ -508,7 +593,7 @@
       }
       window.clearTimeout(this.captionsHideTimeout);
       this.captionsHideTimeout = null;
-      this.captionsBox.innerHTML = aUtterance;
+      this.captionsBox.textContent = aUtterance;
       this.captionsBox.classList.add('visible');
     },
 

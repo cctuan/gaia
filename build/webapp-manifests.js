@@ -1,6 +1,8 @@
 'use strict';
-/* global require, exports */
-// Generate webapps_stage.json.
+
+/**
+ * Generate webapps_shared.json in stage folder and uuid.json for external apps
+ */
 
 var utils = require('./utils');
 
@@ -19,63 +21,35 @@ ManifestBuilder.prototype.setConfig = function(config) {
   this.stageManifests = {};
   this.manifests = {};
   this.webapps = {};
-  this.uuidMapping = {};
   this.stageDir = this.gaia.stageDir;
   utils.ensureFolderExists(this.stageDir);
-
-  // set uuidMpaaing from $GAIA_DISTRIBUTION_DIR/uuid.json if exists.
-  try {
-    var uuidFile = utils.getFile(config.GAIA_DISTRIBUTION_DIR, UUID_FILENAME);
-    if (uuidFile.exists()) {
-      utils.log('webapp-manifests',
-        'uuid.json in GAIA_DISTRIBUTION_DIR found.');
-      this.uuidMapping = JSON.parse(utils.getFileContent(uuidFile));
-    }
-  } catch (e) {
-    // ignore exception if GAIA_DISTRIBUTION_DIR does not exist.
-  }
 };
 
 ManifestBuilder.prototype.genStageWebappJSON = function() {
-  var manifestFile = this.stageDir.clone();
-  manifestFile.append('webapps_stage.json');
+  var manifestFile = utils.getFile(this.stageDir.path, 'webapps_stage.json');
   utils.writeContent(manifestFile,
     JSON.stringify(this.stageManifests, null, 2) + '\n');
 };
 
 ManifestBuilder.prototype.genUuidJSON = function() {
-  var uuidFile = this.stageDir.clone();
-  uuidFile.append(UUID_FILENAME);
+  var uuidFile = utils.getFile(this.stageDir.path, UUID_FILENAME);
   utils.writeContent(uuidFile,
-    JSON.stringify(this.uuidMapping, null, 2) + '\n');
+    JSON.stringify(utils.getUUIDMapping(this.config), null, 2) + '\n');
 };
 
 ManifestBuilder.prototype.fillExternalAppManifest = function(webapp) {
-  var type = webapp.appStatus;
   var isPackaged = false;
   if (webapp.pckManifest) {
     isPackaged = true;
     if (webapp.metaData.origin) {
       this.errors.push('External webapp `' + webapp.sourceDirectoryName +
-                       '` can not have origin in metadata because is packaged');
+        '` can not have origin in metadata because is packaged');
       return;
     }
   }
 
-  // Generate the webapp folder name in the profile. Only if it's privileged
-  // and it has an origin in its manifest file it'll be able to specify a custom
-  // folder name. Otherwise, generate an UUID to use as folder name.
-
-  var uuid = this.uuidMapping[webapp.sourceDirectoryName] ||
-    utils.generateUUID().toString();
-
-  var webappTargetDirName = uuid;
-  if (type === 2 && isPackaged && webapp.pckManifest.origin) {
-    webappTargetDirName = utils.getNewURI(webapp.pckManifest.origin).host;
-  } else {
-    // uuid is used for webapp directory name, save it for further usage
-    this.uuidMapping[webapp.sourceDirectoryName] = uuid;
-  }
+  var profileDirectoryFile = utils.getFile(webapp.profileDirectoryFilePath);
+  var webappTargetDirName = profileDirectoryFile.leafName;
 
   var origin = isPackaged ? 'app://' + webappTargetDirName :
                webapp.metaData.origin;
@@ -153,17 +127,17 @@ ManifestBuilder.prototype.checkOrigin = function(origin) {
 };
 
 ManifestBuilder.prototype.fillAppManifest = function(webapp) {
-  var url = webapp.url;
+  var origin = webapp.url;
 
-  var installOrigin = url;
+  var installOrigin = origin;
   if (webapp.metadata && webapp.metadata.installOrigin) {
     installOrigin = webapp.metadata.installOrigin;
   }
 
   this.stageManifests[webapp.sourceDirectoryName] = {
     originalManifest: webapp.manifest,
-    origin: url,
-    manifestURL: url + '/manifest.webapp',
+    origin: origin,
+    manifestURL: origin + '/manifest.webapp',
     installOrigin: installOrigin,
     receipt: null,
     installTime: this.INSTALL_TIME,

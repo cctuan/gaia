@@ -1,8 +1,8 @@
 /* -*- Mode: js; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- /
 /* vim: set shiftwidth=2 tabstop=2 autoindent cindent expandtab: */
 
-/* global CpScreenHelper, DUMP, Notification, NotificationHelper,
-          ParsedMessage, Promise, SiSlScreenHelper, WhiteList */
+/* global CpScreenHelper, DUMP, MessageDB, Notification, NotificationHelper,
+          ParsedMessage, Promise, SiSlScreenHelper, WhiteList, Utils */
 
 /* exported WapPushManager */
 
@@ -18,10 +18,7 @@
     close: wpm_close,
     displayWapPushMessage: wpm_displayWapPushMessage,
     onVisibilityChange: wpm_onVisibilityChange,
-    onWapPushReceived: wpm_onWapPushReceived,
-    setOnCloseCallback: wpm_setOnCloseCallback,
-    clearNotifications: wpm_clearNotifications,
-    enableAcceptButton: wpm_enableAcceptButton
+    onWapPushReceived: wpm_onWapPushReceived
   };
 
   /** Settings key for enabling/disabling WAP Push messages */
@@ -32,16 +29,6 @@
 
   /** A reference to the app's object */
   var app;
-
-  /** Accept button node */
-  var acceptButton;
-
-  /** Header node - which has the close button */
-  var header;
-
-  /** Callback function to be invoqued when closing the app from either mode
-    * CP or SI/SL */
-  var onCloseCallback;
 
   /** Timer used to schedule a close operation */
   var closeTimeout;
@@ -99,19 +86,16 @@
     // Reset the internal state to default values.
     wapPushEnabled = true;
     app = null;
-    onCloseCallback = null;
     closeTimeout = null;
     pendingMessages = 0;
 
     // Listen to settings changes right away
     navigator.mozSettings.addObserver(wapPushEnableKey, wpm_onSettingsChange);
 
-    // Retrieve the various page elements
-    acceptButton = document.getElementById('accept');
-    header = document.getElementById('header');
-
     // Get the app object and configuration
-    var promise = Promise.all([wpm_getApp(), wpm_getConfig()]);
+    var promise = Promise.all([
+      wpm_getApp(), wpm_getConfig(), WhiteList.init()
+    ]);
 
     promise = promise.then(function(values) {
       app = values[0];
@@ -122,7 +106,8 @@
       CpScreenHelper.init();
 
       // Register event and message handlers only after initialization is done
-      header.addEventListener('action', wpm_onClose);
+      MessageDB.on('messagedeleted', wpm_onMessageDeleted);
+
       document.addEventListener('visibilitychange', wpm_onVisibilityChange);
       window.navigator.mozSetMessageHandler('notification', wpm_onNotification);
       window.navigator.mozSetMessageHandler('wappush-received',
@@ -160,16 +145,6 @@
   }
 
   /**
-   * Show/hide the accept button.
-   *
-   * @param {Boolean} enabled Shows the accept button when true, hides it
-   *        otherwise.
-   */
-  function wpm_enableAcceptButton(enabled) {
-    acceptButton.classList.toggle('hidden', !enabled);
-  }
-
-  /**
    * Establish if we must show this message or not; the message is shown only
    * if WAP Push functionality is enabled, the sender's MSISDN is whitelisted
    * or whitelisting is disabled
@@ -198,53 +173,46 @@
    * Send a notification for the provided message
    *
    * @param {Object} message The message the user needs to be notified of
+   *
+   * @return {Object} A promise that is resolved once the notification has been
+   *         sent and its events hooked up properly.
    */
   function wpm_sendNotification(message) {
-    var _ = navigator.mozL10n.get;
     var iconURL = NotificationHelper.getIconURI(app);
 
     /* Build the notification's text, for text/vnd.wap.connectivity-xml
      * messages this needs to be localized. */
-    var text = '';
+    var body;
 
-    if (message.text) {
-      text = (message.type == 'text/vnd.wap.connectivity-xml') ?
-             _(message.text) : message.text;
+    if (message.type === 'text/vnd.wap.connectivity-xml') {
+      body = message.text; // The text will be localized
+    } else {
+      body = {
+        id: (message.type === 'text/vnd.wap.si') ? 'si-message-body'
+                                                 : 'sl-message-body',
+        args: {
+          text: message.text || '', // The text won't be localized
+          url: message.href
+        }
+      };
     }
 
-    if (message.href) {
-      text += (text ? ' ' : '');
-      text += message.href;
-    }
-
-    // Build the title, this is normally the sender's number
-    var title = message.sender;
-
-    /* If the phone has more than one SIM prepend the number of the SIM on
-     * which this message was received */
-    if (navigator.mozIccManager &&
-        navigator.mozIccManager.iccIds.length > 1) {
-      var simName = _('sim', { id: +message.serviceId + 1 });
-
-      title = _(
-        'dsds-notification-title-with-sim',
-         { sim: simName, title: title }
-      );
-    }
+    var title = Utils.prepareMessageTitle(message);
 
     var options = {
       icon: iconURL,
-      body: text,
+      bodyL10n: body,
       tag: message.timestamp
     };
 
-    var notification = new Notification(title, options);
-    notification.addEventListener('click',
-      function wpm_onNotificationClick(event) {
-        app.launch();
-        wpm_displayWapPushMessage(event.target.tag);
-      }
-    );
+    return NotificationHelper.send(title, options)
+                             .then(function(notification) {
+      notification.addEventListener('click',
+        function wpm_onNotificationClick(event) {
+          wpm_displayWapPushMessage(event.target.tag);
+        }
+      );
+    });
   }
 
   /**
@@ -280,9 +248,19 @@
       }
 
       DUMP('The message was successfully saved to the DB');
-      wpm_sendNotification(message);
-      wpm_finish();
-      return Promise.resolve();
+
+      if (message.action === 'signal-high' ||
+          message.action === 'execute-high')
+      {
+        /* We just decrease the number of pending messages instead of invoking
+         * wpm_finish() since we don't want to start the close procedure. */
+        pendingMessages--;
+        return wpm_displayWapPushMessage(message.timestamp);
+      } else {
+        return wpm_sendNotification(message).then(function() {
+          wpm_finish();
+        });
+      }
     }).catch(function wpm_saveRejected(error) {
       console.log('Could not add a message to the database: ' + error + '\n');
       wpm_finish();
@@ -300,13 +278,16 @@
       return;
     }
 
-    /* Clear the close timer when a notification is tapped as the app will soon
-     * become visible */
-    window.clearTimeout(closeTimeout);
-    closeTimeout = null;
-
-    app.launch();
     wpm_displayWapPushMessage(message.tag);
+  }
+
+  /**
+   * Removes the notifications for messages that have been deleted
+   *
+   * @param {Object} message The deleted message.
+   */
+  function wpm_onMessageDeleted(message) {
+    wpm_clearNotifications(+message.timestamp);
   }
 
   /**
@@ -319,6 +300,11 @@
   function wpm_displayWapPushMessage(timestamp) {
     DUMP('Displaying message ' + timestamp);
 
+    // Clear the close timer as the application will soon become visible
+    app.launch();
+    window.clearTimeout(closeTimeout);
+    closeTimeout = null;
+
     return ParsedMessage.load(timestamp).then(
       function wpm_loadResolved(message) {
         if (message) {
@@ -328,7 +314,7 @@
               SiSlScreenHelper.populateScreen(message);
               return wpm_clearNotifications(timestamp);
             case 'text/vnd.wap.connectivity-xml':
-              CpScreenHelper.populateScreen(message);
+              CpScreenHelper.showConfirmInstallationDialog(message);
               break;
           }
         } else {
@@ -405,27 +391,6 @@
       closeTimeout = null;
       window.close();
     }, 100);
-  }
-
-  /**
-   * Invoque the callback function that handles the applicaton flow in the
-   * different mode (SI/SL or CP) and close the app.
-   */
-  function wpm_onClose() {
-    if (onCloseCallback && (typeof onCloseCallback === 'function')) {
-      onCloseCallback();
-    }
-  }
-
-  /**
-   * Set the callback function that handles the applicaton flow in the different
-   * mode (SI/SL or CP) when the user tries to close the application with the
-   * close button.
-   *
-   * @param {function} callback The callback function.
-   */
-  function wpm_setOnCloseCallback(callback) {
-    onCloseCallback = callback;
   }
 
   exports.WapPushManager = WapPushManager;

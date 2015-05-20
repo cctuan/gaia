@@ -1,24 +1,34 @@
-/*global Factory */
+/* global suiteTemplate */
+define(function(require) {
+'use strict';
 
-requireLib('provider/abstract.js');
-requireLib('template.js');
-requireLib('querystring.js');
-requireElements('calendar/elements/modify_event.html');
-requireElements('calendar/elements/show_event.html');
+var CalendarError = require('common/error');
+var EventBase = require('views/event_base');
+var Factory = require('test/support/factory');
+var InputParser = require('shared/input_parser');
+var ModifyEvent = require('views/modify_event');
+var QueryString = require('querystring');
+var Template = require('template');
+var View = require('view');
+var core = require('core');
+var nextTick = require('common/next_tick');
+var router = require('router');
 
-suiteGroup('Views.ModifyEvent', function() {
-  /*jshint -W027 */
-  'use strict';
+require('dom!modify_event');
+require('dom!show_event');
+
+suite('views/modify_event', function() {
   /** disabled because of intermittent failures see bug 917537 */
+  /* jshint -W027 */
   return;
 
   var subject;
   var controller;
-  var app;
   var fmt;
 
   var provider;
 
+  var storeFactory;
   var eventStore;
   var calendarStore;
   var accountStore;
@@ -46,7 +56,7 @@ suiteGroup('Views.ModifyEvent', function() {
   }
 
   function escapeHTML(html) {
-    var template = new Calendar.Template(function() {
+    var template = new Template(function() {
       return this.h('value');
     });
 
@@ -61,7 +71,7 @@ suiteGroup('Views.ModifyEvent', function() {
   var realGo;
 
   teardown(function() {
-    Calendar.App.go = realGo;
+    router.go = realGo;
   });
 
   suiteTemplate('show-event', {
@@ -73,23 +83,21 @@ suiteGroup('Views.ModifyEvent', function() {
   });
 
   setup(function(done) {
-    app = testSupport.calendar.app();
-    realGo = app.go;
+    realGo = router.go;
+    storeFactory = core.storeFactory;
 
-    eventStore = app.store('Event');
-    accountStore = app.store('Account');
-    calendarStore = app.store('Calendar');
-    settingStore = app.store('Setting');
-    provider = app.provider('Mock');
+    eventStore = storeFactory.get('Event');
+    accountStore = storeFactory.get('Account');
+    calendarStore = storeFactory.get('Calendar');
+    settingStore = storeFactory.get('Setting');
+    provider = core.providerFactory.get('Mock');
 
     fmt = navigator.mozL10n.DateTimeFormat();
 
-    controller = app.timeController;
+    controller = core.timeController;
 
-    app.db.open(done);
-    subject = new Calendar.Views.ModifyEvent({
-      app: app
-    });
+    core.db.open(done);
+    subject = new ModifyEvent();
   });
 
   testSupport.calendar.accountEnvironment();
@@ -108,10 +116,10 @@ suiteGroup('Views.ModifyEvent', function() {
 
   teardown(function(done) {
     testSupport.calendar.clearStore(
-      app.db,
+      core.db,
       ['accounts', 'calendars', 'events', 'busytimes', 'alarms'],
       function() {
-        app.db.close();
+        core.db.close();
         done();
       }
     );
@@ -132,8 +140,8 @@ suiteGroup('Views.ModifyEvent', function() {
   });
 
   test('initialization', function() {
-    assert.instanceOf(subject, Calendar.View);
-    assert.instanceOf(subject, Calendar.Views.EventBase);
+    assert.instanceOf(subject, View);
+    assert.instanceOf(subject, EventBase);
     assert.equal(subject._changeToken, 0);
 
     assert.ok(subject._els, 'has fields');
@@ -417,7 +425,7 @@ suiteGroup('Views.ModifyEvent', function() {
         endDate: endDate.toString()
       };
 
-      search = '?' + Calendar.QueryString.stringify(queryString);
+      search = '?' + QueryString.stringify(queryString);
       subject.useModel(this.busytime, this.event, done);
     });
 
@@ -587,7 +595,7 @@ suiteGroup('Views.ModifyEvent', function() {
     });
 
     test('with an error', function(done) {
-      var err = new Calendar.Error.Authentication();
+      var err = new CalendarError.Authentication();
       subject.showErrors = function(givenErr) {
         done(function() {
           assert.equal(err, givenErr);
@@ -595,7 +603,7 @@ suiteGroup('Views.ModifyEvent', function() {
       };
 
       provider.deleteEvent = function(model, callback) {
-        Calendar.nextTick(callback.bind(null, err));
+        nextTick(callback.bind(null, err));
       };
 
       subject.deleteRecord();
@@ -607,7 +615,7 @@ suiteGroup('Views.ModifyEvent', function() {
         callback();
       };
 
-      app.go = function(place) {
+      router.go = function(place) {
         assert.notEqual(place, '/foo', 'redirect is changed to event url');
         done();
       };
@@ -625,14 +633,14 @@ suiteGroup('Views.ModifyEvent', function() {
       calledWith = null;
       list = subject.element.classList;
 
-      app.go = function(place) {
+      router.go = function(place) {
         redirectTo = place;
       };
     });
 
     function haltsOnError(providerMethod) {
       test('does not persist record when provider fails', function(done) {
-        var err = new Calendar.Error.Authentication();
+        var err = new CalendarError.Authentication();
         subject.showErrors = function(gotErr) {
           done(function() {
             assert.equal(err, gotErr, 'dispatches error');
@@ -642,7 +650,7 @@ suiteGroup('Views.ModifyEvent', function() {
         provider[providerMethod] = function() {
           var args = Array.slice(arguments);
           var cb = args.pop();
-          Calendar.nextTick(cb.bind(null, err));
+          nextTick(cb.bind(null, err));
         };
 
         subject.primary();
@@ -701,7 +709,7 @@ suiteGroup('Views.ModifyEvent', function() {
             assert.notEqual(redirectTo, '/foo');
 
             assert.deepEqual(
-              app.timeController.position,
+              core.timeController.position,
               subject.event.startDate,
               'moves time controller'
             );
@@ -748,7 +756,7 @@ suiteGroup('Views.ModifyEvent', function() {
             assert.equal(redirectTo, '/foo');
 
             assert.deepEqual(
-              app.timeController.position,
+              core.timeController.position,
               subject.event.startDate,
               'moves timeController'
             );
@@ -958,7 +966,7 @@ suiteGroup('Views.ModifyEvent', function() {
       var allday = subject.getEl('allday');
       allday.checked = isAllDay;
       subject.event.isAllDay = isAllDay;
-      subject.updateAlarms(isAllDay, function() {
+      subject.updateAlarms(isAllDay).then(() => {
         var allAlarms = subject.alarmList.querySelectorAll('select');
         assert.equal(allAlarms.length, 2);
 
@@ -984,7 +992,7 @@ suiteGroup('Views.ModifyEvent', function() {
 
     test('populated with no existing alarms', function(done) {
       subject.event.alarms = [];
-      subject.updateAlarms(true, function() {
+      subject.updateAlarms(true).then(() => {
         var allAlarms = subject.alarmList.querySelectorAll('select');
         assert.equal(allAlarms.length, 2);
         assert.equal(allAlarms[0].value, defaultAllDayAlarm);
@@ -997,7 +1005,7 @@ suiteGroup('Views.ModifyEvent', function() {
       subject.event.alarms = [
         {trigger: -300}
       ];
-      subject.updateAlarms(true, function() {
+      subject.updateAlarms(true).then(() => {
         var allAlarms = subject.alarmList.querySelectorAll('select');
         assert.equal(allAlarms.length, 2);
         assert.equal(allAlarms[0].value, -300);
@@ -1011,7 +1019,7 @@ suiteGroup('Views.ModifyEvent', function() {
       subject.isSaved = function() {
         return true;
       };
-      subject.updateAlarms(true, function() {
+      subject.updateAlarms(true).then(() => {
         var allAlarms = subject.alarmList.querySelectorAll('select');
         assert.equal(allAlarms.length, 1);
         assert.equal(allAlarms[0].value, 'none');
@@ -1057,7 +1065,7 @@ suiteGroup('Views.ModifyEvent', function() {
           var allday = subject.getEl('allday');
           allday.checked = isAllDay;
           subject.event.isAllDay = isAllDay;
-          subject.updateAlarms(isAllDay, function() {
+          subject.updateAlarms(isAllDay).then(() => {
             var allAlarms = subject.alarmList.querySelectorAll('select');
             var firstSelect = allAlarms[0];
             assert.ok(firstSelect);
@@ -1194,5 +1202,6 @@ suiteGroup('Views.ModifyEvent', function() {
       };
     });
   });
+});
 
 });

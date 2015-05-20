@@ -13,19 +13,22 @@ class TestPlayMP4Video(GaiaTestCase):
         GaiaTestCase.setUp(self)
 
         # add video to storage
-        self.push_resource('VID_0001.mp4')
+        self.push_resource('VID_counter.mp4')
 
     def test_play_mp4_video(self):
         """https://moztrap.mozilla.org/manage/case/2478/"""
 
         video_player = VideoPlayer(self.marionette)
         video_player.launch()
-        video_player.wait_for_thumbnails_to_load(1, 'Video files found on device: %s' %self.data_layer.video_files)
+        video_player.wait_for_thumbnails_to_load(1)
 
         # Assert that there is at least one video available
         self.assertGreater(video_player.total_video_count, 0)
 
         first_video_name = video_player.first_video_name
+
+        self.assertEqual('none', self.data_layer.current_audio_channel)
+        self.apps.switch_to_displayed_app()
 
         # Click on the first video.
         fullscreen_video = video_player.tap_first_video_item()
@@ -43,3 +46,5 @@ class TestPlayMP4Video(GaiaTestCase):
 
         # Check the name too. This will only work if the toolbar is visible.
         self.assertEqual(first_video_name, fullscreen_video.name)
+
+        self.assertEqual('content', self.data_layer.current_audio_channel)

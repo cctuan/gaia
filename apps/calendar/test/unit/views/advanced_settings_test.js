@@ -1,16 +1,18 @@
-/*global Factory */
+/* global suiteTemplate */
+define(function(require) {
+'use strict';
 
-requireLib('models/account.js');
-requireLib('presets.js');
-requireLib('store/setting.js');
-requireElements('calendar/elements/advanced_settings.html');
+require('/shared/elements/gaia-header/dist/gaia-header.js');
+var AccountTemplate = require('templates/account');
+var AdvancedSettings = require('views/advanced_settings');
+var Factory = require('test/support/factory');
+var core = require('core');
 
-suiteGroup('Views.AdvancedSettings', function() {
-  'use strict';
+require('dom!advanced_settings');
 
+suite('Views.AdvancedSettings', function() {
   var subject;
   var template;
-  var app;
   var accountStore;
   var fixtures;
   var settings;
@@ -18,15 +20,6 @@ suiteGroup('Views.AdvancedSettings', function() {
 
   suiteSetup(function() {
     triggerEvent = testSupport.calendar.triggerEvent;
-  });
-
-  [
-    'Provider.Caldav',
-    'Provider.Local'
-  ].forEach(function(klass) {
-    suiteSetup(function(done) {
-      Calendar.App.loadObject(klass, done);
-    });
   });
 
   setup(function() {
@@ -61,18 +54,15 @@ suiteGroup('Views.AdvancedSettings', function() {
   });
 
   setup(function(done) {
-    app = testSupport.calendar.app();
-    db = app.db;
+    db = core.db;
 
-    template = Calendar.Templates.Account;
-    subject = new Calendar.Views.AdvancedSettings({
-      app: app
-    });
+    template = AccountTemplate;
+    subject = new AdvancedSettings();
 
-    accountStore = app.store('Account');
-    settings = app.store('Setting');
+    accountStore = core.storeFactory.get('Account');
+    settings = core.storeFactory.get('Setting');
 
-    app.db.open(done);
+    core.db.open(done);
   });
 
   setup(function(done) {
@@ -93,10 +83,10 @@ suiteGroup('Views.AdvancedSettings', function() {
 
   teardown(function(done) {
     testSupport.calendar.clearStore(
-      app.db,
+      core.db,
       ['accounts'],
       function() {
-        app.db.close();
+        core.db.close();
         done();
       }
     );
@@ -151,7 +141,7 @@ suiteGroup('Views.AdvancedSettings', function() {
           providerType: 'Local'
         }));
 
-        assert.length(children, 1, 'does not add account');
+        assert.lengthOf(children, 1, 'does not add account');
       });
     });
 
@@ -195,14 +185,20 @@ suiteGroup('Views.AdvancedSettings', function() {
 
   suite('#handleSettingUiChange', function() {
     var calledWith;
+    var originalSet;
 
     setup(function() {
       calledWith = 'notcalled';
+      originalSet = settings.set;
       settings.set = function(name, value) {
         if (name === 'syncFrequency') {
           calledWith = value;
         }
       };
+    });
+
+    teardown(function() {
+      settings.set = originalSet;
     });
 
     function change(name, value) {
@@ -334,5 +330,6 @@ suiteGroup('Views.AdvancedSettings', function() {
       );
     });
   });
+});
 
 });

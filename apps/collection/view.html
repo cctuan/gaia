@@ -21,6 +21,7 @@
     <!-- gaia grid -->
     <script defer src="shared/js/dedupe.js"></script>
     <script defer src="shared/js/url_helper.js"></script>
+    <script defer src="shared/js/web_manifest_helper.js"></script>
     <script defer src="shared/elements/gaia_grid/js/grid_view.js"></script>
     <script defer src="shared/elements/gaia_grid/js/grid_icon_renderer.js"></script>
     <script defer src="shared/elements/gaia_grid/js/grid_layout.js"></script>
@@ -35,9 +36,9 @@
 
     <!-- Gaia Components -->
     <script defer src="shared/elements/config.js"></script>
-    <script defer src="shared/elements/gaia-header/dist/script.js"></script>
-    <link rel="stylesheet" href="shared/elements/gaia-theme/style.css">
-    <!-- <link rel="stylesheet" href="shared/elements/gaia-icons/style.css"> -->
+    <!-- <link rel="stylesheet" href="shared/elements/gaia-icons/gaia-icons.css"> -->
+    <link rel="stylesheet" href="app://theme.gaiamobile.org/shared/elements/gaia-theme/gaia-theme.css">
+    <script defer src="shared/elements/gaia-header/dist/gaia-header.js"></script>
 
     <script defer src="shared/js/everythingme/eme.js"></script>
     <script defer src="shared/js/everythingme/cache.js"></script>
@@ -59,7 +60,8 @@
     <link rel="stylesheet" href="style/css/base.css">
     <link rel="stylesheet" href="style/css/view.css">
     <link rel="stylesheet" href="shared/elements/gaia_grid/style/external.css">
-    <link rel="manifest" href="manifest.webapp">
+    <meta name="defaultLanguage" content="en-US">
+    <meta name="availableLanguages" content="en-US">
     <link rel="localization" href="locales/collection.{locale}.properties">
     <link rel="localization" href="/shared/elements/gaia_grid/locales/gaia_grid.{locale}.properties">
     <link rel="localization" href="/shared/elements/gaia_menu/locales/gaia_menu.{locale}.properties">
@@ -75,8 +77,8 @@
 
         <section id="edit-header" class="skin-dark" role="region">
           <gaia-header>
-            <h1 data-l10n-id="edit-mode">Edit</h1>
-            <a href="#" data-l10n-id="edit-done" id="exit-edit-mode">Done</a>
+            <h1 data-l10n-id="edit-mode"></h1>
+            <a href="#" data-l10n-id="edit-done" id="exit-edit-mode"></a>
           </gaia-header>
         </section>
 
@@ -84,7 +86,7 @@
 
         <div id="content-background-image">
           <div id="content">
-            <gaia-grid cols="4" id="grid" dragdrop></gaia-grid>
+            <gaia-grid cols="4" id="grid" dragdrop disable-sections></gaia-grid>
 
             <section role="notification" id="offline">
               <span id="offline-message"></span>
@@ -97,8 +99,8 @@
         </div>
 
         <gaia-menu id="cloud-menu" hidden>
-            <button data-l10n-id="add-to-top-of-collection" id="pin-cloudapp">Add to top of collection</button>
-            <button data-l10n-id="add-to-home-screen" id="bookmark-cloudapp">Add to Home Screen</button>
+            <button data-l10n-id="add-to-top-of-collection" id="pin-cloudapp"></button>
+            <button data-l10n-id="add-to-home-screen" id="bookmark-cloudapp"></button>
         </gaia-menu>
     </section>
   </body>

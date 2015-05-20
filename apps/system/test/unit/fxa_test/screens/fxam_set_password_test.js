@@ -1,3 +1,6 @@
+/* global FxaModuleErrorOverlay, FxaModuleOverlay, FxaModuleUI,
+          FxaModuleSetPassword, FxModuleServerRequest, FxaModuleStates,
+          HtmlImports, LoadElementHelper, MocksHelper, MockL10n */
 'use strict';
 
 // Helper for loading the elements
@@ -38,8 +41,6 @@ var mocksHelperForSetPasswordModule = new MocksHelper([
   'FxModuleServerRequest',
   'FxaModuleErrors'
 ]);
-
-mocha.globals(['FxModuleServerRequest', 'FxaModuleErrors']);
 
 suite('Screen: Set password', function() {
   var realL10n;

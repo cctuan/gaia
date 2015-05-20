@@ -2,6 +2,8 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
+from marionette_driver import Wait
+
 from gaiatest import GaiaTestCase
 from gaiatest.apps.system.app import System
 
@@ -21,4 +23,4 @@ class TestUtilityTraySettingsAccessibility(GaiaTestCase):
         settings = utility_tray.a11y_click_quick_settings_full_app()
 
         # Make sure that Settings is the currently displayed app.
-        self.assertEquals(self.apps.displayed_app.name, settings.name)
+        Wait(self.marionette).until(lambda m: self.apps.displayed_app.name == settings.name)

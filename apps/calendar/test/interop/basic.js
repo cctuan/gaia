@@ -3,7 +3,7 @@
 
 var Calendar = require('../marionette/lib/calendar'),
     assert = require('chai').assert,
-    debug = require('debug')('interop:basic'),
+    debug = require('common/debug')('interop:basic'),
     fs = require('fs'),
     path = require('path');
 
@@ -11,8 +11,6 @@ var Calendar = require('../marionette/lib/calendar'),
 var providers = [
   'oracle'
 ];
-
-var sharedPath = __dirname + '/../../../../shared/test/integration';
 
 marionette('interop basic', function() {
   var app;
@@ -56,13 +54,9 @@ marionette('interop basic', function() {
 
     suite(provider, function() {
       setup(function() {
-        debug('Inject mozNotification mock.');
-        client.contentScript.inject(sharedPath +
-          '/mock_navigator_moz_notification.js');
-
         debug('Launch calendar.');
         app = new Calendar(client);
-        app.launch({ hideSwipeHint: true });
+        app.launch();
 
         app.setupAccount(setupOptions(provider, config));
 

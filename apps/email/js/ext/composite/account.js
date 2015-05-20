@@ -4,7 +4,7 @@
 
 define(
   [
-    'rdcommon/log',
+    'logic',
     '../accountcommon',
     '../a64',
     '../accountmixins',
@@ -15,7 +15,7 @@ define(
     'exports'
   ],
   function(
-    $log,
+    logic,
     $accountcommon,
     $a64,
     $acctmixins,
@@ -39,11 +39,11 @@ var PIECE_ACCOUNT_TYPE_TO_CLASS = {
  * fact that IMAP and SMTP are not actually bundled tightly together.
  */
 function CompositeAccount(universe, accountDef, folderInfo, dbConn,
-                          receiveProtoConn,
-                          _LOG) {
+                          receiveProtoConn) {
   this.universe = universe;
   this.id = accountDef.id;
   this.accountDef = accountDef;
+  logic.defineScope(this, 'Account', { accountId: this.id });
 
   // Currently we don't persist the disabled state of an account because it's
   // easier for the UI to be edge-triggered right now and ensure that the
@@ -51,34 +51,39 @@ function CompositeAccount(universe, accountDef, folderInfo, dbConn,
   this._enabled = true;
   this.problems = [];
 
-  // XXX for now we are stealing the universe's logger
-  this._LOG = _LOG;
+  // For oauth2, hold on to a "last renew attempt" timestamp. However, since it
+  // uses performance.now() that can be reset depending on clock time and
+  // environment (shared worker always resets to 0 for instance), always reset
+  // the value here to 0. It is just a transient timestamp that is useful
+  // during the lifetime of the app.
+  if (accountDef.credentials && accountDef.credentials.oauth2) {
+    accountDef.credentials.oauth2._transientLastRenew = 0;
+  }
 
   this.identities = accountDef.identities;
 
   if (!PIECE_ACCOUNT_TYPE_TO_CLASS.hasOwnProperty(accountDef.receiveType)) {
-    this._LOG.badAccountType(accountDef.receiveType);
+    logic(this, 'badAccountType', { type: accountDef.receiveType });
   }
   if (!PIECE_ACCOUNT_TYPE_TO_CLASS.hasOwnProperty(accountDef.sendType)) {
-    this._LOG.badAccountType(accountDef.sendType);
+    logic(this, 'badAccountType', { type: accountDef.sendType });
   }
 
   this._receivePiece =
     new PIECE_ACCOUNT_TYPE_TO_CLASS[accountDef.receiveType](
       universe, this,
       accountDef.id, accountDef.credentials, accountDef.receiveConnInfo,
-      folderInfo, dbConn, this._LOG, receiveProtoConn);
+      folderInfo, dbConn, receiveProtoConn);
   this._sendPiece =
     new PIECE_ACCOUNT_TYPE_TO_CLASS[accountDef.sendType](
       universe, this,
       accountDef.id, accountDef.credentials,
-      accountDef.sendConnInfo, dbConn, this._LOG);
+      accountDef.sendConnInfo, dbConn);
 
   // expose public lists that are always manipulated in place.
   this.folders = this._receivePiece.folders;
   this.meta = this._receivePiece.meta;
   this.mutations = this._receivePiece.mutations;
-  this.tzOffset = accountDef.tzOffset;
 
   // Mix in any fields common to all accounts.
   $acctmixins.accountConstructorMixin.call(

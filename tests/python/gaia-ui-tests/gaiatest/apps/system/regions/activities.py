@@ -2,7 +2,8 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-from marionette.by import By
+from marionette_driver import expected, By, Wait
+
 from gaiatest.apps.base import Base
 
 
@@ -15,50 +16,75 @@ class Activities(Base):
     _wallpaper_button_locator = (By.XPATH, "//*[text()='Wallpaper']")
     _gallery_button_locator = (By.XPATH, '//*[text()="Gallery"]')
     _camera_button_locator = (By.XPATH, '//*[text()="Camera"]')
+    _messages_button_locator = (By.XPATH, '//*[text()="Messages"]')
+    _ringtones_button_locator = (By.XPATH, '//*[text()="Ringtones"]')
     _cancel_button_locator = (By.CSS_SELECTOR, 'form[data-type="action"] button[data-action="cancel"]')
+
+    _save_image_locator = (By.CSS_SELECTOR, 'button[data-id="save-image"]')
 
     def __init__(self, marionette):
         Base.__init__(self, marionette)
         self.marionette.switch_to_frame()
         view = self.marionette.find_element(*self._actions_menu_locator)
-        if 'contextmenu' in view.get_attribute('class'):
-            # final position is below the status bar
-            self.wait_for_condition(lambda m: view.location['y'] == 24)
-        else:
-            self.wait_for_condition(lambda m: view.location['y'] == 0)
+        Wait(self.marionette).until(lambda m: view.location['y'] == 0)
 
     def tap_wallpaper(self):
+        Wait(self.marionette).until(
+            expected.element_displayed(*self._actions_menu_locator))
         self.marionette.find_element(*self._wallpaper_button_locator).tap()
-        self.wait_for_element_not_displayed(*self._actions_menu_locator)
+        Wait(self.marionette).until(
+            expected.element_not_displayed(*self._actions_menu_locator))
         from gaiatest.apps.wallpaper.app import Wallpaper
         wallpaper = Wallpaper(self.marionette)
-        self.wait_for_condition(lambda m: self.apps.displayed_app.name == wallpaper.name)
+        Wait(self.marionette).until(lambda m: self.apps.displayed_app.name == wallpaper.name)
         self.apps.switch_to_displayed_app()
         return wallpaper
 
     def tap_gallery(self):
+        actions_menu = Wait(self.marionette).until(
+            expected.element_present(*self._actions_menu_locator))
+        Wait(self.marionette).until(
+            expected.element_displayed(actions_menu))
         self.marionette.find_element(*self._gallery_button_locator).tap()
-        self.wait_for_element_not_displayed(*self._actions_menu_locator)
+        Wait(self.marionette).until(
+            expected.element_not_displayed(actions_menu))
         from gaiatest.apps.gallery.app import Gallery
         gallery = Gallery(self.marionette)
-        self.wait_for_condition(lambda m: self.apps.displayed_app.name == gallery.name)
+        Wait(self.marionette).until(lambda m: self.apps.displayed_app.name == gallery.name)
         self.apps.switch_to_displayed_app()
         return gallery
 
     def tap_camera(self):
+        actions_menu = Wait(self.marionette).until(
+            expected.element_present(*self._actions_menu_locator))
+        Wait(self.marionette).until(
+            expected.element_displayed(actions_menu))
         self.marionette.find_element(*self._camera_button_locator).tap()
-        self.wait_for_element_not_displayed(*self._actions_menu_locator)
+        Wait(self.marionette).until(
+            expected.element_not_displayed(actions_menu))
         from gaiatest.apps.camera.app import Camera
         camera = Camera(self.marionette)
-        self.wait_for_condition(lambda m: self.apps.displayed_app.name == camera.name)
+        Wait(self.marionette).until(lambda m: self.apps.displayed_app.name == camera.name)
         self.apps.switch_to_displayed_app()
+        camera.wait_for_loading_spinner_displayed()
+        camera.wait_for_loading_spinner_hidden()
         camera.wait_for_capture_ready()
         return camera
 
     def tap_cancel(self):
+        actions_menu = Wait(self.marionette).until(
+            expected.element_present(*self._actions_menu_locator))
+        Wait(self.marionette).until(
+            expected.element_displayed(actions_menu))
         self.marionette.find_element(*self._cancel_button_locator).tap()
-        self.wait_for_element_not_displayed(*self._actions_menu_locator)
+        Wait(self.marionette).until(
+            expected.element_not_displayed(actions_menu))
         self.apps.switch_to_displayed_app()
+
+    def tap_save_image(self):
+        Wait(self.marionette).until(expected.element_displayed(
+            Wait(self.marionette).until(expected.element_present(*self._save_image_locator))))
+        self.marionette.find_element(*self._save_image_locator).tap()
 
     @property
     def options_count(self):
@@ -67,3 +93,20 @@ class Activities(Base):
     @property
     def is_menu_visible(self):
         return self.is_element_displayed(*self._actions_menu_locator)
+
+    def share_to_messages(self):
+        actions_menu = Wait(self.marionette).until(
+            expected.element_present(*self._actions_menu_locator))
+        Wait(self.marionette).until(
+            expected.element_displayed(actions_menu))
+        self.marionette.find_element(*self._messages_button_locator).tap()
+        Wait(self.marionette).until(
+            expected.element_not_displayed(actions_menu))
+        from gaiatest.apps.messages.regions.new_message import NewMessage
+        return NewMessage(self.marionette)
+
+    def share_to_ringtones(self):
+        self.marionette.find_element(*self._ringtones_button_locator).tap()
+        self.wait_for_element_not_displayed(*self._actions_menu_locator)
+        from gaiatest.apps.ring_tone.app import RingTone
+        return RingTone(self.marionette)

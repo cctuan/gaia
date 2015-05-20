@@ -1,13 +1,12 @@
-/* global __dirname, require, marionette, setup, suite, teardown, test */
+/* global require, marionette, setup, suite, teardown, test */
 'use strict';
 
 var Calendar = require('./lib/calendar'),
     Radicale = require('./lib/radicale'),
     assert = require('chai').assert,
-    debug = require('debug')('marionette:server_test');
+    debug = require('common/debug')('marionette:server_test');
 
-var sharedPath = __dirname + '/../../../../shared/test/integration',
-    calendarName = 'firefox-os';
+var calendarName = 'firefox-os';
 
 marionette('interop basic', function() {
   var app, server;
@@ -45,7 +44,7 @@ marionette('interop basic', function() {
   function onServerUp(callback) {
     debug('Launch calendar.');
     app = new Calendar(client);
-    app.launch({ hideSwipeHint: true });
+    app.launch();
 
     app.setupAccount({
       accountType: 'caldav',
@@ -74,10 +73,6 @@ marionette('interop basic', function() {
 
   suite('server', function() {
     setup(function(done) {
-      debug('Inject mozNotification mock.');
-      client.contentScript.inject(sharedPath +
-        '/mock_navigator_moz_notification.js');
-
       // Start server if it's not already up.
       if (server) {
         return onServerUp(done);

@@ -13,7 +13,8 @@ require('/shared/test/unit/mocks/mock_mozContacts.js');
 requireApp('communications/contacts/test/unit/mock_export_strategy.js');
 requireApp('communications/contacts/test/unit/mock_contacts_list.js');
 requireApp('communications/contacts/test/unit/mock_l10n.js');
-requireApp('communications/dialer/test/unit/mock_confirm_dialog.js');
+require('/shared/test/unit/mocks/mock_confirm_dialog.js');
+require('/shared/js/fb/fb_reader_utils.js');
 
 requireApp('communications/contacts/js/export/contacts_exporter.js');
 
@@ -155,7 +156,7 @@ suite('Contacts Exporter', function() {
   test('Correct initialization given an array of ids', function(done) {
     subject.init(ids, function onInitDone(contacts) {
       var expectedContacts = getContactsForIds(ids);
-      assert.length(contacts, 2);
+      assert.lengthOf(contacts, 2);
       assert.notStrictEqual(expectedContacts, contacts);
       done();
     });

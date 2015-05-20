@@ -3,8 +3,6 @@
 
 requireApp('settings/shared/test/unit/load_body_html_helper.js');
 
-mocha.globals(['LazyLoader', 'DeviceStorageHelper']);
-
 suite('AppStoragePanel', function() {
   var modules = ['panels/app_storage/panel'];
   var map = {
@@ -30,6 +28,7 @@ suite('AppStoragePanel', function() {
     this.MockAppStorage = {
       isMock: true,
       enabled: true,
+      updateInfo: function () {},
       storage: {
         usedPercentage: 1,
         totalSize: 1,

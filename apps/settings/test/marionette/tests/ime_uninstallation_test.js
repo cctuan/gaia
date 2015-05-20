@@ -1,7 +1,6 @@
 'use strict';
 var Settings = require('../app/app');
 var assert = require('assert');
-var SystemApp = require('../app/system_app');
 
 marionette('Uninstall an ime app', function() {
   var IME_TEST_APP_ORIGIN = 'app://imetestapp.gaiamobile.org';
@@ -9,18 +8,18 @@ marionette('Uninstall an ime app', function() {
 
   var preloadApps = {};
   // And a testing 3rd-party IME app
-  preloadApps[IME_TEST_APP_ORIGIN] = __dirname + '/../imetestapp';
+  preloadApps[IME_TEST_APP_ORIGIN] = __dirname + '/../../fixtures/imetestapp';
 
   var client = marionette.client({
     apps: preloadApps
   });
 
-  var systemApp;
+  var confirmDialog;
   var settingsApp;
   var appPermissionPanel;
 
   setup(function() {
-    systemApp = new SystemApp(client);
+    confirmDialog = client.loader.getAppClass('system', 'confirm_dialog');
     settingsApp = new Settings(client);
 
     settingsApp.launch();
@@ -44,8 +43,7 @@ marionette('Uninstall an ime app', function() {
 
     // confirm to uninstall
     client.switchToFrame();
-    // systemApp.confirmOk();
-    systemApp.confirmDialog('remove');
+    confirmDialog.confirm('remove');
 
     // Switch back to settings app
     settingsApp.switchTo();

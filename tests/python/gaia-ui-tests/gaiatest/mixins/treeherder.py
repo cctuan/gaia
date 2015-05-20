@@ -13,18 +13,23 @@ import uuid
 
 import boto
 from mozdevice import ADBDevice
-from mozlog.structured.handlers import StreamHandler
+from mozlog.structured.formatters import TbplFormatter
+from mozlog.structured.handlers import LogLevelFilter, StreamHandler
 import mozversion
 import requests
 from thclient import TreeherderRequest, TreeherderJobCollection
 
+# The device_group_map maps by device name then
+# device_firmware_version_release to denote the underlying Android version
 DEVICE_GROUP_MAP = {
     'flame': {
-        'name': 'Flame Device Image',
-        'symbol': 'Flame'},
-    'msm7627a': {
-        'name': 'Buri/Hamachi Device Image',
-        'symbol': 'Buri/Hamac'}}
+        '4.4.2': {
+            'name': 'Flame KitKat Device Image',
+            'symbol': 'Flame-KK'},
+        '4.3': {
+            'name': 'Flame Device Image',
+            'symbol': 'Flame'}
+    }}
 
 
 class S3UploadError(Exception):
@@ -74,21 +79,27 @@ class TreeherderTestRunnerMixin(object):
         job = job_collection.get_job()
 
         device = version.get('device_id')
+        device_firmware_version_release = \
+            version.get('device_firmware_version_release')
+
         if not device:
             self.logger.error('Submitting to Treeherder is currently limited '
                               'to devices.')
             return
 
         try:
-            group = DEVICE_GROUP_MAP[device]
+            group = DEVICE_GROUP_MAP[device][device_firmware_version_release]
             job.add_group_name(group['name'])
             job.add_group_symbol(group['symbol'])
-            job.add_job_name('Gaia Python Integration Test (%s)' % device)
+            job.add_job_name('Gaia Python Integration Test (%s)' % group['symbol'])
             job.add_job_symbol('Gip')
         except KeyError:
-            self.logger.error('Unknown device id: %s, unable to determine '
-                              'Treeherder group. Supported device ids: %s' % (
-                                  device, DEVICE_GROUP_MAP.keys()))
+            self.logger.error('Unknown device id: %s or device firmware '
+                              'version: %s. Unable to determine Treeherder '
+                              'group. Supported devices: %s'
+                              % (device, device_firmware_version_release,
+                                 ['%s: %s' % (k, [fw for fw in v.keys()])
+                                  for k, v in DEVICE_GROUP_MAP.iteritems()]))
             return
 
         # Determine revision hash from application revision
@@ -200,11 +211,11 @@ class TreeherderTestRunnerMixin(object):
                     'value': filename,
                     'content_type': 'link',
                     'title': 'Log:'})
-                # TODO: Bug 1049723 - Add log reference
-                # if type(handler.formatter) is TbplFormatter or \
-                #         type(handler.formatter) is LogLevelFilter and \
-                #         type(handler.formatter.inner) is TbplFormatter:
-                #     job.add_log_reference(filename, url)
+                # Add log reference
+                if type(handler.formatter) is TbplFormatter or \
+                        type(handler.formatter) is LogLevelFilter and \
+                        type(handler.formatter.inner) is TbplFormatter:
+                    job.add_log_reference(filename, url)
             except S3UploadError:
                 job_details.append({
                     'value': 'Failed to upload %s' % filename,
@@ -212,20 +223,21 @@ class TreeherderTestRunnerMixin(object):
                     'title': 'Error:'})
 
         # Attach reports
-        for report in [self.html_output, self.xml_output]:
-            filename = os.path.split(report)[-1]
-            try:
-                url = self.upload_to_s3(report)
-                job_details.append({
-                    'url': url,
-                    'value': filename,
-                    'content_type': 'link',
-                    'title': 'Report:'})
-            except S3UploadError:
-                job_details.append({
-                    'value': 'Failed to upload %s' % filename,
-                    'content_type': 'text',
-                    'title': 'Error:'})
+        for report in [self.html_output]:
+            if report is not None:
+                filename = os.path.split(report)[-1]
+                try:
+                    url = self.upload_to_s3(report)
+                    job_details.append({
+                        'url': url,
+                        'value': filename,
+                        'content_type': 'link',
+                        'title': 'Report:'})
+                except S3UploadError:
+                    job_details.append({
+                        'value': 'Failed to upload %s' % filename,
+                        'content_type': 'text',
+                        'title': 'Error:'})
 
         if job_details:
             job.add_artifact('Job Info', 'json', {'job_details': job_details})
@@ -255,8 +267,12 @@ class TreeherderTestRunnerMixin(object):
                 self.logger.debug('Connecting to S3')
                 conn = boto.connect_s3()
                 bucket = os.environ.get('S3_UPLOAD_BUCKET', 'gaiatest')
-                self.logger.debug('Creating bucket: %s' % bucket)
-                self._s3_bucket = conn.create_bucket(bucket)
+                if conn.lookup(bucket):
+                    self.logger.debug('Getting bucket: %s' % bucket)
+                    self._s3_bucket = conn.get_bucket(bucket)
+                else:
+                    self.logger.debug('Creating bucket: %s' % bucket)
+                    self._s3_bucket = conn.create_bucket(bucket)
                 self._s3_bucket.set_acl('public-read')
             except boto.exception.NoAuthHandlerFound:
                 self.logger.info(

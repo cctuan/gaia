@@ -1,7 +1,7 @@
 'use strict';
+/* exported MockUpdateManager */
 
 var MockUpdateManager = {
-  _dataConnectionWarningEnabled: true,
   _startedDownloadUsingDataConnection: false,
 
   addToUpdatesQueue: function mum_addtoUpdateQueue(updatable) {
@@ -67,7 +67,6 @@ var MockUpdateManager = {
   mStartedUncompressingCalled: false,
   mDownloadedCalled: false,
   mTeardown: function mum_mTeardown() {
-    this._dataConnectionWarningEnabled = true;
     this._startedDownloadUsingDataConnection = false;
 
     this.mErrorBannerRequested = false;

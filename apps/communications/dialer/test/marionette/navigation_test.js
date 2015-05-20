@@ -1,3 +1,4 @@
+'use strict';
 var Dialer = require('./lib/dialer');
 
 marionette('Dialer > Navigation', function() {
@@ -6,11 +7,10 @@ marionette('Dialer > Navigation', function() {
   var client = marionette.client(Dialer.config);
   var subject;
   var selectors;
-
-  var Actions = require('marionette-client').Actions;
-  var actions = new Actions(client);
+  var actions;
 
   setup(function() {
+    actions = client.loader.getActions();
     subject = new Dialer(client);
     subject.launch();
 

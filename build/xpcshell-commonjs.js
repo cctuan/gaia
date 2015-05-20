@@ -1,11 +1,13 @@
 'use strict';
 
-/* global Components, FileUtils, Services, dump, quit */
+/* global Components, FileUtils, Services, XPCOMUtils:false, dump, quit */
 /* exported run, require */
 
 const Cc = Components.classes;
 const Ci = Components.interfaces;
 const Cu = Components.utils;
+const Cr = Components.results;
+
 const loaderURI = 'resource://gre/modules/commonjs/toolkit/loader.js';
 const env = Cc['@mozilla.org/process/environment;1'].
             getService(Ci.nsIEnvironment);
@@ -13,6 +15,55 @@ let { Loader } = Cu.import(loaderURI, {});
 
 Cu.import('resource://gre/modules/Services.jsm');
 Cu.import('resource://gre/modules/FileUtils.jsm');
+Cu.import('resource://gre/modules/XPCOMUtils.jsm');
+
+const CONTRACT_ID = '@mozilla.org/xre/app-info;1';
+let originalAppInfo = Cc[CONTRACT_ID].getService(Ci.nsIXULRuntime);
+
+try {
+  originalAppInfo.QueryInterface(Ci.nsIXULAppInfo);
+} catch(e) {
+  // Create a fake XULAppInfo to satisfy the eventual needs of the SDK.
+  // (xpcshell doesn't implement nsIXULAppInfo interface)
+  let XULAppInfo = {
+    // nsIXUlAppInfo
+    vendor: 'Mozilla',
+    name: 'XPCShell',
+    ID: 'xpcshell@tests.mozilla.org',
+    version: '1',
+    appBuildID: '2007010101',
+    platformVersion: '1.0',
+    platformBuildID: '2007010101',
+
+    // nsIXUlRuntime (partial)
+    inSafeMode: originalAppInfo.inSafeMode,
+    logConsoleErrors: originalAppInfo.logConsoleErrors,
+    OS: originalAppInfo.OS,
+    XPCOMABI: originalAppInfo.XPCOMABI,
+    invalidateCachesOnRestart:
+      originalAppInfo.invalidateCachesOnRestart.bind(originalAppInfo),
+
+    QueryInterface: function (aIID) {
+      let interfaces = [Ci.nsIXULAppInfo, Ci.nsIXULRuntime];
+      if (!interfaces.some(aIID.equals.bind(aIID))) {
+        throw Cr.NS_ERROR_NO_INTERFACE;
+      }
+      return this;
+    }
+  };
+
+  let registrar = Components.manager.QueryInterface(Ci.nsIComponentRegistrar);
+  let CID = Components.ID('7685dac8-3637-4660-a544-928c5ec0e714}');
+  registrar.registerFactory(CID, 'XULAppInfo', CONTRACT_ID, {
+    createInstance: function (aOuter, aIID) {
+      if (aOuter != null) {
+        throw Cr.NS_ERROR_NO_AGGREGATION;
+      }
+      return XULAppInfo.QueryInterface(aIID);
+    },
+    QueryInterface: XPCOMUtils.generateQI(Ci.nsIFactory)
+  });
+}
 
 // This is a valid use of this
 let xpcshellScope = this; // jshint ignore:line
@@ -27,10 +78,24 @@ try {
   // CommonjsRunner constructor.
 }
 
-var CommonjsRunner = function(module) {
-  const GAIA_DIR = env.get('GAIA_DIR');
-  const APP_DIR = env.get('APP_DIR');
-
+var CommonjsRunner = function(module, appOptions) {
+  if (appOptions) {
+    appOptions = appOptions || '{}';
+    try {
+      if (typeof appOptions === 'string') {
+        appOptions = JSON.parse(appOptions);
+      } else {
+        options = appOptions;
+      }
+    } catch (err) {
+      dump('Unable to parse appOptions ' + err.message);
+      throw err;
+    }
+  } else {
+    appOptions = options;
+  }
+  const GAIA_DIR = env.get('GAIA_DIR') || appOptions.GAIA_DIR;
+  const APP_DIR = (appOptions && appOptions.APP_DIR) || env.get('APP_DIR');
   let gaiaDirFile = new FileUtils.File(GAIA_DIR);
   let appBuildDirFile, appDirFile;
 
@@ -74,6 +139,9 @@ var CommonjsRunner = function(module) {
   if (typeof btoa === 'function') {
     globals.btoa = btoa;
   }
+  if (typeof quit === 'function') {
+    globals.quit = quit;
+  }
 
   let loader = Loader.Loader({
     paths: paths,
@@ -97,14 +165,14 @@ CommonjsRunner.prototype.run = function() {
     // ...and to allow doing easily such thing \o/
     if (this.appDirFile) {
       var stageAppDir = this.gaiaDirFile.clone();
+      let appPath = this.appDirFile.path;
       stageAppDir.append('build_stage');
       stageAppDir.append(this.appDirFile.leafName);
       options.STAGE_APP_DIR = stageAppDir.path;
-      options.APP_DIR = this.appDirFile.path;
+      options.APP_DIR = appPath;
       output += this.appDirFile.leafName;
     }
     output += '/' + this.module;
-    dump('run-js-command ' + output + '\n');
 
     this.require(this.module).execute(options);
 
@@ -115,16 +183,16 @@ CommonjsRunner.prototype.run = function() {
     quit(0);
   } catch(e) {
     dump('Exception: ' + e + '\n' + e.stack + '\n');
-    throw(e);
+    quit(1);
   }
 };
 
-function run(module) {
-  var runner = new CommonjsRunner(module);
+function run(module, appOptions) {
+  var runner = new CommonjsRunner(module, appOptions);
   runner.run();
 }
 
-function require(module) {
-  var runner = new CommonjsRunner(module);
+function require(module, appOptions) {
+  var runner = new CommonjsRunner(module, appOptions);
   return runner.require(module);
 }

@@ -1,53 +1,52 @@
-/*global Factory */
+define(function(require) {
+'use strict';
 
-suiteGroup('Utils.AccountCreation', function() {
-  'use strict';
+var AccountCreation = require('utils/account_creation');
+var Factory = require('test/support/factory');
+var Responder = require('common/responder');
+var core = require('core');
 
+suite('Utils.AccountCreation', function() {
   var subject;
   var accountStore;
   var calendarStore;
-  var app;
 
   var account;
   var provider;
 
-  testSupport.calendar.loadObjects(
-    'Models.Account',
-    'Models.Calendar'
-  );
-
   setup(function(done) {
-    app = testSupport.calendar.app();
-    accountStore = app.store('Account');
-    calendarStore = app.store('Calendar');
+    accountStore = core.storeFactory.get('Account');
+    calendarStore = core.storeFactory.get('Calendar');
 
-    subject = new Calendar.Utils.AccountCreation(
-      app
-    );
+    subject = new AccountCreation();
 
-    provider = app.provider('Mock');
+    provider = core.providerFactory.get('Mock');
     account = Factory('account', {
       user: 'special',
       providerType: 'Mock'
     });
 
-    app.db.open(done);
+    core.db.open(done);
+  });
+
+  teardown(function() {
+    accountStore._clearCache();
+    calendarStore._clearCache();
   });
 
   teardown(function(done) {
     testSupport.calendar.clearStore(
-      app.db,
+      core.db,
       ['accounts', 'calendars'],
       function() {
-        app.db.close();
+        core.db.close();
         done();
       }
     );
   });
 
   test('initialization', function() {
-    assert.equal(subject.app, app);
-    assert.instanceOf(subject, Calendar.Responder);
+    assert.instanceOf(subject, Responder);
   });
 
   suite('#send - success', function() {
@@ -55,25 +54,33 @@ suiteGroup('Utils.AccountCreation', function() {
     // sync capture setup
     var onAccountSync;
     var calendarSyncs;
+    var accountSync;
+    var calendarSync;
 
     setup(function() {
       onAccountSync = null;
       calendarSyncs = {};
 
+      calendarSync = calendarStore.sync;
       calendarStore.sync = function(givenAccount, calendar) {
         assert.equal(givenAccount.user, account.user);
         calendarSyncs[calendar.remote.id] = calendar.remote;
       };
 
-      var realSync = accountStore.sync;
+      accountSync = accountStore.sync;
       accountStore.sync = function(model, callback) {
-        realSync.call(this, model, function() {
+        accountSync.call(this, model, function() {
           if (onAccountSync) {
             onAccountSync(model, Array.slice(arguments));
           }
           callback.apply(this, arguments);
         });
       };
+    });
+
+    teardown(function() {
+      accountStore.sync = accountSync;
+      calendarStore.sync = calendarSync;
     });
 
     var calendars;
@@ -183,7 +190,7 @@ suiteGroup('Utils.AccountCreation', function() {
         });
       });
     });
-
   });
+});
 
 });

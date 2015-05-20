@@ -17,16 +17,22 @@ var SheetsTransition = {
     // Homescreen App would fade in next time it's opened automatically.
     var home = homescreenLauncher.getHomescreen();
     home && home.fadeOut();
-    var currentSheet = StackManager.getCurrent();
-    var newSheet = (direction == 'ltr') ?
+    var currentApp = StackManager.getCurrent();
+    var newApp = (direction == 'ltr') ?
       StackManager.getPrev() : StackManager.getNext();
 
-    this._current = currentSheet ? currentSheet.element : null;
-    this._new = newSheet ? newSheet.element : null;
+    newApp && newApp.broadcast('sheetdisplayed');
+
+    this._current = currentApp ? currentApp.element : null;
+    this._new = newApp ? newApp.element : null;
 
     if (this._current) {
       this._setDuration(this._current, 0);
       this._current.classList.add('inside-edges');
+      // XXX: We should setActive(false) here but
+      // it will cause image flicking, see
+      // https://bugzilla.mozilla.org/show_bug.cgi?id=1125792
+      currentApp && currentApp.setNFCFocus(false);
     }
 
     if (this._new) {
@@ -101,7 +107,7 @@ var SheetsTransition = {
   },
 
   snapInPlace: function st_snapInPlace() {
-    var TIMEOUT = 300;
+    var TIMEOUT = 200;
     var duration = TIMEOUT - (TIMEOUT * (1 - this._lastProgress));
     duration = Math.max(duration, 90);
 
@@ -127,7 +133,7 @@ var SheetsTransition = {
     var durationLeft = (1 - this._lastProgress) / speed;
     durationLeft /= 1.2; // boost
 
-    var duration = Math.min(durationLeft, ((1 - this._lastProgress) * 300));
+    var duration = Math.min(durationLeft, ((1 - this._lastProgress) * 200));
 
     this._setDuration(this._current, duration);
     this._setDuration(this._new, duration);

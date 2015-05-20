@@ -32,6 +32,7 @@
   "default_locale": "en-US",
 
   "permissions": {
+    "themeable":{},
     "telephony":{},
     "contacts":{ "access": "readwrite" },
     "mobileconnection":{},
@@ -40,7 +41,8 @@
     "wifi-manage":{},
     "time": {},
     "device-storage:sdcard": { "access": "readcreate" },
-    "phonenumberservice": {}
+    "phonenumberservice": {},
+    "webapps-manage":{}
   },
 
   "orientation": "default",

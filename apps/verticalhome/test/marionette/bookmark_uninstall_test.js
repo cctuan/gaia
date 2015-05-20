@@ -3,22 +3,13 @@
 
 var assert = require('assert');
 
-var Bookmark = require('./lib/bookmark');
-var Browser = require('../../../../apps/browser/test/marionette/lib/browser');
-var Home2 = require('./lib/home2');
+var Bookmark = require('../../../../apps/system/test/marionette/lib/bookmark');
 var Server = require('../../../../shared/test/integration/server');
-var System = require('../../../../apps/system/test/marionette/lib/system');
 
 marionette('Vertical - Bookmark Uninstall', function() {
 
-  // Bug 1007352 - homescreen URL is hard-coded so we run this test with the
-  // old homescreen, then launch the new homescreen as an app. This is only
-  // needed because we lauch other applications.
-  var options = JSON.parse(JSON.stringify(Home2.clientOptions));
-  delete options.settings['homescreen.manifestURL'];
-
-  var client = marionette.client(options);
-  var bookmark, browser, home, server, system;
+  var client = marionette.client(require(__dirname + '/client_options.js'));
+  var bookmark, home, server, system;
 
   suiteSetup(function(done) {
     Server.create(__dirname + '/fixtures/', function(err, _server) {
@@ -33,19 +24,16 @@ marionette('Vertical - Bookmark Uninstall', function() {
 
   var url;
   setup(function() {
-    browser = new Browser(client);
-    home = new Home2(client);
-    system = new System(client);
+    home = client.loader.getAppClass('verticalhome');
+    system = client.loader.getAppClass('system');
     bookmark = new Bookmark(client, server);
     system.waitForStartup();
 
-    client.apps.launch(Home2.URL);
-    home.waitForLaunch();
+    client.apps.launch(home.URL);
 
     url = server.url('sample.html');
-    bookmark.save(url, browser);
+    bookmark.openAndSave(url);
 
-    client.switchToFrame();
     system.goHome();
     client.switchToFrame(system.getHomescreenIframe());
     home.enterEditMode();
@@ -54,6 +42,7 @@ marionette('Vertical - Bookmark Uninstall', function() {
   test('removal of bookmark', function() {
     // select the icon in edit mode and click remove
     var icon = home.getIcon(url);
+    home.moveIconToIndex(icon, 0);
     var remove = icon.findElement('.remove');
     remove.tap();
     home.confirmDialog('remove');

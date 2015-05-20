@@ -1,5 +1,5 @@
+/* globals IconsHelper */
 'use strict';
-/* global UrlHelper */
 
 /**
  * Base Provider class
@@ -51,6 +51,25 @@ Provider.prototype = {
   },
 
   /**
+   * Update an icon once it has been loaded.
+   *
+   * @param {Object} config A configuration object.
+   * @param {Object} iconWrapper An iconWrapper DOM object.
+   */
+  updateIcon: function(config, iconWrapper) {
+    var iconDom = iconWrapper.querySelector('img');
+    IconsHelper.getIcon(config.dataset.url, null, config).then((icon) => {
+      if (icon && iconDom) {
+        iconDom.onload = function () {
+          iconWrapper.classList.remove('empty');
+          iconDom.style.display = 'block';
+        };
+        iconDom.src = icon;
+      }
+    });
+  },
+
+  /**
    * Renders a set of results.
    * Each result may contain the following attributes:
    * - title: The title of the app.
@@ -64,7 +83,9 @@ Provider.prototype = {
     //<div class="result" data-url="mozilla.com" role="link"
     //  aria-label="My Urlasljd alskdja lsdjka sldjk"
     //  aria-describedby="description-0">
-    //  <img role="presentation" class="icon" src="..." />
+    //  <div class="icon">
+    //    <img role="presentation" src="..." />
+    //  </div>
     //  <div class="urlwrapper">
     //    <span class="title">My Urlasljd <span class="highlight">alskd</span>
     //      ja lsdjka sldjk</span>
@@ -77,13 +98,14 @@ Provider.prototype = {
     results.forEach(function(config, index) {
 
       var result = document.createElement('div');
+      var iconWrapper = document.createElement('div');
       var icon = document.createElement('img');
       var description = document.createElement('div');
       var title = document.createElement('span');
       var meta = document.createElement('small');
 
       result.classList.add('result');
-      icon.classList.add('icon');
+      iconWrapper.classList.add('icon');
       description.classList.add('description');
       title.classList.add('title');
       meta.classList.add('meta');
@@ -92,19 +114,16 @@ Provider.prototype = {
         result.dataset[i] = config.dataset[i];
       }
 
-      if (config.icon && UrlHelper.hasScheme(config.icon)) {
-        icon.src = config.icon;
-      } else if (config.icon) {
-        icon.src = window.URL.createObjectURL(config.icon);
-        icon.onload = function() { window.URL.revokeObjectURL(icon.src); };
+      if (config.title) {
+        title.setAttribute('dir', 'auto');
+        title.textContent = config.title;
       } else {
-        icon.classList.add('empty');
+        title.setAttribute('dir', 'ltr');
+        title.textContent = config.url;
       }
-      icon.setAttribute('role', 'presentation');
 
-      title.innerHTML = config.title || config.url;
       if (config.meta) {
-        meta.innerHTML = config.meta;
+        meta.textContent = config.meta;
         // Expose meta infrormation as a helpful description for each result.
         if (config.description) {
           meta.id = this.name + '-description-' + index;
@@ -113,15 +132,27 @@ Provider.prototype = {
         }
       }
 
+      icon.setAttribute('role', 'presentation');
+      if (config.icon) {
+        icon.src = window.URL.createObjectURL(config.icon);
+      } else {
+        iconWrapper.classList.add('empty');
+      }
+
       result.setAttribute('role', 'link');
       // Either use an explicit label or, if not present, title.
       result.setAttribute('aria-label', config.label || config.title);
 
       description.appendChild(title);
       description.appendChild(meta);
-      result.appendChild(icon);
+      iconWrapper.appendChild(icon);
+      result.appendChild(iconWrapper);
       result.appendChild(description);
       frag.appendChild(result);
+
+      if (!config.icon) {
+        this.updateIcon(config, iconWrapper);
+      }
     }, this);
     return frag;
   },
@@ -129,5 +160,9 @@ Provider.prototype = {
   render: function(results) {
     var dom = this.buildResultsDom(results);
     this.container.appendChild(dom);
+    if (this.header) {
+      results.length ? this.header.classList.remove('hidden') :
+        this.header.classList.add('hidden');
+    }
   }
 };

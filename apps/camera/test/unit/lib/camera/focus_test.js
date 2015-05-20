@@ -14,17 +14,32 @@ suite('lib/camera/focus', function() {
 
     // Fake mozCamera
     this.mozCamera = {
+      _listeners: {},
       capabilities: {
         focusModes : ["auto", "infinity", "normal",
           "macro", "continuous-picture", "continuous-video" ],
       },
-      autoFocus: sinon.stub(),
+      autoFocus: sinon.stub().returns({
+        then: function(onSuccess, onError) {
+          onSuccess(true);
+        }
+      }),
       setFocusAreas: sinon.stub(),
       setMeteringAreas: sinon.stub(),
       stopContinuousFocus: sinon.stub(),
       resumeContinuousFocus: sinon.stub(),
       startFaceDetection: sinon.spy(),
-      stopFaceDetection: sinon.spy()
+      stopFaceDetection: sinon.spy(),
+      addEventListener: function(eventname, listener) {
+        this._listeners[eventname] = listener;
+      },
+      removeEventListener: function(eventname, listener) {
+        if (this._listeners.hasOwnProperty(eventname)) {
+          if (this._listeners[eventname] === listener) {
+            delete this._listeners[eventname];
+          }
+        }
+      }
     };
 
     this.focus = new this.Focus({});
@@ -49,11 +64,18 @@ suite('lib/camera/focus', function() {
       assert.equal(this.mozCamera.focusMode, 'auto');
     });
 
-    test('if user preference don\'t conflict with arguments, the argument sticks', function() {
+    test('continuous-picture selected on picture mode if user pref is set to CAF', function() {
       this.focus.continuousAutoFocus = true;
-      this.focus.configure(this.mozCamera, 'continuous-picture');
+      this.focus.configure(this.mozCamera, 'picture');
       assert.ok(this.focus.configureFocusModes.called);
       assert.equal(this.mozCamera.focusMode, 'continuous-picture');
+    });
+
+    test('continuous-video selected on video mode if user pref is set to CAF', function() {
+      this.focus.continuousAutoFocus = true;
+      this.focus.configure(this.mozCamera, 'video');
+      assert.ok(this.focus.configureFocusModes.called);
+      assert.equal(this.mozCamera.focusMode, 'continuous-video');
     });
 
     test('if not valid focus mode is passed the first available is picked', function() {
@@ -131,22 +153,36 @@ suite('lib/camera/focus', function() {
     test('touch to focus disabled if hardware doesn\'t support it and even if user preferences enable it', function() {
       this.focus.userPreferences.touchFocus = true;
       this.focus.isTouchFocusSupported.returns(false);
-      this.focus.configureFocusModes();
+      this.focus.configureFocusModes('picture');
       assert.equal(this.focus.touchFocus, false);
     });
 
-    test('it does not call startFaceDetection if face detection is disabled', function() {
+    test('face detection is disabled if not supported by HW', function() {
       this.focus.userPreferences.faceDetection = true;
       this.focus.isFaceDetectionSupported.returns(false);
-      this.focus.configureFocusModes();
-      assert.ok(!this.focus.startFaceDetection.called);
+      this.focus.configureFocusModes('picture');
+      assert.ok(!this.focus.faceDetection);
     });
 
-    test('it calls startFaceDetection if face detection is enabled', function() {
+    test('face detection is disabled if disabled in user preferences', function() {
+      this.focus.userPreferences.faceDetection = false;
+      this.focus.isFaceDetectionSupported.returns(true);
+      this.focus.configureFocusModes('picture');
+      assert.ok(!this.focus.faceDetection);
+    });
+
+    test('face detection is disabled in video mode', function() {
       this.focus.userPreferences.faceDetection = true;
       this.focus.isFaceDetectionSupported.returns(true);
-      this.focus.configureFocusModes();
-      assert.ok(this.focus.startFaceDetection.called);
+      this.focus.configureFocusModes('video');
+      assert.ok(!this.focus.faceDetection);
+    });
+
+    test('face detection is enabled in picture mode if supported by HW and enabled in user preferences', function() {
+      this.focus.userPreferences.faceDetection = true;
+      this.focus.isFaceDetectionSupported.returns(true);
+      this.focus.configureFocusModes('picture');
+      assert.ok(this.focus.faceDetection);
     });
 
   });
@@ -184,10 +220,10 @@ suite('lib/camera/focus', function() {
       assert.ok(this.focus.focusOnLargestFace.calledWith([]));
     });
 
-    test('focusOnLargestFace is not called to start face detection if face detection disabled', function() {
+    test('focusOnLargestFace is called with empty list when clearing faces', function() {
       this.focus.faceDetection = false;
       this.focus.clearFaceDetection();
-      assert.ok(!this.focus.focusOnLargestFace.called);
+      assert.ok(this.focus.focusOnLargestFace.calledWith([]));
     });
 
   });
@@ -210,10 +246,10 @@ suite('lib/camera/focus', function() {
     });
 
     test('mozCamera stopFaceDetection is not called if face detection is not available', function() {
-      this.focus.faceDetection = false;
+      this.mozCamera.stopFaceDetection = false;
       this.focus.stopFaceDetection();
       assert.ok(!this.mozCamera.stopFaceDetection.called);
-      assert.ok(!this.focus.clearFaceDetection.called);
+      assert.ok(this.focus.clearFaceDetection.called);
     });
 
   });
@@ -221,6 +257,7 @@ suite('lib/camera/focus', function() {
   suite('Focus#suspendFaceDetection', function() {
     setup(function() {
       this.clock = sinon.useFakeTimers();
+      this.focus.faceDetection = true;
       this.focus.faceDetectionSuspended = undefined;
       this.focus.faceFocused = true;
     });
@@ -252,7 +289,29 @@ suite('lib/camera/focus', function() {
     });
   });
 
-  suite('Focus#onAutoFocusMoving', function() {
+  suite('Focus#onfocus', function() {
+    setup(function() {
+      this.sandbox.spy(this.focus, 'updateFocusState');
+    });
+
+    teardown(function() {
+      this.sandbox.restore();
+    });
+
+    test('should call updateFocusState', function() {
+      this.focus.configureFocusModes();
+      var listener = this.mozCamera._listeners['focus'];
+      assert.ok(listener);
+      listener({ newState: 'focusing' });
+      assert.ok(this.focus.updateFocusState.calledWith('focusing'));
+      listener({ newState: 'focused' });
+      assert.ok(this.focus.updateFocusState.calledWith('focused'));
+      listener({ newState: 'unfocused' });
+      assert.ok(this.focus.updateFocusState.calledWith('fail'));
+    });
+  });
+
+  suite('Focus#updateFocusState', function() {
     setup(function() {
       this.sandbox.spy(this.focus, 'onAutoFocusChanged');
     });
@@ -262,27 +321,28 @@ suite('lib/camera/focus', function() {
     });
 
     test('should call onAutoFocusChanged', function() {
-      this.focus.onAutoFocusMoving(true);
-      assert.ok(this.focus.onAutoFocusChanged.called);
-      assert.ok(this.mozCamera.autoFocus.called);
-      this.mozCamera.autoFocus.callsArgWith(0, 1);
-      assert.ok(this.focus.onAutoFocusChanged.called);
-    });
-
-    test('should call onAutoFocusChanged after error', function() {
-      this.focus.onAutoFocusMoving(true);
-      assert.ok(this.focus.onAutoFocusChanged.called);
-      assert.ok(this.mozCamera.autoFocus.called);
-      this.mozCamera.autoFocus.callsArgWith(1, 'GeneralFailure');
-      assert.ok(this.focus.onAutoFocusChanged.called);
+      this.focus.focusState = 'focused';
+      this.focus.updateFocusState('focusing');
+      assert.ok(this.focus.onAutoFocusChanged.calledWith('focusing'));
+      this.focus.updateFocusState('focused');
+      assert.ok(this.focus.onAutoFocusChanged.calledWith('focused'));
+      this.focus.updateFocusState('focusing');
+      assert.ok(this.focus.onAutoFocusChanged.calledWith('focusing'));
+      this.focus.updateFocusState('fail');
+      assert.ok(this.focus.onAutoFocusChanged.calledWith('fail'));
     });
 
     test('should not call onAutoFocusChanged', function() {
-      this.focus.onAutoFocusMoving(false);
+      this.focus.focusState = 'focused';
+      this.focus.updateFocusState('focused');
+      assert.ok(!this.focus.onAutoFocusChanged.called);
+      this.focus.updateFocusState('fail');
+      assert.ok(!this.focus.onAutoFocusChanged.called);
+      this.focus.focusState = 'focusing';
+      this.focus.updateFocusState('focusing');
       assert.ok(!this.focus.onAutoFocusChanged.called);
     });
   });
-
 
   suite('Focus#suspendContinuousFocus', function() {
     setup(function() {
@@ -306,7 +366,6 @@ suite('lib/camera/focus', function() {
   });
 
   suite('Focus#focusOnLargestFace', function() {
-
     setup(function() {
       this.sandbox.spy(this.focus, 'onFacesDetected');
     });
@@ -329,28 +388,66 @@ suite('lib/camera/focus', function() {
       assert.ok(this.focus.onFacesDetected.calledWith([]));
     });
 
+    test('it should focus on the singleton face', function() {
+      this.focus.touchFocus = true;
+      this.focus.faceDetectionSuspended = false;
+      var face = {
+        id: 3,
+        score: 80,
+        bounds: {
+          height: 300,
+          width: 300
+        }
+      };
+      this.focus.focusOnLargestFace([face]);
+      assert.ok(
+        Object.is(this.focus.onFacesDetected.firstCall.args[0][0], face)
+      );
+    });
+
+    test('it should focus on the singleton face (event)', function() {
+      this.focus.touchFocus = true;
+      this.focus.faceDetectionSuspended = false;
+      var face = {
+        id: 3,
+        score: 80,
+        bounds: {
+          height: 300,
+          width: 300
+        }
+      };
+      var event = { faces: [face] };
+      this.focus.handleFaceDetectionEvent(event);
+      assert.ok(
+        Object.is(this.focus.onFacesDetected.firstCall.args[0][0], face)
+      );
+    });
   });
 
   suite('Focus#focus()', function() {
     setup(function() {
       this.focus.focusMode = 'auto';
+      this.focus.onAutoFocusChanged = sinon.spy();
     });
 
     test('mozCamera autoFocus is called if focus mode is auto', function() {
       this.mozCamera.focusMode = 'auto';
       this.focus.focus(function() {});
+      assert.ok(this.focus.onAutoFocusChanged.calledWith('focusing'));
       assert.ok(this.mozCamera.autoFocus.called);
     });
 
     test('mozCamera autoFocus is called if focus mode is continuous-picture', function() {
       this.mozCamera.focusMode = 'continuous-picture';
       this.focus.focus(function() {});
+      assert.ok(this.focus.onAutoFocusChanged.calledWith('focusing'));
       assert.ok(this.mozCamera.autoFocus.called);
     });
 
     test('mozCamera autoFocus is not called if focus mode is neither auto nor continuous-picture', function() {
       this.mozCamera.focusMode = 'infinity';
       this.focus.focus(function() {});
+      assert.ok(!this.focus.onAutoFocusChanged.called);
       assert.ok(!this.mozCamera.autoFocus.called);
     });
 
@@ -358,8 +455,13 @@ suite('lib/camera/focus', function() {
       var onFocused = sinon.spy();
       this.mozCamera.autoFocus = sinon.stub();
       this.mozCamera.focusMode = 'auto';
-      this.mozCamera.autoFocus.callsArgWith(0, undefined);
+      this.mozCamera.autoFocus.returns({
+        then: function(resolve, reject) {
+          resolve(false);
+        }
+      });
       this.focus.focus(onFocused);
+      assert.ok(this.focus.onAutoFocusChanged.calledWith('focusing'));
       assert.ok(this.mozCamera.autoFocus.called);
       assert.ok(onFocused.calledWith('failed'));
       assert.ok(!this.focus.focused);
@@ -369,8 +471,13 @@ suite('lib/camera/focus', function() {
       var onFocused = sinon.spy();
       this.mozCamera.autoFocus = sinon.stub();
       this.mozCamera.focusMode = 'auto';
-      this.mozCamera.autoFocus.callsArgWith(0, 'success');
+      this.mozCamera.autoFocus.returns({
+        then: function(resolve, reject) {
+          resolve(true);
+        }
+      });
       this.focus.focus(onFocused);
+      assert.ok(this.focus.onAutoFocusChanged.calledWith('focusing'));
       assert.ok(this.mozCamera.autoFocus.called);
       assert.ok(onFocused.calledWith('focused'));
       assert.ok(this.focus.focused);
@@ -387,6 +494,7 @@ suite('lib/camera/focus', function() {
       this.mozCamera.autoFocus = sinon.stub();
       this.mozCamera.focusMode = 'infinity';
       this.focus.focus(onFocused);
+      assert.ok(!this.focus.onAutoFocusChanged.called);
       assert.ok(!this.mozCamera.autoFocus.called);
       assert.ok(previousFocusState === this.focus.focused);
     });
@@ -394,7 +502,13 @@ suite('lib/camera/focus', function() {
     test('Should call the focus callback with interrupted state if autofocus is interrupted', function() {
       var onFocused = sinon.spy();
       this.mozCamera.autoFocus = sinon.stub();
-      this.mozCamera.autoFocus.callsArgWith(1, 'AutoFocusInterrupted');
+      this.mozCamera.autoFocus.returns({
+        then: function(resolve, reject) {
+          var error = new Error();
+          error.name = 'NS_ERROR_IN_PROGRESS';
+          reject(error);
+        }
+      });
       this.mozCamera.focusMode = 'auto';
       this.focus.focused = true;
       this.focus.focus(onFocused);
@@ -507,24 +621,27 @@ suite('lib/camera/focus', function() {
     setup(function() {
       this.focus.focus = sinon.spy();
       this.focus.stopContinuousFocus = sinon.spy();
-      this.focus.stopFaceDetection = sinon.spy();
+      this.focus.suspendFaceDetection = sinon.spy();
+      this.focus.onAutoFocusChanged = sinon.spy();
     });
 
     test('it returns without doing anything if touch to focus disabled', function() {
       this.focus.touchFocus = false;
       this.focus.updateFocusArea();
       assert.ok(!this.focus.stopContinuousFocus.called);
-      assert.ok(!this.focus.stopFaceDetection.called);
+      assert.ok(!this.focus.suspendFaceDetection.calledWith(10000));
       assert.ok(!this.focus.mozCamera.setFocusAreas.called);
       assert.ok(!this.focus.mozCamera.setMeteringAreas.called);
       assert.ok(!this.focus.focus.called);
+      assert.ok(!this.focus.onAutoFocusChanged.called);
     });
 
     test('it updates focus area if touch to focus is enabled', function() {
       this.focus.touchFocus = true;
       this.focus.updateFocusArea();
+      assert.ok(this.focus.onAutoFocusChanged.calledWith('focusing'));
       assert.ok(this.focus.stopContinuousFocus.called);
-      assert.ok(this.focus.stopFaceDetection.called);
+      assert.ok(this.focus.suspendFaceDetection.calledWith(10000));
       assert.ok(this.focus.mozCamera.setFocusAreas.called);
       assert.ok(this.focus.mozCamera.setMeteringAreas.called);
       assert.ok(this.focus.focus.called);
@@ -537,6 +654,23 @@ suite('lib/camera/focus', function() {
       assert.ok(this.focus.focus.called);
       this.focus.focus.callArgWith(0, 'failed');
       assert.ok(onFocused.calledWith('failed'));
+    });
+  });
+
+  suite('Focus#resumeCamera', function() {
+    setup(function() {
+      this.sandbox.spy(this.focus, 'onAutoFocusChanged');
+    });
+
+    teardown(function() {
+      this.sandbox.restore();
+    });
+
+    test('should call onAutoFocusChanged after pause', function() {
+      this.focus.focusState = 'focusing';
+      this.focus.pause();
+      this.focus.updateFocusState('focusing');
+      assert.ok(this.focus.onAutoFocusChanged.calledWith('focusing'));
     });
   });
 

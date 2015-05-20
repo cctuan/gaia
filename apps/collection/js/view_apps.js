@@ -42,6 +42,12 @@
       rendered && prependAsyncItems();
     });
 
+    grid.addEventListener('gaiagrid-resize', () => {
+      var layout = grid._grid.layout;
+      var height = layout.offsetY + layout.gridItemHeight;
+      grid.style.height = height + 'px';
+    });
+
     // XXX: Override the grid render method default options
     var _grid = grid._grid;
     var defaultGridRender = _grid.render;
@@ -115,7 +121,7 @@
       var msg = navigator.mozL10n.get('offline-webresults', {
         collectionName: collection.localizedName
       });
-      elements.offlineMessage.innerHTML = msg;
+      elements.offlineMessage.textContent = msg;
       elements.offline.classList.add('show');
     }
 

@@ -1,16 +1,16 @@
-suiteGroup('Provider.Abstract', function() {
-  'use strict';
+define(function(require) {
+'use strict';
 
+var Abstract = require('provider/abstract');
+
+suite('Provider.Abstract', function() {
   var subject;
-  var app;
 
   setup(function() {
-    app = testSupport.calendar.app();
-    subject = new Calendar.Provider.Abstract({ app: app });
+    subject = new Abstract();
   });
 
   test('initializer', function() {
-    assert.equal(subject.app, app);
     assert.ok(subject);
   });
 
@@ -26,5 +26,6 @@ suiteGroup('Provider.Abstract', function() {
       });
     });
   });
+});
 
 });

@@ -1,7 +1,7 @@
-define(['rdcommon/log', '../util', 'module', 'require', 'exports',
+define(['logic', '../util', 'module', 'require', 'exports',
         '../mailchew', '../syncbase', '../date', '../jobmixins',
         '../allback', './pop3'],
-function(log, util, module, require, exports,
+function(logic, util, module, require, exports,
          mailchew, sync, date, jobmixins,
          allback, pop3) {
 
@@ -17,10 +17,15 @@ var PASTWARDS = 1;
  * IMAP/ActiveSync, but we fast-path out of sync operations if the
  * folder we're looking at isn't the inbox.
  */
-function Pop3FolderSyncer(account, storage, _parentLog) {
-  this._LOG = LOGFAB.Pop3FolderSyncer(this, _parentLog, storage.folderId);
+function Pop3FolderSyncer(account, storage) {
   this.account = account;
   this.storage = storage;
+
+  logic.defineScope(this, 'Pop3FolderSyncer', {
+    accountId: account.id,
+    folderId: storage.folderId
+  });
+
   // Only sync folders if this is the inbox. Other folders are client-side only.
   this.isInbox = (storage.folderMeta.type === 'inbox');
 }
@@ -56,9 +61,9 @@ function lazyWithConnection(getNew, cbIndex, whyLabel, fn) {
           if (err) {
             callback && callback(err);
           } else {
-            args[cbIndex] = function lazyDone() {
+            args[cbIndex] = function lazyDone(err) {
               done();
-              callback && callback();
+              callback && callback(err);
             };
             fn.apply(this, [conn].concat(args));
           }
@@ -107,9 +112,7 @@ Pop3FolderSyncer.prototype = {
       for (var k in results) {
         err = results[k][0];
       }
-      storage.runAfterDeferredCalls(function() {
-        callback(err, headers.length);
-      });
+      callback(err, headers.length);
     });
   }),
 
@@ -213,11 +216,16 @@ Pop3FolderSyncer.prototype = {
       var att = bodyInfo.attachments[i];
       if (att.file instanceof Blob) {
         // We want to save attachments to device storage (sdcard),
-        // rather than IndexedDB. NB: This will change when download
-        // manager comes.
+        // rather than IndexedDB, for now.  It's a v3 thing to use IndexedDB
+        // as a cache.
         console.log('Saving attachment', att.file);
+        // Always register all POP3 downloads with the download manager since
+        // the user didn't have to explicitly trigger download for each
+        // attachment.
+        var registerDownload = true;
         jobmixins.saveToDeviceStorage(
-          this._LOG, att.file, 'sdcard', att.name, att, latch.defer());
+          self, att.file, 'sdcard', registerDownload, att.name, att,
+          latch.defer());
         // When saveToDeviceStorage completes, att.file will
         // be a reference to the file on the sdcard.
       }
@@ -406,8 +414,7 @@ Pop3FolderSyncer.prototype = {
   },
 
   shutdown: function() {
-    // No real cleanup necessary here; just log that we died.
-    this._LOG.__die();
+    // Nothing to do here either.
   },
 
   /**
@@ -454,9 +461,26 @@ Pop3FolderSyncer.prototype = {
    */
   sync: lazyWithConnection(/* getNew = */ true, /* cbIndex = */ 2,
   /* whyLabel = */ 'sync',
-  function(conn, syncType, slice, doneCallback, progressCallback) {
+  function(conn, syncType, slice, realDoneCallback, progressCallback) {
     // if we could not establish a connection, abort the sync.
     var self = this;
+    logic(self, 'sync:begin', { syncType: syncType });
+
+    // Avoid invoking realDoneCallback multiple times.  Cleanup when we switch
+    // sync to promises/tasks.
+    var doneFired = false;
+    var doneCallback = function(err) {
+      if (doneFired) {
+        logic(self, 'sync:duplicateDone', { syncType: syncType, err: err });
+        return;
+      }
+      logic(self, 'sync:end', { syncType: syncType, err: err });
+      doneFired = true;
+      // coerce the rich error object to a string error code; currently
+      // refreshSlice only likes 'unknown' and 'aborted' so just run with
+      // unknown.
+      realDoneCallback(err ? 'unknown' : null);
+    };
 
     // Only fetch info for messages we don't already know about.
     var filterFunc;
@@ -487,9 +511,31 @@ Pop3FolderSyncer.prototype = {
       saveNeeded = this._performTestAdditionsAndDeletions(latch.defer());
     } else {
       saveNeeded = true;
-      this._LOG.sync_begin();
+      logic(this, 'sync_begin');
       var fetchDoneCb = latch.defer();
 
+      var closeExpected = false;
+      // register for a close notification so if disaster recovery closes the
+      // connection we still get a chance to report the error without breaking
+      // sync.  This is the lowest priority onclose handler so all the other
+      // more specific error handlers will get a chance to fire.  However, some
+      // like to defer to future turns of the event loop so we we use setTimeout
+      // to defer through at least two turns of the event loop.
+      conn.onclose = function() {
+        if (closeExpected) {
+          return;
+        }
+        closeExpected = true;
+        // see the above.  This is horrible but we hate POP3 and these error
+        // handling cases are edge-casey and this actually does improve our test
+        // coverage.  (test_pop3_dead_connection.js's first two test clauses
+        // were written before I added this onclose handler.)
+        window.setTimeout(function() {
+          window.setTimeout(function() {
+            doneCallback('closed');
+          }, 0);
+        }, 0);
+      };
       // Fetch messages, ensuring that we don't actually store them all in
       // memory so as not to burden memory unnecessarily.
       conn.listMessages({
@@ -499,9 +545,7 @@ Pop3FolderSyncer.prototype = {
         checkpoint: function(next) {
           // Every N messages, wait for everything to be stored to
           // disk and saved in the database. Then proceed.
-          this.storage.runAfterDeferredCalls(function() {
-            this.account.__checkpointSyncCompleted(next, 'syncBatch');
-          }.bind(this));
+          this.account.__checkpointSyncCompleted(next, 'syncBatch');
         }.bind(this),
         progress: function fetchProgress(evt) {
           // Store each message as it is retrieved.
@@ -525,6 +569,7 @@ Pop3FolderSyncer.prototype = {
         // persisted. In the future, when we support server-side
         // deletion, we should ensure that this QUIT does not
         // inadvertently commit unintended deletions.
+        closeExpected = true;
         conn.quit();
 
         if (err) {
@@ -537,12 +582,12 @@ Pop3FolderSyncer.prototype = {
           overflowMessages.forEach(function(message) {
             this.storeOverflowMessageUidl(message.uidl, message.size);
           }, this);
-          this._LOG.overflowMessages(overflowMessages.length);
+          logic(this, 'overflowMessages', { count: overflowMessages.length });
         }
 
         // When all of the messages have been persisted to disk, indicate
         // that we've successfully synced. Refresh our view of the world.
-        this.storage.runAfterDeferredCalls(fetchDoneCb);
+        fetchDoneCb();
       }.bind(this));
     }
 
@@ -563,7 +608,7 @@ Pop3FolderSyncer.prototype = {
       }
 
       if (this.isInbox) {
-        this._LOG.sync_end();
+        logic(this, 'sync_end');
       }
       // Don't notify completion until the save completes, if relevant.
       if (saveNeeded) {
@@ -598,7 +643,7 @@ Pop3FolderSyncer.prototype = {
             this.storage, this.storage._curSyncSlice,
             false, doneCallback, null));
       } else {
-        doneCallback(null, null);
+        doneCallback(null);
       }
     }.bind(this);
   }),
@@ -613,36 +658,5 @@ function range(end) {
   return ret;
 }
 
-var LOGFAB = exports.LOGFAB = log.register(module, {
-  Pop3FolderSyncer: {
-    type: log.CONNECTION,
-    subtype: log.CLIENT,
-    events: {
-      savedAttachment: { storage: true, mimeType: true, size: true },
-      saveFailure: { storage: false, mimeType: false, error: false },
-      overflowMessages: { count: true },
-    },
-    TEST_ONLY_events: {
-    },
-    errors: {
-      callbackErr: { ex: log.EXCEPTION },
-
-      htmlParseError: { ex: log.EXCEPTION },
-      htmlSnippetError: { ex: log.EXCEPTION },
-      textChewError: { ex: log.EXCEPTION },
-      textSnippetError: { ex: log.EXCEPTION },
-
-      // Attempted to sync with an empty or inverted range.
-      illegalSync: { startTS: false, endTS: false },
-    },
-    asyncJobs: {
-      sync: {},
-      syncDateRange: {
-        newMessages: true, existingMessages: true, deletedMessages: true,
-        start: false, end: false, skewedStart: false, skewedEnd: false,
-      },
-    },
-  },
-}); // end LOGFAB
 
 }); // end define

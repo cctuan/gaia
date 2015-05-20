@@ -1,21 +1,16 @@
-/* global CallForwarding, asyncStorage, SIMSlotManager, SettingsHelper */
+/* global BaseModule, asyncStorage, SIMSlotManager, SettingsHelper,
+          CallForwardingsIcon, LazyLoader */
 'use strict';
 
-(function(exports) {
-  if (!window.navigator.mozSettings) {
-    return;
-  }
-
-  if (!window.navigator.mozMobileConnections) {
-    return;
-  }
-
+(function() {
   // Must be in sync with nsIDOMMozMobileCFInfo interface.
   var _cfReason = {
     CALL_FORWARD_REASON_UNCONDITIONAL: 0,
     CALL_FORWARD_REASON_MOBILE_BUSY: 1,
     CALL_FORWARD_REASON_NO_REPLY: 2,
-    CALL_FORWARD_REASON_NOT_REACHABLE: 3
+    CALL_FORWARD_REASON_NOT_REACHABLE: 3,
+    CALL_FORWARD_REASON_ALL_CALL_FORWARDING: 4,
+    CALL_FORWARD_REASON_ALL_CONDITIONAL_CALL_FORWARDING: 5
   };
   var _cfAction = {
     CALL_FORWARD_ACTION_DISABLE: 0,
@@ -37,14 +32,20 @@
    * @requires SettingsHelper
    */
   function CallForwarding() {
-    this._started = false;
     this._slots = null;
     this._callForwardingHelper = null;
     this._defaultCallForwardingIconStates = null;
     this._callForwardingIconInitializedStates = null;
   }
+  CallForwarding.STATES = [
+    'enabled'
+  ];
+  CallForwarding.SETTINGS = [
+    'ril.cf.enabled'
+  ];
 
-  CallForwarding.prototype = {
+  BaseModule.create(CallForwarding, {
+    name: 'CallForwarding',
 
     /**
      * Add related event handlers. The sim cards may not be ready when starting.
@@ -90,17 +91,25 @@
       var index = slot.index;
       var simCard = slot.simCard;
 
-      if (this._callForwardingIconInitializedStates[index] || !simCard) {
-        return;
-      }
-
-      var cardState = simCard.cardState;
-      var iccid = simCard.iccInfo && simCard.iccInfo.iccid;
-      if (cardState !== 'ready' || !iccid) {
+      if (this._callForwardingIconInitializedStates[index]) {
         return;
       }
 
       var that = this;
+      var cardState = simCard && simCard.cardState;
+      var iccid = simCard && simCard.iccInfo && simCard.iccInfo.iccid;
+      // Disable call forwarding icon and early return when:
+      // 1. sim card not present, or
+      // 2. sim card state is not ready, or
+      // 3. sim card iccId is not available.
+      if (!simCard || cardState !== 'ready' || !iccid) {
+        that._callForwardingHelper.get(function(states) {
+          states[index] = false;
+          that._callForwardingHelper.set(states);
+        });
+        return;
+      }
+
       asyncStorage.getItem('ril.cf.enabled.' + iccid, function(value) {
         if (value === null) {
           value = false;
@@ -123,7 +132,8 @@
      */
     _updateCallForwardingIconState: function(slot, event) {
       if (!event ||
-          event.reason != _cfReason.CALL_FORWARD_REASON_UNCONDITIONAL) {
+          (event.reason != _cfReason.CALL_FORWARD_REASON_UNCONDITIONAL &&
+           event.reason != _cfReason.CALL_FORWARD_REASON_ALL_CALL_FORWARDING)) {
         return;
       }
 
@@ -131,10 +141,17 @@
       var simCard = slot.simCard;
 
       var enabled = false;
-      if (event.success &&
-          (event.action == _cfAction.CALL_FORWARD_ACTION_REGISTRATION ||
-           event.action == _cfAction.CALL_FORWARD_ACTION_ENABLE)) {
-        enabled = true;
+      switch (event.action) {
+        case _cfAction.CALL_FORWARD_ACTION_REGISTRATION:
+        case _cfAction.CALL_FORWARD_ACTION_ENABLE:
+          enabled = true;
+          break;
+        case _cfAction.CALL_FORWARD_ACTION_ERASURE:
+          enabled = false;
+          break;
+        default:
+          enabled = false;
+          break;
       }
 
       this._callForwardingHelper.get((function(states) {
@@ -170,17 +187,17 @@
       asyncStorage.setItem('ril.cf.enabled.' + iccid, enabled);
     },
 
+    enabled: function(index) {
+      return this._enabled[index];
+    },
+
     /**
      * Start the module.
      * @memberof CallForwarding.prototype
      */
-    start: function() {
-      if (this._started) {
-        return;
-      }
-      this._started = true;
-
+    _start: function() {
       this._slots = SIMSlotManager.getSlots();
+      this._enabled = [];
       this._defaultCallForwardingIconStates =
         Array.prototype.map.call(this._slots, function() { return false; });
       this._callForwardingIconInitializedStates =
@@ -191,20 +208,25 @@
 
       this._addEventHandlers();
 
-      // Disable the call forwarding icons by default
-      this._callForwardingHelper.set(this._defaultCallForwardingIconStates);
       // Initialize the icon states
       this._slots.forEach(function(slot) {
         this._initCallForwardingState(slot);
       }, this);
+    },
+
+    '_observe_ril.cf.enabled': function(value) {
+      this._enabled = value || [];
+      var isAnyEnabled =
+        this._enabled.some(function(enabled) { return enabled; });
+      if (!this.icon && isAnyEnabled) {
+        LazyLoader.load(['js/call_forwarding_icon.js']).then(function() {
+          this.icon = new CallForwardingsIcon(this);
+          this.icon.start();
+        }.bind(this)).catch(function(err) {
+          console.error(err);
+        });
+      }
+      this.icon && this.icon.update();
     }
-  };
-
-  exports.CallForwarding = CallForwarding;
-
-})(window);
-
-if (CallForwarding) {
-  window.callForwarding = new CallForwarding();
-  window.callForwarding.start();
-}
+  });
+})();

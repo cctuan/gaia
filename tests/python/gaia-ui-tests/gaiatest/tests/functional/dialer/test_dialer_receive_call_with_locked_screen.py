@@ -3,6 +3,7 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
 from marionette import SkipTest
+from marionette_driver import Wait
 
 from gaiatest import GaiaTestCase
 from gaiatest.apps.phone.regions.call_screen import CallScreen
@@ -19,8 +20,10 @@ class TestReceiveCallScreenLocked(GaiaTestCase):
         GaiaTestCase.setUp(self)
 
     def test_receive_call_with_locked_screen(self):
-        """Make a phone call from Plivo to the phone."""
-        PLIVO_TIMEOUT = 30
+        """
+        Verify that the User can receive a call whilst the device is locked
+        https://moztrap.mozilla.org/manage/case/1300/
+        """
         self.call_uuid = False
 
         from gaiatest.utils.plivo.plivo_util import PlivoUtil
@@ -32,17 +35,15 @@ class TestReceiveCallScreenLocked(GaiaTestCase):
 
         self.device.lock()
         self.call_uuid = self.plivo.make_call(
-            to_number=self.testvars['carrier']['phone_number'].replace('+', ''),
-            timeout=PLIVO_TIMEOUT)
+            to_number=self.environment.phone_numbers[0].replace('+', ''))
 
-        # Wait for the incoming call screen to show up
         call_screen = CallScreen(self.marionette)
-        call_screen.wait_for_incoming_call_with_locked_screen()
+        call_screen.wait_for_incoming_call()
 
-        # Reject the call
         call_screen.reject_call()
+        self.plivo.wait_for_call_completed(self.call_uuid)
+        self.call_uuid = None
 
-        # Check that the screen is still locked
         self.assertTrue(self.device.is_locked)
 
     def tearDown(self):

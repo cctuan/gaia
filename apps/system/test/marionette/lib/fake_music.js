@@ -9,7 +9,6 @@ module.exports = FakeMusic;
 
 FakeMusic.Selector = Object.freeze({
   albumOneElement: '#album-one',
-
   playPauseElement: '#play-pause',
   stopElement: '#stop',
   previousTrackElement: '#previous',
@@ -55,7 +54,7 @@ FakeMusic.prototype = {
     this.client.apps.switchToApp(this.origin);
 
     // Wait until the app has told us it's fully loaded.
-    var body = this.client.helper.waitForElement('body.loaded');
+    this.client.helper.waitForElement('body.loaded');
 
     this.client.switchToFrame();
   },

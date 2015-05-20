@@ -53,13 +53,11 @@ Resources.prototype.getResources = function(conf) {
   operatorJSON.ringtone = this.getRingtoneResource(conf.ringtone);
   operatorJSON.power = this.getPowerResource(conf.power);
   operatorJSON.search = this.getSearchResource(conf.search);
-  operatorJSON.default_search =
-    this.getDefaultSearchResource(conf.default_search);
   operatorJSON.keyboard_settings = this.getKeyboardResource(conf.keyboard);
   operatorJSON.topsites = this.getResourceWithIcon(conf.topsites, 'topSites',
-                                                   'iconPath');
+                                                   'tilePath', 'tile');
   operatorJSON.browser = this.getResourceWithIcon(conf.bookmarks, 'bookmarks',
-                                                  'iconPath');
+                                                  'iconPath', 'iconUri');
 
   if ('nfc' in conf) {
     operatorJSON.nfc = this.getNfcResource(conf.nfc);
@@ -240,30 +238,6 @@ Resources.prototype.getSearchResource = function (searchPath) {
   }
 };
 
-// Create default search JSON and add files.
-Resources.prototype.getDefaultSearchResource = function (defaultSearchPath) {
-  if (defaultSearchPath) {
-    var file = this.getFile(defaultSearchPath);
-    var searchContent = utils.getJSON(file);
-
-    if (!searchContent.urlTemplate ||
-        !searchContent.suggestionsUrlTemplate ||
-        !searchContent.iconPath) {
-      throw new Error('Invalid format of the default provider search engine.');
-    }
-
-    if (!searchContent.iconPath.startsWith(this.appPrefix)) {
-      var searchFile = this.getFile(searchContent.iconPath);
-      this.addEntry(searchFile, searchFile.leafname);
-      searchContent.iconUrl = this.appURL + searchFile.leafName;
-      delete searchContent.iconPath;
-    }
-
-    return this.createJSON(file.leafName, searchContent);
-  }
-};
-
-
 // Create keyboard JSON.
 Resources.prototype.getKeyboardResource = function (keyboard) {
   if (keyboard) {
@@ -283,13 +257,21 @@ Resources.prototype.getKeyboardResource = function (keyboard) {
     var content = { values: utils.getJSON(file),
                     defaults: defaults };
 
+    for (var value in content.values) {
+      if (!value.startsWith('keyboard.')) {
+        throw new Error('Invalid keyboard property \'' + value + '\' in file ' +
+                        file.path + ', keyboard properties must start ' +
+                        'with \'keyboard.\'');
+      }
+    }
+
     var jsonName = 'keyboard-' + getHash(keyboard) + '.json';
     return this.createJSON(jsonName, content);
   }
 };
 
 Resources.prototype.getResourceWithIcon = function(aFilePath, aRootKey,
-                                                   aIconPathKey) {
+                                                   aIconPathKey, aIconOutKey) {
   if (aFilePath) {
     var file = this.getFile(aFilePath);
     var json = utils.getJSON(file);
@@ -298,7 +280,7 @@ Resources.prototype.getResourceWithIcon = function(aFilePath, aRootKey,
       if (elem[aIconPathKey]) {
         var iconFile = this.getFile(elem[aIconPathKey]);
         var icon = utils.getFileAsDataURI(iconFile);
-        elem.iconUri = icon;
+        elem[aIconOutKey] = icon;
         delete elem[aIconPathKey];
       }
     }.bind(this));
@@ -327,7 +309,7 @@ OperatorAppBuilder.prototype.setOptions = function(options) {
 
   this.gaia = utils.gaia.getInstance(options);
 
-  var settingsFile = utils.getFile(options.STAGE_DIR, 'settings_stage.json');
+  var settingsFile = utils.getFile(options.PROFILE_DIR, 'settings.json');
   if (!settingsFile.exists()) {
     throw new Error('file not found: ' + settingsFile.path);
   }

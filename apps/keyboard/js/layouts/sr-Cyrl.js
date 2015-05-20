@@ -5,6 +5,8 @@ Keyboards['sr-Cyrl'] = {
   imEngine: 'latin',
   types: ['text', 'url', 'email', 'password'],
   autoCorrectLanguage: 'sr-Cyrl',
+  basicLayoutKey: 'АБВ',
+  lang: 'sr-Cyrl',
   alt: {
     // incomplete
   },

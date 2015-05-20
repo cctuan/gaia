@@ -1,6 +1,7 @@
 'use strict';
 
-var MockAppWindowManager = {
+var MockAppWindowManager = function() {};
+MockAppWindowManager.prototype = {
   isRunning: function(config) {
     return (config.origin in this.mRunningApps);
   },
@@ -25,8 +26,14 @@ var MockAppWindowManager = {
     return this.mRunningApps[origin];
   },
 
+  getAppByURL: function mawm_getAppByUrl() {
+    return null;
+  },
+
   // reference to active appWindow instance.
   mActiveApp: null,
+
+  slowTransition: false,
 
   // Switch to a different app
   display: function mawm_display(origin, callback) {
@@ -51,5 +58,5 @@ var MockAppWindowManager = {
     }
   },
 
-  init: function() {}
+  start: function() {}
 };

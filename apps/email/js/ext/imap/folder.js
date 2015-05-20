@@ -1,6 +1,6 @@
 define(
   [
-    'rdcommon/log',
+    'logic',
     '../a64',
     '../allback',
     '../date',
@@ -11,7 +11,7 @@ define(
     'exports'
   ],
   function(
-    $log,
+    logic,
     $a64,
     $allback,
     $date,
@@ -71,18 +71,6 @@ function compactArray(arr) {
 }
 
 /**
- * We don't care about deleted messages, it's best that we're not aware of them.
- * However, it's important to keep in mind that this means that EXISTS provides
- * us with an upper bound on the messages in the folder since we are blinding
- * ourselves to deleted messages.
- */
-function buildSearch(opts) {
-  opts = opts || {};
-  opts.not = { deleted: true };
-  return opts;
-}
-
-/**
  * Number of bytes to fetch from the server for snippets.
  */
 var NUMBER_OF_SNIPPET_BYTES = 256;
@@ -125,10 +113,14 @@ var MAX_FETCH_BYTES = (Math.pow(2, 32) - 1);
  * we should do a SEARCH for new messages.  It is that search that will update
  * our accuracy information and only that.
  */
-function ImapFolderConn(account, storage, _parentLog) {
+function ImapFolderConn(account, storage) {
   this._account = account;
   this._storage = storage;
-  this._LOG = LOGFAB.ImapFolderConn(this, _parentLog, storage.folderId);
+
+  logic.defineScope(this, 'ImapFolderConn', {
+    accountId: account.id,
+    folderId: storage.folderId
+  });
 
   this._conn = null;
   this.box = null;
@@ -354,6 +346,49 @@ ImapFolderConn.prototype = {
    * going to be very expensive and the UID limitation would probably be a
    * mercy to the server.)
    *
+   * IMAP servers do not treat the SINCE and BEFORE options to IMAP
+   * SEARCH consistently. Because we compare messages in chunks of
+   * time-ranges, a message may seem like it has been deleted, when it
+   * actually just fell into the adjacent range bucket (Bug 886534).
+   * To correct for this, we do the following:
+   *
+   * 1. When we sync (whether PASTWARDS or FUTUREWARDS), we include
+   *    messages from a bit before and after the range we asked the
+   *    server for.
+
+   * 2. Compare those messages to the list the server returned. For
+   *    any messages which we have locally, but the server did not
+   *    return:
+   *
+   *    a) Delete any messages which are unambiguously within our
+   *       current time range.
+   *
+   *    b) Mark any messages we expected to see (but didn't) with an
+   *       indicator saying "we asked the server for messages in this
+   *       time range, but we couldn't find it". If a message was
+   *       already missing, expand the range to cover the current
+   *       range also, indicating that the message still wasn't found
+   *       after a wider search.
+   *
+   *    c) Inspect the "missing range" of each message. If the range
+   *       covers at least a day before and after the header's date,
+   *       delete the message. The server didn't return it to us even
+   *       though we checked a full day before and after the message.
+   *
+   *    d) If the server returns the message in a sync and we haven't
+   *       deleted it yet, clear the "missing" flag and start over.
+   *
+   * 3. Because we always sync time ranges farther into the past to
+   *    show the user new messages, the ambiguity between "deleted or
+   *    just hidden" disappears as we get information from continued
+   *    syncs.
+   *
+   * TLDR: Messages on the ends of SEARCH ranges may fall into
+   *       adjacent sync ranges. Don't freak out and delete a message
+   *       just because it didn't show up in this exact range we asked
+   *       for. Only delete the message if we checked all around where
+   *       it was supposed to show up, and it never did.
+   *
    * @args[
    *   @param[startTS @oneof[null DateMS]]{
    *     If non-null, inclusive "SINCE" constraint to use, otherwise the
@@ -366,17 +401,31 @@ ImapFolderConn.prototype = {
    * ]
    */
   _lazySyncDateRange: function(startTS, endTS, accuracyStamp,
-                          doneCallback, progressCallback) {
+                               doneCallback, progressCallback) {
+
+    var scope = logic.subscope(this, { startTS: startTS, endTS: endTS });
+
     if (startTS && endTS && SINCE(startTS, endTS)) {
-      this._LOG.illegalSync(startTS, endTS);
+      logic(scope, 'illegalSync');
       doneCallback('invariant');
       return;
     }
 
-console.log("syncDateRange:", startTS, endTS);
-    var searchOptions = buildSearch(), self = this,
-      storage = self._storage;
-    var useBisectLimit = $sync.BISECT_DATE_AT_N_MESSAGES;
+    var self = this;
+    var storage = self._storage;
+    var completed = false;
+
+    console.log('syncDateRange:', startTS, endTS);
+    logic(scope, 'syncDateRange_begin');
+
+    // IMAP Search
+
+    // We don't care about deleted messages, it's best that we're not
+    // aware of them. However, it's important to keep in mind that
+    // this means that EXISTS provides us with an upper bound on the
+    // messages in the folder since we are blinding ourselves to
+    // deleted messages.
+    var searchOptions = { not: { deleted: true } };
     if (startTS) {
       searchOptions.since = new Date(startTS);
     }
@@ -384,140 +433,252 @@ console.log("syncDateRange:", startTS, endTS);
       searchOptions.before = new Date(endTS);
     }
 
-    var callbacks = allbackMaker(
-      ['search', 'db'],
-      function syncDateRangeLogic(results) {
-        var serverUIDs = results.search, headers = results.db,
-            knownUIDs = [], uid, numDeleted = 0;
+    var imapSearchPromise = new Promise(function(resolve) {
+      this._timelySyncSearch(
+        searchOptions,
+        resolve,
+        function abortedSearch() {
+          if (completed)
+            return;
+          completed = true;
+          logic(scope, 'syncDateRange_end', {
+            full: 0, flags: 0, deleted: 0
+          });
+          doneCallback('aborted');
+        }.bind(this),
+        progressCallback,
+        /* isRetry: */ false);
+    }.bind(this));
 
-        // BrowserBox returns an integer modseq, but it's opaque and
-        // we already deal with strings, so cast it here.
-        var modseq = '';
-        if (self.box.highestModseq) {
-          modseq = self.box.highestModseq + '';
-        }
-console.log('SERVER UIDS', serverUIDs.length, useBisectLimit);
-        if (serverUIDs.length > useBisectLimit) {
-          var effEndTS = endTS ||
-                         quantizeDate(NOW() + DAY_MILLIS + self._account.tzOffset),
-              curDaysDelta = Math.round((effEndTS - startTS) / DAY_MILLIS);
-          // We are searching more than one day, we can shrink our search.
+    // Database Fetch
 
-console.log('BISECT CASE', serverUIDs.length, 'curDaysDelta', curDaysDelta);
-          if (curDaysDelta > 1) {
-            // mark the bisection abort...
-            self._LOG.syncDateRange_end(null, null, null, startTS, endTS,
-                                        null, null);
-            var bisectInfo = {
-              oldStartTS: startTS,
-              oldEndTS: endTS,
-              numHeaders: serverUIDs.length,
-              curDaysDelta: curDaysDelta,
-              newStartTS: startTS,
-              newEndTS: endTS,
-            };
-            // If we were being used for a refresh, they may want us to stop
-            // and change their sync strategy.
-            if (doneCallback('bisect', bisectInfo, null) === 'abort') {
-              self.clearErrorHandler();
-              doneCallback('bisect-aborted', null);
-              return null;
-            }
-            return self.syncDateRange(
-              bisectInfo.newStartTS, bisectInfo.newEndTS, accuracyStamp,
-              doneCallback, progressCallback);
-          }
-        }
+    // Fetch messages from the database, extending the search by a day
+    // on either side to prevent timezone-related problems (bug 886534).
 
-        if (progressCallback)
-          progressCallback(0.25);
+    var dbStartTS = (startTS ? startTS - $sync.IMAP_SEARCH_AMBIGUITY_MS : null);
+    var dbEndTS = (endTS ? endTS + $sync.IMAP_SEARCH_AMBIGUITY_MS : null);
+    logic(scope, 'database-lookup', {
+      dbStartTS: dbStartTS,
+      dbEndTS: dbEndTS
+    });
+    var databaseFetchPromise = new Promise(function(resolve) {
+      storage.getAllMessagesInImapDateRange(dbStartTS, dbEndTS, resolve);
+    });
 
-        // -- infer deletion, flag to distinguish known messages
-        // rather than splicing lists and causing shifts, we null out values.
-        for (var iMsg = 0; iMsg < headers.length; iMsg++) {
-          var header = headers[iMsg];
-          var idxUid = serverUIDs.indexOf(header.srvid);
-          // deleted!
-          if (idxUid === -1) {
-            storage.deleteMessageHeaderAndBodyUsingHeader(header);
-            numDeleted++;
-            headers[iMsg] = null;
-            continue;
-          }
-          // null out the UID so the non-null values in the search are the
-          // new messages to us.
-          serverUIDs[idxUid] = null;
-          // but save the UID so we can do a flag-check.
-          knownUIDs.push(header.srvid);
-        }
+    // Combine the results:
 
-        var newUIDs = compactArray(serverUIDs); // (re-labeling, same array)
-        if (numDeleted)
-          compactArray(headers);
+    Promise.all([
+      imapSearchPromise,
+      databaseFetchPromise
+    ]).then(function(results) {
+      var serverUIDs = results[0];
+      var dbHeaders = results[1];
+      var effectiveEndTS = endTS || quantizeDate(NOW() + DAY_MILLIS);
+      var curDaysDelta = Math.round((effectiveEndTS - startTS) / DAY_MILLIS);
 
-        var uidSync = new $imapsync.Sync({
-          connection: self._conn,
-          storage: self._storage,
-          newUIDs: newUIDs,
-          knownUIDs: knownUIDs,
-          knownHeaders: headers
-        });
+      // ----------------------------------------------------------------
+      // BISECTION SPECIAL CASE: If we have a lot of messages to
+      // process and we're searching more than one day, we can shrink
+      // our search.
 
-        uidSync.onprogress = progressCallback;
+      var shouldBisect = (serverUIDs.length > $sync.BISECT_DATE_AT_N_MESSAGES &&
+                          curDaysDelta > 1);
 
-        uidSync.oncomplete = function(newCount, knownCount) {
-            self._LOG.syncDateRange_end(newCount, knownCount, numDeleted,
-                                        startTS, endTS, null, null);
+      console.log(
+        '[syncDateRange]',
+        'Should bisect?', shouldBisect ? '***YES, BISECT!***' : 'no.',
+        'curDaysDelta =', curDaysDelta,
+        'serverUIDs.length =', serverUIDs.length);
 
-            self._storage.markSyncRange(startTS, endTS, modseq,
-                                        accuracyStamp);
-            if (completed)
-              return;
-
-            completed = true;
-            self.clearErrorHandler();
-            doneCallback(null, null, newCount + knownCount,
-                         skewedStartTS, skewedEndTS);
+      if (shouldBisect) {
+        // mark the bisection abort...
+        logic(scope, 'syncDateRange_end');
+        var bisectInfo = {
+          oldStartTS: startTS,
+          oldEndTS: endTS,
+          numHeaders: serverUIDs.length,
+          curDaysDelta: curDaysDelta,
+          newStartTS: startTS,
+          newEndTS: endTS,
         };
-
+        // If we were being used for a refresh, they may want us to stop
+        // and change their sync strategy.
+        if (doneCallback('bisect', bisectInfo, null) === 'abort') {
+          self.clearErrorHandler();
+          doneCallback('bisect-aborted', null);
+        } else {
+          self.syncDateRange(
+            bisectInfo.newStartTS,
+            bisectInfo.newEndTS,
+            accuracyStamp,
+            doneCallback,
+            progressCallback);
+        }
         return;
+      }
+
+      // end bisection special case
+      // ----------------------------------------------------------------
+
+      if (progressCallback) {
+        progressCallback(0.25);
+      }
+
+      // Combine the UIDs from local headers with server UIDs.
+
+      var uidSet = new Set();
+      var serverUidSet = new Set();
+      var localHeaderMap = {};
+
+      dbHeaders.forEach(function(header) {
+        // Ignore not-yet-synced local messages (messages without a
+        // srvid), such as messages from a partially-completed local
+        // move. Because they have no server ID, we can't compare them
+        // to anything currently on the server anyway.
+        if (header.srvid !== null) {
+          uidSet.add(header.srvid);
+          localHeaderMap[header.srvid] = header;
+        }
       });
 
-    // - Adjust DB time range for server skew on INTERNALDATE
-    // See https://github.com/mozilla-b2g/gaia-email-libs-and-more/issues/12
-    // for more in-depth details.  The nutshell is that the server will secretly
-    // apply a timezone to the question we ask it and will not actually tell us
-    // dates lined up with UTC.  Accordingly, we don't want our DB query to
-    // be lined up with UTC but instead the time zone.
-    //
-    // So if our timezone offset is UTC-4, that means that we will actually be
-    // getting results in that timezone, whose midnight is actually 4am UTC.
-    // In other words, we care about the time in UTC-0, so we subtract the
-    // offset.
-    var skewedStartTS = startTS - this._account.tzOffset,
-        skewedEndTS = endTS ? endTS - this._account.tzOffset : null,
-        completed = false;
-    console.log('Skewed DB lookup. Start: ',
-                skewedStartTS, new Date(skewedStartTS).toUTCString(),
-                'End: ', skewedEndTS,
-                skewedEndTS ? new Date(skewedEndTS).toUTCString() : null);
-    this._LOG.syncDateRange_begin(null, null, null, startTS, endTS,
-                                  skewedStartTS, skewedEndTS);
+      serverUIDs.forEach(function(uid) {
+        uidSet.add(uid);
+        serverUidSet.add(uid);
+      });
 
-    this._timelySyncSearch(
-      searchOptions, callbacks.search,
-      function abortedSearch() {
-        if (completed)
-          return;
-        completed = true;
-        this._LOG.syncDateRange_end(0, 0, 0, startTS, endTS, null, null);
-        doneCallback('aborted');
-      }.bind(this),
-      progressCallback,
-      /* isRetry: */ false);
-    this._storage.getAllMessagesInImapDateRange(skewedStartTS, skewedEndTS,
-                                                callbacks.db);
-  },
+      var imapSyncOptions = {
+        connection: self._conn,
+        storage: storage,
+        newUIDs: [],
+        knownUIDs: [],
+        knownHeaders: []
+      };
+
+      var numDeleted = 0;
+      var latch = $allback.latch();
+
+      // Figure out which messages are new, updated, or deleted.
+      uidSet.forEach(function(uid) {
+        var localHeader = localHeaderMap[uid] || null;
+        var hasServer = serverUidSet.has(uid);
+
+        // New
+        if (!localHeader && hasServer) {
+          imapSyncOptions.newUIDs.push(uid);
+          logic(scope, 'new-uid', { uid: uid });
+        }
+        // Updated
+        else if (localHeader && hasServer) {
+          imapSyncOptions.knownUIDs.push(uid);
+          imapSyncOptions.knownHeaders.push(localHeader);
+
+          if (localHeader.imapMissingInSyncRange) {
+            localHeader.imapMissingInSyncRange = null;
+            logic(scope, 'found-missing-uid', { uid: uid });
+            storage.updateMessageHeader(
+              localHeader.date, localHeader.id, true, localHeader,
+              /* body hint */ null, latch.defer(), { silent: true });
+          }
+
+          logic(scope, 'updated-uid', { uid: uid });
+        }
+        // Deleted or Ambiguously Deleted
+        else if (localHeader && !hasServer) {
+
+          // So, how long has this message been missing for?
+          var fuzz = $sync.IMAP_SEARCH_AMBIGUITY_MS;
+          var date = localHeader.date;
+
+          // There are 3 possible cases for imapMissingInSyncRange:
+          // 1) We don't have one, so just use the current search range.
+          // 2) It's disjoint from the current search range, so just use the
+          //    current search range.  We do this because we only track one
+          //    range for the message, and unioning disjoint ranges erroneously
+          //    assumes that we know something about the gap range *when we do
+          //    not*.  This situation arises because we previously had synced
+          //    backwards in time so that we were on the "old" ambiguous side
+          //    of the message.  We now must be on the "new" ambiguous side.
+          //    Since our sync range (currently) only ever moves backwards in
+          //    time, it is safe for us to discard the information about the
+          //    "old" side because we'll get that coverage again soon.
+          // 3) It overlaps the current range and we can take their union.
+          var missingRange;
+          if (!localHeader.imapMissingInSyncRange || // (#1)
+              ((localHeader.imapMissingInSyncRange.endTS < startTS) || // (#2)
+               (localHeader.imapMissingInSyncRange.startTS > endTS))) {
+            // adopt/clobber!
+            // (Note that "Infinity" JSON stringifies to null, so be aware when
+            // looking at logs involving this code.  But the values are
+            // structured cloned for bridge and database purposes and so remain
+            // intact.)
+            missingRange = localHeader.imapMissingInSyncRange =
+              { startTS: startTS || 0, endTS: endTS || Infinity };
+          } else { // (#3, union!)
+            missingRange = localHeader.imapMissingInSyncRange;
+            // Make sure to treat 'null' startTS and endTS correctly.
+            // (This is a union range.  We can state that we have not found the
+            // message in the time range SINCE missingRange.startTS and BEFORE
+            // missingRange.endTS.)
+            missingRange.startTS = Math.min(startTS || 0,
+                                            missingRange.startTS || 0);
+            missingRange.endTS = Math.max(endTS || Infinity,
+                                          missingRange.endTS || Infinity);
+          }
+
+          // Have we looked all around where the message is supposed
+          // to be, and the server never coughed it up? Delete it.
+          // (From a range perspective, we want to ensure that the missingRange
+          // completely contains the date +/- fuzz range.  We use an inclusive
+          // comparison in both cases because we are comparing two ranges, not
+          // a single date and a range.)
+          if (missingRange.startTS <= date - fuzz &&
+              missingRange.endTS >= date + fuzz) {
+            logic(scope, 'unambiguously-deleted-uid',
+                  { uid: uid, date: date, fuzz: fuzz, missingRange: missingRange });
+            storage.deleteMessageHeaderAndBodyUsingHeader(localHeader);
+            numDeleted++;
+          }
+          // Or we haven't looked far enough... maybe it will show up
+          // later. We've already marked the updated "missing" range above.
+          else {
+            logic(scope, 'ambiguously-missing-uid',
+                  { uid: uid, missingRange: missingRange,
+                    rangeToDelete: { startTS: date - fuzz, endTS: date + fuzz },
+                    syncRange: { startTS: startTS, endTS: endTS }});
+            storage.updateMessageHeader(
+              localHeader.date, localHeader.id, true, localHeader,
+              /* body hint */ null, latch.defer(), { silent: true });
+          }
+        }
+      });
+
+      // Now that we've reconciled the difference between the items
+      // listen on the server and the items on the client, we can pass
+      // the hard download work into $imapsync.Sync.
+      latch.then(function() {
+        var uidSync = new $imapsync.Sync(imapSyncOptions);
+        uidSync.onprogress = progressCallback;
+        uidSync.oncomplete = function(newCount, knownCount) {
+          logic(scope, 'syncDateRange_end', {
+            full: newCount,
+            flags: knownCount,
+            deleted: numDeleted
+          });
+
+          // BrowserBox returns an integer modseq, but it's opaque and
+          // we already deal with strings, so cast it here.
+          var modseq = (self.box.highestModseq || '') + '';
+          storage.markSyncRange(startTS, endTS, modseq, accuracyStamp);
+
+          if (!completed) {
+            completed = true;
+            self.clearErrorHandler();
+            doneCallback(null, null, newCount + knownCount, startTS, endTS);
+          }
+        };
+      });
+    }.bind(this));
+ },
 
   /**
    * Downloads all the body representations for a given message.
@@ -561,8 +722,8 @@ console.log('BISECT CASE', serverUIDs.length, 'curDaysDelta', curDaysDelta);
   },
 
   /**
-   * Initiates a request to download all body reps. If a snippet has not yet
-   * been generated this will also generate the snippet...
+   * Initiates a request to download all body reps for a single message. If a
+   * snippet has not yet been generated this will also generate the snippet...
    */
   _lazyDownloadBodyReps: function(header, options, callback) {
     if (typeof(options) === 'function') {
@@ -585,18 +746,12 @@ console.log('BISECT CASE', serverUIDs.length, 'curDaysDelta', curDaysDelta);
 
       // build the list of requests based on downloading required.
       var requests = [];
+      var latch = $allback.latch();
       bodyInfo.bodyReps.forEach(function(rep, idx) {
         // attempt to be idempotent by only requesting the bytes we need if we
         // actually need them...
         if (rep.isDownloaded)
           return;
-
-        var request = {
-          uid: header.srvid,
-          partInfo: rep._partInfo,
-          bodyRepIndex: idx,
-          createSnippet: idx === bodyRepIdx
-        };
 
         // default to the entire remaining email. We use the estimate * largish
         // multiplier so even if the size estimate is wrong we should fetch more
@@ -631,6 +786,19 @@ console.log('BISECT CASE', serverUIDs.length, 'curDaysDelta', curDaysDelta);
         if (bytesToFetch <= 0)
           bytesToFetch = 64;
 
+        // CONDITIONAL LOGIC BARRIER CONDITIONAL LOGIC BARRIER DITTO DITTO
+        // Do not do return/continue after this point because we call
+        // latch.defer below, and we break if we call it and then throw away
+        // that callback without calling it.  (Unsurprisingly.)
+
+        var request = {
+          uid: header.srvid,
+          partInfo: rep._partInfo,
+          bodyRepIndex: idx,
+          createSnippet: idx === bodyRepIdx,
+          headerUpdatedCallback: latch.defer(header.srvid + '-' + rep._partInfo)
+        };
+
         // we may only need a subset of the total number of bytes.
         if (overallMaximumBytes !== undefined || rep.amountDownloaded) {
           // request the remainder
@@ -655,8 +823,9 @@ console.log('BISECT CASE', serverUIDs.length, 'curDaysDelta', curDaysDelta);
         requests
       );
 
-      self._handleBodyFetcher(fetch, header, bodyInfo, function(err) {
-        callback(err, bodyInfo);
+      self._handleBodyFetcher(fetch, header, bodyInfo, latch.defer('body'));
+      latch.then(function(results) {
+        callback($allback.extractErrFromCallbackArgs(results), bodyInfo);
       });
     };
 
@@ -664,58 +833,24 @@ console.log('BISECT CASE', serverUIDs.length, 'curDaysDelta', curDaysDelta);
   },
 
   /**
-   * Download a snippet and a portion of the bodyRep to go along with it... In
-   * all cases we expect the bodyReps to be completely empty as we also will
-   * generate the snippet in the case of completely downloading a snippet.
-   */
-  _downloadSnippet: function(header, callback) {
-    var self = this;
-    this._storage.getMessageBody(header.suid, header.date, function(body) {
-      // attempt to find a rep
-      var bodyRepIndex = $imapchew.selectSnippetBodyRep(header, body);
-
-      // no suitable snippet we are done.
-      if (bodyRepIndex === -1)
-        return callback();
-
-      var rep = body.bodyReps[bodyRepIndex];
-      var requests = [{
-        uid: header.srvid,
-        bodyRepIndex: bodyRepIndex,
-        partInfo: rep._partInfo,
-        bytes: [0, NUMBER_OF_SNIPPET_BYTES],
-        createSnippet: true
-      }];
-
-      var fetch = new $imapbodyfetcher.BodyFetcher(
-        self._conn,
-        $imapsnippetparser.SnippetParser,
-        requests
-      );
-
-      self._handleBodyFetcher(
-        fetch,
-        header,
-        body,
-        callback
-      );
-    });
-  },
-
-  /**
    * Wrapper around common bodyRep updates...
    */
-  _handleBodyFetcher: function(fetcher, header, body, callback) {
+  _handleBodyFetcher: function(fetcher, header, body, bodyUpdatedCallback) {
     var event = {
       changeDetails: {
         bodyReps: []
       }
     };
 
-    var self = this;
+    // This will be invoked once per body part that is successfully downloaded
+    // or fails to download.
+    fetcher.onparsed = function(err, req, resp) {
+      if (err) {
+        req.headerUpdatedCallback(err);
+        return;
+      }
 
-    fetcher.onparsed = function(req, resp) {
-      $imapchew.updateMessageWithFetch(header, body, req, resp, self._LOG);
+      $imapchew.updateMessageWithFetch(header, body, req, resp);
 
       header.bytesToDownloadForBodyDisplay =
         $imapchew.calculateBytesToDownloadForImapBodyDisplay(body);
@@ -723,31 +858,30 @@ console.log('BISECT CASE', serverUIDs.length, 'curDaysDelta', curDaysDelta);
       // Always update the header so that we can save
       // bytesToDownloadForBodyDisplay, which will tell the UI whether
       // or not we can show the message body right away.
-      self._storage.updateMessageHeader(
+      this._storage.updateMessageHeader(
         header.date,
         header.id,
         false,
         header,
-        body
+        body,
+        req.headerUpdatedCallback.bind(null, null) // no error
       );
 
       event.changeDetails.bodyReps.push(req.bodyRepIndex);
-    };
+    }.bind(this);
 
-    fetcher.onerror = function(e) {
-      callback(e);
-    };
-
+    // This will be invoked after all of the onparsed events have fired.
     fetcher.onend = function() {
-      self._storage.updateMessageBody(
+      // Since we no longer have any updates to make to the body, we want to
+      // finally update it now.
+      this._storage.updateMessageBody(
         header,
         body,
         {},
-        event
+        event,
+        bodyUpdatedCallback.bind(null, null) // we do not/cannot error
       );
-
-      self._storage.runAfterDeferredCalls(callback);
-    };
+    }.bind(this);
   },
 
   /**
@@ -755,21 +889,8 @@ console.log('BISECT CASE', serverUIDs.length, 'curDaysDelta', curDaysDelta);
    * module deps are loaded.
    */
   _lazyDownloadBodies: function(headers, options, callback) {
-    var pending = 1, downloadsNeeded = 0;
-
-    var self = this;
-    var anyErr;
-    function next(err) {
-      if (err && !anyErr)
-        anyErr = err;
-
-      if (!--pending) {
-        self._storage.runAfterDeferredCalls(function() {
-          callback(anyErr, /* number downloaded */ downloadsNeeded - pending);
-        });
-      }
-    }
-
+    var downloadsNeeded = 0;
+    var latch = $allback.latch();
     for (var i = 0; i < headers.length; i++) {
       // We obviously can't do anything with null header references.
       // To avoid redundant work, we also don't want to do any fetching if we
@@ -777,21 +898,19 @@ console.log('BISECT CASE', serverUIDs.length, 'curDaysDelta', curDaysDelta);
       // potential for a caller to spam multiple requests at us before we
       // service any of them.  (Callers should only have one or two outstanding
       // jobs of this and do their own suppression tracking, but bugs happen.)
-      if (!headers[i] || headers[i].snippet !== null) {
+      var header = headers[i];
+      if (!header || header.snippet !== null) {
         continue;
       }
 
-      pending++;
       // This isn't absolutely guaranteed to be 100% correct, but is good enough
       // for indicating to the caller that we did some work.
       downloadsNeeded++;
-      this.downloadBodyReps(headers[i], options, next);
+      this.downloadBodyReps(headers[i], options, latch.defer(header.suid));
     }
-
-    // by having one pending item always this handles the case of not having any
-    // snippets needing a download and also returning in the next tick of the
-    // event loop.
-    window.setZeroTimeout(next);
+    latch.then(function(results) {
+      callback($allback.extractErrFromCallbackArgs(results), downloadsNeeded);
+    });
   },
 
   /**
@@ -882,11 +1001,6 @@ console.log('BISECT CASE', serverUIDs.length, 'curDaysDelta', curDaysDelta);
 
             var node = parser.node;
 
-            console.error('imap:built-attachment-part', JSON.stringify({
-              contentType: node.contentType.value,
-              length: node.content.length
-            }));
-
             bodies[index] = new Blob([node.content], {
               type: node.contentType.value
             });
@@ -902,16 +1016,17 @@ console.log('BISECT CASE', serverUIDs.length, 'curDaysDelta', curDaysDelta);
   },
 
   shutdown: function() {
-    this._LOG.__die();
   },
 };
 
-function ImapFolderSyncer(account, folderStorage, _parentLog) {
+function ImapFolderSyncer(account, folderStorage) {
   this._account = account;
   this.folderStorage = folderStorage;
 
-  this._LOG = LOGFAB.ImapFolderSyncer(this, _parentLog, folderStorage.folderId);
-
+  logic.defineScope(this, 'ImapFolderSyncer', {
+    accountId: account.id,
+    folderId: folderStorage.folderId
+  });
 
   this._syncSlice = null;
   /**
@@ -974,7 +1089,7 @@ function ImapFolderSyncer(account, folderStorage, _parentLog) {
    */
   this._curSyncDoneCallback = null;
 
-  this.folderConn = new ImapFolderConn(account, folderStorage, this._LOG);
+  this.folderConn = new ImapFolderConn(account, folderStorage);
 }
 exports.ImapFolderSyncer = ImapFolderSyncer;
 ImapFolderSyncer.prototype = {
@@ -1095,8 +1210,7 @@ ImapFolderSyncer.prototype = {
         if (endTS)
           this._nextSyncAnchorTS = startTS = endTS - syncStepDays * DAY_MILLIS;
         else
-          this._nextSyncAnchorTS = startTS = makeDaysAgo(syncStepDays,
-                                                         this._account.tzOffset);
+          this._nextSyncAnchorTS = startTS = makeDaysAgo(syncStepDays);
       }
       else {
         startTS = syncThroughTS;
@@ -1202,8 +1316,7 @@ ImapFolderSyncer.prototype = {
         bisectInfo.oldStartTS = this._fallbackOriginTS;
         this._fallbackOriginTS = null;
         var effOldEndTS = bisectInfo.oldEndTS ||
-                          quantizeDate(NOW() + DAY_MILLIS +
-                                       this._account.tzOffset);
+                          quantizeDate(NOW() + DAY_MILLIS);
         curDaysDelta = Math.round((effOldEndTS - bisectInfo.oldStartTS) /
                                   DAY_MILLIS);
         numHeaders = $sync.BISECT_DATE_AT_N_MESSAGES * 1.5;
@@ -1230,13 +1343,13 @@ ImapFolderSyncer.prototype = {
       if (this._curSyncDir === PASTWARDS) {
         bisectInfo.newEndTS = bisectInfo.oldEndTS;
         this._nextSyncAnchorTS = bisectInfo.newStartTS =
-          makeDaysBefore(bisectInfo.newEndTS, dayStep, this._account.tzOffset);
+          makeDaysBefore(bisectInfo.newEndTS, dayStep);
         this._curSyncDoNotGrowBoundary = bisectInfo.oldStartTS;
       }
       else { // FUTUREWARDS
         bisectInfo.newStartTS = bisectInfo.oldStartTS;
         this._nextSyncAnchorTS = bisectInfo.newEndTS =
-          makeDaysBefore(bisectInfo.newStartTS, -dayStep, this._account.tzOffset);
+          makeDaysBefore(bisectInfo.newStartTS, -dayStep);
         this._curSyncDoNotGrowBoundary = bisectInfo.oldEndTS;
       }
 
@@ -1341,7 +1454,7 @@ console.log("folder message count", folderMessageCount,
     else {
       this._curSyncDoNotGrowBoundary = null;
       // This may be a fractional value because of DST
-      lastSyncDaysInPast = ((quantizeDate(NOW() + this._account.tzOffset)) -
+      lastSyncDaysInPast = (quantizeDate(NOW()) -
                            this._nextSyncAnchorTS) / DAY_MILLIS;
       daysToSearch = Math.ceil(this._curSyncDayStep *
                                $sync.TIME_SCALE_FACTOR_ON_NO_MESSAGES);
@@ -1380,13 +1493,11 @@ console.log("folder message count", folderMessageCount,
     var startTS, endTS;
     if (this._curSyncDir === PASTWARDS) {
       endTS = this._nextSyncAnchorTS;
-      this._nextSyncAnchorTS = startTS = makeDaysBefore(endTS, daysToSearch,
-                                                        this._account.tzOffset);
+      this._nextSyncAnchorTS = startTS = makeDaysBefore(endTS, daysToSearch);
     }
     else { // FUTUREWARDS
       startTS = this._nextSyncAnchorTS;
-      this._nextSyncAnchorTS = endTS = makeDaysBefore(startTS, -daysToSearch,
-                                                      this._account.tzOffset);
+      this._nextSyncAnchorTS = endTS = makeDaysBefore(startTS, -daysToSearch);
     }
     this.folderConn.syncDateRange(startTS, endTS, this._curSyncAccuracyStamp,
                                   this.onSyncCompleted.bind(this));
@@ -1402,7 +1513,6 @@ console.log("folder message count", folderMessageCount,
 
   shutdown: function() {
     this.folderConn.shutdown();
-    this._LOG.__die();
   },
 };
 
@@ -1421,38 +1531,5 @@ function GmailMessageStorage() {
 }
 GmailMessageStorage.prototype = {
 };
-
-var LOGFAB = exports.LOGFAB = $log.register($module, {
-  ImapFolderConn: {
-    type: $log.CONNECTION,
-    subtype: $log.CLIENT,
-    events: {
-    },
-    TEST_ONLY_events: {
-    },
-    errors: {
-      callbackErr: { ex: $log.EXCEPTION },
-
-      htmlParseError: { ex: $log.EXCEPTION },
-      htmlSnippetError: { ex: $log.EXCEPTION },
-      textChewError: { ex: $log.EXCEPTION },
-      textSnippetError: { ex: $log.EXCEPTION },
-
-      // Attempted to sync with an empty or inverted range.
-      illegalSync: { startTS: false, endTS: false },
-    },
-    asyncJobs: {
-      syncDateRange: {
-        newMessages: true, existingMessages: true, deletedMessages: true,
-        start: false, end: false, skewedStart: false, skewedEnd: false,
-      },
-    },
-  },
-  ImapFolderSyncer: {
-    type: $log.DATABASE,
-    events: {
-    }
-  },
-}); // end LOGFAB
 
 }); // end define

@@ -1,3 +1,4 @@
+/* global MobileOperator, MockNavigatorMozIccManager */
 /* This should live in the shared directory */
 
 'use strict';
@@ -80,15 +81,6 @@ suite('shared/MobileOperator', function() {
     });
     test('Connection with roaming', function() {
       MockMobileConnection.voice.roaming = true;
-      var infos = MobileOperator.userFacingInfo(MockMobileConnection);
-      assert.equal(infos.operator, 'Fake short');
-      assert.isUndefined(infos.carrier);
-      assert.isUndefined(infos.region);
-    });
-    test('Connection with roaming and SPN display', function() {
-      var iccObj = MockNavigatorMozIccManager.getIccById('FakeIccId');
-      MockMobileConnection.voice.roaming = true;
-      iccObj.iccInfo.isDisplaySpnRequired = true;
       var infos = MobileOperator.userFacingInfo(MockMobileConnection);
       assert.equal(infos.operator, 'Fake short');
       assert.isUndefined(infos.carrier);

@@ -6,15 +6,20 @@
 function generateButton(singleSim, sim, index) {
   var button = document.createElement('button');
   button.classList.add('icon', 'icon-sim');
+
+  var span = document.createElement('span');
   if (singleSim) {
-    button.textContent = _('simCard');
+    span.setAttribute('data-l10n-id', 'simCard');
   } else {
-    button.textContent = _('simNumber', {'number': index});
-    if (sim.iccInfo &&
-      sim.iccInfo.msisdn) {
-      button.textContent += ': ' + sim.iccInfo.msisdn;
-    }
+    var msisdn = sim.iccInfo && sim.iccInfo.msisdn;
+    var l10nId = msisdn ? 'simNumberWithMSISDN' : 'simNumberNoMSISDN';
+    var l10nArgs = {
+      number: index,
+      msisdn: msisdn
+    };
+    navigator.mozL10n.setAttributes(span, l10nId, l10nArgs);
   }
+  button.appendChild(span);
   return button;
 }
 
@@ -35,8 +40,9 @@ SimDomGenerator.prototype.generateDOM = function() {
 // Specific DOM generation for export options, generating the
 // following code:
 //<li id="export-sim-option-<id>" data-source="sim">
-//  <button class="icon icon-sim" data-l10n-id="simCard">
-//    SIM <number> (optional : msisdn)
+//  <button class="icon icon-sim">
+//    <span data-l10n-id="importSim2">SIM <number> (optional : msisdn)</span>
+//    <p><span></span><time></time></p>
 //  </button>
 //  <p class="error-message" data-l10n-id="noSimMsgExport"></p>
 //</li>

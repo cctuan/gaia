@@ -3,7 +3,7 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
 from gaiatest import GaiaTestCase
-from marionette.wait import Wait
+from marionette_driver import Wait
 
 
 class TestLaunchViaEntryPoint(GaiaTestCase):

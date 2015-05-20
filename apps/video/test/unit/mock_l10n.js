@@ -18,11 +18,17 @@
   };
 
   var MockL10n = {
+
     get: function get(key, params) {
       if (params) {
         return key + JSON.stringify(params);
       }
       return key;
+    },
+
+    setAttributes: function(elem, key, params) {
+      elem.setAttribute('data-l10n-id', key);
+      elem.setAttribute('data-l10n-args', JSON.stringify(params));
     },
 
     DateTimeFormat: DateTimeFormat,
@@ -31,7 +37,9 @@
     },
 
     ready: function ready() {
-    }
+    },
+
+    language: {direction: 'ltr'}
   };
 
   exports.MockL10n = MockL10n;

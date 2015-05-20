@@ -5,10 +5,13 @@
 
 
 var NotificationScreen = {
-  TOASTER_TIMEOUT: 5000,
+  TOASTER_TIMEOUT: 3500,
   TRANSITION_FRACTION: 0.30,
+  TRANSITION_DURATION: 200,
+  SWIPE_INERTIA: 100,
   TAP_THRESHOLD: 10,
   SCROLL_THRESHOLD: 10,
+  CLEAR_DELAY: 80,
 
   _notification: null,
   _containerWidth: null,
@@ -45,14 +48,25 @@ var NotificationScreen = {
       '/manifest.webapp'
   ],
 
+  getLockScreenContainer: function ns_getLockScreenContainer() {
+    // XXX: Bug 1057198 add this as a workaround before we truly
+    // make LockScreen as an app.
+    if (window.lockScreenWindowManager &&
+         window.lockScreenWindowManager.getInstance() &&
+         window.lockScreenWindowManager.getInstance()
+          .getNotificationContainer()) {
+      return window.lockScreenWindowManager
+        .getInstance().getNotificationContainer();
+    }
+  },
+
   init: function ns_init() {
     window.addEventListener('mozChromeNotificationEvent', this);
     this.notificationsContainer =
       document.getElementById('notifications-container');
     this.container =
       document.getElementById('desktop-notifications-container');
-    this.lockScreenContainer =
-      document.getElementById('notifications-lockscreen-container');
+    this.lockScreenContainer = this.getLockScreenContainer();
     this.toaster = document.getElementById('notification-toaster');
     this.ambientIndicator = document.getElementById('ambient-indicator');
     this.toasterIcon = document.getElementById('toaster-icon');
@@ -79,10 +93,6 @@ var NotificationScreen = {
     window.addEventListener('visibilitychange', this);
     window.addEventListener('ftuopen', this);
     window.addEventListener('ftudone', this);
-    window.addEventListener('appforeground',
-      this.clearDesktopNotifications.bind(this));
-    window.addEventListener('appopened',
-      this.clearDesktopNotifications.bind(this));
     window.addEventListener('desktop-notification-resend', this);
 
     this._sound = 'style/notifications/ringtones/notifier_firefox.opus';
@@ -166,6 +176,7 @@ var NotificationScreen = {
         break;
       case 'ftudone':
         this.toaster.addEventListener('tap', this);
+        this.updateNotificationIndicator();
         break;
       case 'desktop-notification-resend':
         this.resendExpecting = evt.detail.number;
@@ -180,20 +191,6 @@ var NotificationScreen = {
           this.clearLockScreen();
         }).bind(this), 400);
         break;
-    }
-  },
-
-  // TODO: Remove this when we ditch mozNotification (bug 952453)
-  clearDesktopNotifications: function ns_handleAppopen(evt) {
-    var manifestURL = evt.detail.manifestURL,
-        selector = '[data-manifest-u-r-l="' + manifestURL + '"]';
-
-    var nodes = this.container.querySelectorAll(selector);
-
-    for (var i = nodes.length - 1; i >= 0; i--) {
-      if (nodes[i].dataset.obsoleteAPI === 'true') {
-        this.closeNotification(nodes[i]);
-      }
     }
   },
 
@@ -234,6 +231,7 @@ var NotificationScreen = {
     this._touchStartX = evt.touches[0].pageX;
     this._touchStartY = evt.touches[0].pageY;
     this._touchPosX = 0;
+    this._touchStartTime = evt.timeStamp;
     this._touching = true;
     this._isTap = true;
   },
@@ -260,13 +258,13 @@ var NotificationScreen = {
       return;
     }
 
-    evt.preventDefault();
-
     this._touchPosX = evt.touches[0].pageX - this._touchStartX;
-    if (this._touchPosX >= this.TAP_THRESHOLD) {
+    if (Math.abs(this._touchPosX) >= this.TAP_THRESHOLD) {
       this._isTap = false;
+      this.notificationsContainer.style.overflow = 'hidden';
     }
     if (!this._isTap) {
+      evt.preventDefault();
       this._notification.style.transform =
         'translateX(' + this._touchPosX + 'px)';
     }
@@ -280,6 +278,8 @@ var NotificationScreen = {
     evt.preventDefault();
     this._touching = false;
 
+    this.notificationsContainer.style.overflow = '';
+
     if (this._isTap) {
       var event = new CustomEvent('tap', {
         bubbles: true,
@@ -290,12 +290,21 @@ var NotificationScreen = {
       return;
     }
 
-    if (Math.abs(this._touchPosX) >
+    // Taking speed into account to detect swipes
+    var deltaT = evt.timeStamp - this._touchStartTime;
+    var speed = this._touchPosX / deltaT;
+    var inertia = speed * this.SWIPE_INERTIA;
+    var finalDelta = Math.abs(this._touchPosX + inertia);
+
+    if (finalDelta >
         this._containerWidth * this.TRANSITION_FRACTION) {
       if (this._touchPosX < 0) {
         this._notification.classList.add('left');
       }
-      this.swipeCloseNotification();
+
+      var durationLeft = (1 - (finalDelta / this._containerWidth)) *
+                         this.TRANSITION_DURATION;
+      this.swipeCloseNotification(durationLeft);
     } else {
       this.cancelSwipe();
     }
@@ -335,7 +344,8 @@ var NotificationScreen = {
     }));
 
     // Desktop notifications are removed when they are clicked (see bug 890440)
-    if (notificationNode.dataset.type === 'desktop-notification' &&
+    if (notificationNode &&
+        notificationNode.dataset.type === 'desktop-notification' &&
         notificationNode.dataset.obsoleteAPI === 'true') {
       this.closeNotification(notificationNode);
     }
@@ -378,21 +388,19 @@ var NotificationScreen = {
 
     this.toaster.dataset.notificationId = detail.id;
     this.toaster.dataset.type = type;
-    this.toasterTitle.textContent = detail.title;
-    this.toasterTitle.lang = detail.lang;
-    this.toasterTitle.dir = dir;
+    this.toaster.lang = detail.lang;
+    this.toaster.dir = dir;
 
+    this.toasterTitle.textContent = detail.title;
     this.toasterDetail.textContent = detail.text;
-    this.toasterDetail.lang = detail.lang;
-    this.toasterDetail.dir = dir;
   },
 
   addNotification: function ns_addNotification(detail) {
     // LockScreen window may not opened while this singleton got initialized.
-    this.lockScreenContainer = this.lockScreenContainer ||
-      document.getElementById('notifications-lockscreen-container');
+    this.lockScreenContainer = this.getLockScreenContainer();
 
     var manifestURL = detail.manifestURL || '';
+    var behavior = detail.mozbehavior || {};
     var isPriorityNotification =
       this.PRIORITY_APPLICATIONS.indexOf(manifestURL) !== -1;
 
@@ -400,6 +408,17 @@ var NotificationScreen = {
       (isPriorityNotification) ?
       this.container.querySelector('.priority-notifications') :
       this.container.querySelector('.other-notifications');
+
+    /* If dir "auto" was specified by the notification,
+     * use document direction instead because dir="auto"
+     * does not align the notification node according to
+     * the system language direction but instead it aligns
+     * every child element according to its own language
+     * which creates a UI mess we can't control by changing
+     * the system language.
+     */
+    var dir = (detail.dir === 'auto' || typeof detail.dir === 'undefined') ?
+      document.documentElement.dir : detail.dir;
 
     // We need to animate the ambient indicator when the toast
     // timesout, so we skip updating it here, by passing a skip bool
@@ -410,6 +429,10 @@ var NotificationScreen = {
     notificationNode.setAttribute('role', 'link');
 
     notificationNode.dataset.notificationId = detail.id;
+    notificationNode.dataset.noClear = behavior.noclear ? 'true' : 'false';
+    notificationNode.lang = detail.lang;
+    notificationNode.dataset.predefinedDir = detail.dir;
+
     notificationNode.dataset.obsoleteAPI = 'false';
     if (typeof detail.id === 'string' &&
         detail.id.indexOf('app-notif-') === 0) {
@@ -426,20 +449,14 @@ var NotificationScreen = {
       notificationNode.appendChild(icon);
     }
 
-    var dir = (detail.bidi === 'ltr' ||
-               detail.bidi === 'rtl') ?
-          detail.bidi : 'auto';
-
     var titleContainer = document.createElement('div');
     titleContainer.classList.add('title-container');
-    titleContainer.lang = detail.lang;
-    titleContainer.dir = dir;
 
     var title = document.createElement('div');
     title.classList.add('title');
     title.textContent = detail.title;
-    title.lang = detail.lang;
-    title.dir = dir;
+    title.setAttribute('dir', 'auto');
+
     titleContainer.appendChild(title);
 
     var time = document.createElement('span');
@@ -453,9 +470,11 @@ var NotificationScreen = {
 
     var message = document.createElement('div');
     message.classList.add('detail');
-    message.textContent = detail.text;
-    message.lang = detail.lang;
-    message.dir = dir;
+    var messageContent = document.createElement('div');
+    messageContent.classList.add('detail-content');
+    messageContent.textContent = detail.text;
+    messageContent.setAttribute('dir', 'auto');
+    message.appendChild(messageContent);
     notificationNode.appendChild(message);
 
     var notifSelector = '[data-notification-id="' + detail.id + '"]';
@@ -472,7 +491,11 @@ var NotificationScreen = {
       } else if (oldIcon) {
         oldNotif.removeChild(oldIcon);
       }
+      // but we still need to update type, lang and dir.
       oldNotif.dataset.type = type;
+      oldNotif.lang = detail.lang;
+      oldNotif.dataset.predefinedDir = detail.dir;
+
       notificationNode = oldNotif;
     } else {
       notificationContainer.insertBefore(notificationNode,
@@ -488,14 +511,9 @@ var NotificationScreen = {
 
     // We turn the screen on if needed in order to let
     // the user see the notification toaster
-    if (typeof(ScreenManager) !== 'undefined' &&
-      !ScreenManager.screenEnabled) {
-      // bug 915236: disable turning on the screen for email notifications
-      // bug 1050023: disable turning on the screen for download notifications
-      if (type.indexOf('download-notification-downloading') === -1 &&
-          manifestURL.indexOf('email.gaiamobile.org') === -1) {
-        ScreenManager.turnScreenOn();
-      }
+    if (!behavior.noscreen && typeof(ScreenManager) !== 'undefined' &&
+        !ScreenManager.screenEnabled) {
+      ScreenManager.turnScreenOn();
     }
 
     var notify = !('noNotify' in detail) &&
@@ -505,7 +523,7 @@ var NotificationScreen = {
     // Notification toaster
     if (notify) {
       this.updateToaster(detail, type, dir);
-      if (this.lockscreenPreview || !window.System.locked) {
+      if (this.lockscreenPreview || !window.Service.locked) {
         this.toaster.classList.add('displayed');
 
         if (this._toasterTimeout) {
@@ -521,66 +539,19 @@ var NotificationScreen = {
 
     // Adding it to the lockscreen if locked and the privacy setting
     // does not prevent it.
-    if (System.locked && this.lockscreenPreview) {
-      var lockScreenNode = notificationNode.cloneNode(true);
-
-      // First we try and find an existing notification with the same id.
-      // If we have one, we'll replace it. If not, we'll create a new node.
-      var oldLockScreenNode =
-        this.lockScreenContainer.querySelector(notifSelector);
-      if (oldLockScreenNode) {
-        this.lockScreenContainer.replaceChild(
-          lockScreenNode,
-          oldLockScreenNode
-        );
-      }
-      else {
-        this.lockScreenContainer.insertBefore(
-          lockScreenNode,
-          this.lockScreenContainer.firstElementChild
-        );
-      }
-
-      // To prevent add more code in this too complicated component,
-      // LockScreen related code would incrementally move to another component.
-      // However, to keep the compatibility is necessary, so the APIs would
-      // accomplish the existing code.
-      window.lockScreenNotificationBuilder.decorate(lockScreenNode);
-      window.lockScreenNotifications.showColoredMaskBG();
-
-      // UX specifies that the container should scroll to top
-      /* note two things:
-       * 1. we need to call adjustContainerVisualHints even
-       *    though we're setting scrollTop, since setting sT doesn't
-       *    necessarily invoke onscroll (if the old container is already
-       *    scrolled to top, we might still need to decide to show
-       *    the arrow)
-       * 2. set scrollTop before calling adjustContainerVisualHints
-       *    since sT = 0 will hide the mask if it's showing,
-       *    and if we call aCVH before setting sT,
-       *    under some circumstances aCVH would decide to show mask,
-       *    only to be negated by st = 0 (waste of energy!).
-       */
-      window.lockScreenNotifications.scrollToTop();
-
-      // check if lockscreen notifications visual
-      // hints (masks & arrow) need to show
-      window.lockScreenNotifications.adjustContainerVisualHints();
+    if (Service.locked && this.lockscreenPreview) {
+      this.addLockScreenNotification(detail.id,
+        notificationNode.cloneNode(true));
     }
 
     if (notify && !this.isResending) {
       if (!this.silent) {
         var ringtonePlayer = new Audio();
         var telephony = window.navigator.mozTelephony;
-        var isOnCall = telephony && telephony.calls.some(function(call) {
-          return (call.state == 'connected');
-        });
-        var isOnMultiCall = telephony && telephony.conferenceGroup &&
-          telephony.conferenceGroup.state === 'connected';
 
-        ringtonePlayer.src = this._sound;
+        ringtonePlayer.src = behavior.soundFile || this._sound;
 
-        if (isOnCall || isOnMultiCall) {
+        if (telephony && telephony.active) {
           ringtonePlayer.mozAudioChannelType = 'telephony';
           ringtonePlayer.volume = 0.3;
         } else {
@@ -591,10 +562,16 @@ var NotificationScreen = {
           ringtonePlayer.pause();
           ringtonePlayer.removeAttribute('src');
           ringtonePlayer.load();
-        }, 2000);
+        }, 4000);
       }
 
       if (this.vibrates) {
+        var pattern = [200, 200, 200];
+        if (behavior.vibrationPattern && behavior.vibrationPattern.length &&
+            behavior.vibrationPattern[0] > 0) {
+          pattern = behavior.vibrationPattern;
+        }
+
         if (document.hidden) {
           // bug 1030310: disable vibration for the email app when asleep
           // bug 1050023: disable vibration for downloads when asleep
@@ -602,11 +579,11 @@ var NotificationScreen = {
               manifestURL.indexOf('email.gaiamobile.org') === -1) {
             window.addEventListener('visibilitychange', function waitOn() {
               window.removeEventListener('visibilitychange', waitOn);
-              navigator.vibrate([200, 200, 200, 200]);
+              navigator.vibrate(pattern);
             });
           }
         } else {
-          navigator.vibrate([200, 200, 200, 200]);
+          navigator.vibrate(pattern);
         }
       }
     }
@@ -617,7 +594,20 @@ var NotificationScreen = {
     return notificationNode;
   },
 
-  swipeCloseNotification: function ns_swipeCloseNotification() {
+  /**
+   * Give a notification node and add it to LockScreen via event.
+   */
+  addLockScreenNotification: function ns_addLockScreenNotification(id, node) {
+    window.dispatchEvent(
+      new window.CustomEvent('lockscreen-notification-request-append', { detail:
+        {
+          id: id,
+          node: node
+        }
+      }));
+  },
+
+  swipeCloseNotification: function ns_swipeCloseNotification(duration) {
     var notification = this._notification;
     this._notification = null;
 
@@ -647,6 +637,8 @@ var NotificationScreen = {
     });
 
     notification.classList.add('disappearing');
+    duration = duration || this.TRANSITION_DURATION;
+    notification.style.transitionDuration = duration + 'ms';
     notification.style.transform = '';
   },
 
@@ -677,14 +669,23 @@ var NotificationScreen = {
 
   updateNotificationIndicator: function ns_updateNotificationIndicator() {
     if (this.unreadNotifications.length) {
-      var indicatorSize = getIndicatorSize(this.unreadNotifications.length);
-      this.ambientIndicator.className = 'unread ' + indicatorSize;
-      this.ambientIndicator.setAttribute('aria-label', navigator.mozL10n.get(
-        'statusbarNotifications-unread', {n: this.unreadNotifications.length}));
+      // If the ftu is running we should not show the ambient indicator
+      // because the statusbar is not accessible
+      if (Service.query('isFtuRunning')) {
+        return;
+      }
+      this.ambientIndicator.classList.add('unread');
+      navigator.mozL10n.setAttributes(
+        this.ambientIndicator,
+        'statusbarNotifications-unread',
+        {n: this.unreadNotifications.length}
+      );
     } else {
       this.ambientIndicator.classList.remove('unread');
       this.ambientIndicator.removeAttribute('aria-label');
     }
+
+    UtilityTray.updateNotificationCount();
   },
 
   closeToast: function ns_closeToast() {
@@ -700,8 +701,7 @@ var NotificationScreen = {
   removeLockScreenNotification:
   function ns_removeLockScreenNotification(notificationId) {
     var notifSelector = '[data-notification-id="' + notificationId + '"]';
-    this.lockScreenContainer = this.lockScreenContainer ||
-      document.getElementById('notifications-lockscreen-container');
+    this.lockScreenContainer = this.getLockScreenContainer();
     if (this.lockScreenContainer) {
       var lockScreenNotificationNode =
           this.lockScreenContainer.querySelector(notifSelector);
@@ -711,15 +711,10 @@ var NotificationScreen = {
       var lockScreenNotificationParentNode =
         lockScreenNotificationNode.parentNode;
       lockScreenNotificationParentNode.removeChild(lockScreenNotificationNode);
-      // if we don't have any notifications,
-      // use the no-notifications masked background for lockscreen
-      if (!lockScreenNotificationParentNode.firstElementChild) {
-        window.lockScreenNotifications.hideColoredMaskBG();
-      }
-
-      // check if lockscreen notifications visual
-      // hints (masks & arrow) need to show
-      window.lockScreenNotifications.adjustContainerVisualHints();
+      window.dispatchEvent(
+        new window.CustomEvent('lockscreen-notification-request-remove', {
+          containerEmpty: !lockScreenNotificationParentNode.firstElementChild
+        }));
     }
   },
 
@@ -741,7 +736,7 @@ var NotificationScreen = {
       this.removeLockScreenNotification(notificationId);
     }).bind(this), 400);
 
-    this.removeUnreadNotification();
+    this.removeUnreadNotification(notificationId);
     if (!this.container.querySelector('.notification')) {
       // no notifications left
       this.clearAllButton.disabled = true;
@@ -750,8 +745,38 @@ var NotificationScreen = {
 
   clearAll: function ns_clearAll() {
     var notifications = this.container.querySelectorAll('.notification');
-    for (var notification of notifications) {
-      this.closeNotification(notification);
+    var clearable = [].slice.apply(notifications)
+                      .filter(function isClearable(notification) {
+                        return notification.dataset.noClear !== 'true';
+                      });
+    var notification;
+    this.clearAllButton.disabled = true;
+    // When focus is on a disabled element, Gecko will not dispatch any keyboard
+    // events to it (the disabled element) and its parent.
+    // The clearAll Button is focused but disabled right away after
+    // user click it. We need to blur the focus immediately, otherwise System
+    // app could not receive any keyboard events. See more detail on
+    // http://bugzil.la/1106844
+    this.clearAllButton.blur();
+    if (!clearable.length) {
+      return;
+    }
+    // Adding a callback to the last cleared notification to defer
+    // the destroying of the notifications after the last disappear
+    var lastClearable = clearable[clearable.length - 1];
+    var removeAll = (function removeAll() {
+      lastClearable.removeEventListener('transitionend', removeAll);
+      for (var notification of clearable) {
+        this.closeNotification(notification);
+      }
+    }).bind(this);
+    lastClearable.addEventListener('transitionend', removeAll);
+
+    for (var index = 0, max = clearable.length; index < max; index++) {
+      notification = clearable[index];
+      notification.style.transitionDelay = (this.CLEAR_DELAY * index) + 'ms';
+      notification.classList.add('disappearing-via-clear-all');
+      notification.style.transform = '';
     }
   },
 
@@ -764,28 +789,12 @@ var NotificationScreen = {
       var element = this.lockScreenContainer.firstElementChild;
       this.lockScreenContainer.removeChild(element);
     }
-
-    // remove the "have notifications" masked background from lockscreen
-    window.lockScreenNotifications.hideColoredMaskBG();
-    // check if lockscreen notifications visual
-    // hints (masks & arrow) need to show
-    window.lockScreenNotifications.adjustContainerVisualHints();
+    window.dispatchEvent(
+      new window.CustomEvent('lockscreen-notification-request-clear'));
   }
 
+
 };
-
-function getIndicatorSize(count) {
-  if (!count || count <= 2)
-    return 'small';
-
-  if (count <= 4)
-    return 'medium';
-
-  if (count <= 6)
-    return 'big';
-
-  return 'full';
-}
 
 window.addEventListener('load', function() {
   window.removeEventListener('load', this);

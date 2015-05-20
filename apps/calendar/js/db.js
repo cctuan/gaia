@@ -1,25 +1,22 @@
-/*jshint loopfunc: true */
-/* global uuid */
-Calendar.Db = (function() {
+/* jshint loopfunc: true */
+define(function(require, exports, module) {
 'use strict';
 
-/**
- * Module dependencies
- */
-/*var Account = Calendar.Models.Account;*/
-/*var Presets = Calendar.Presets;*/
-/*var Provider = Calendar.Provider;*/
-var Responder = Calendar.Responder;
-/*var Store = Calendar.Store;*/
-var debug = Calendar.debug('Db');
-var nextTick = Calendar.nextTick;
-var probablyParseInt = Calendar.probablyParseInt;
+var Account = require('models/account');
+var Presets = require('common/presets');
+var Local = require('provider/local');
+var Responder = require('common/responder');
+var core = require('core');
+var debug = require('common/debug')('db');
+var denodeifyAll = require('common/promise').denodeifyAll;
+var nextTick = require('common/next_tick');
+var probablyParseInt = require('common/probably_parse_int');
+var uuid = require('ext/uuid');
 
-/**
- * Constants
- */
 var idb = window.indexedDB;
+
 const VERSION = 15;
+
 var store = Object.freeze({
   events: 'events',
   accounts: 'accounts',
@@ -32,10 +29,12 @@ var store = Object.freeze({
 
 function Db(name) {
   this.name = name;
-  this._stores = Object.create(null);
   Responder.call(this);
   this._upgradeOperations = [];
+
+  denodeifyAll(this, ['load']);
 }
+module.exports = Db;
 
 Db.prototype = {
   __proto__: Responder.prototype,
@@ -45,21 +44,8 @@ Db.prototype = {
    */
   connection: null,
 
-  getStore: function(name) {
-    if (!(name in this._stores)) {
-      try {
-        this._stores[name] = new Calendar.Store[name](this);
-      } catch (e) {
-        console.log('Error', e.name, e.message);
-        console.log('Failed to load store', name, e.stack);
-      }
-    }
-
-    return this._stores[name];
-  },
-
   load: function(callback) {
-    debug('Will load b2g-calendar db.');
+    debug(`Will load ${this.name} db.`);
 
     var self = this;
     function setupDefaults() {
@@ -373,7 +359,7 @@ Db.prototype = {
    * @private
    */
   _deleteEvents: function(eventIds, trans) {
-    var events = this.getStore('Event');
+    var events = core.storeFactory.get('Event');
     eventIds.forEach(function(eventId) {
       events.remove(eventId, trans);
     });
@@ -414,10 +400,11 @@ Db.prototype = {
    */
   _setupDefaults: function(callback) {
     debug('Will setup defaults.');
-    var calendarStore = this.getStore('Calendar');
-    var accountStore = this.getStore('Account');
+    var storeFactory = core.storeFactory;
+    var calendarStore = storeFactory.get('Calendar');
+    var accountStore = storeFactory.get('Account');
 
-    var trans = calendarStore.db.transaction(
+    var trans = this.transaction(
       ['accounts', 'calendars'],
       'readwrite'
     );
@@ -432,16 +419,16 @@ Db.prototype = {
       });
     }
 
-    var options = Calendar.Presets.local.options;
+    var options = Presets.local.options;
     debug('Creating local calendar with options:', options);
-    var account = new Calendar.Models.Account(options);
+    var account = new Account(options);
     account.preset = 'local';
     account._id = uuid();
 
     var calendar = {
-      _id: Calendar.Provider.Local.calendarId,
+      _id: Local.calendarId,
       accountId: account._id,
-      remote: Calendar.Provider.Local.defaultCalendar()
+      remote: Local.defaultCalendar()
     };
 
     accountStore.persist(account, trans);
@@ -466,6 +453,4 @@ Db.prototype = {
   }
 };
 
-return Db;
-
-}());
+});

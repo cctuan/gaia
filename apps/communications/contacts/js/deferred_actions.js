@@ -1,11 +1,20 @@
 'use strict';
-/* global ImportStatusData, LazyLoader, fb, utils, Migrator, fbLoader */
+
+/* global fb */
+/* global fbLoader */
+/* global ImportStatusData */
+/* global LazyLoader */
+/* global Migrator */
+/* global utils */
+
 /* exported DeferredActions */
 
 // Methods not related with the list rendering that must be executed after
 // render to not damage performance.
 var DeferredActions = (function() {
   var config;
+
+  var TOTAL_RETRIES = 4;
 
   var execute = function execute() {
     config = utils.cookie.load();
@@ -14,7 +23,6 @@ var DeferredActions = (function() {
       window.addEventListener('facebookLoaded', doExecute);
       return;
     }
-
     doExecute();
   };
 
@@ -23,7 +31,37 @@ var DeferredActions = (function() {
 
     checkFacebookSynchronization(config);
     checkVersionMigration(config);
+    checkFacebookSanity(config);
   };
+
+  // If FB Cleaning data was ongoing we finish it
+  // This avoids keeping the contacts database inconsistent. See bug 1073684
+  function checkFacebookSanity(config) {
+    if (!config || !config.fbCleaningInProgress ||
+        config.fbCleaningInProgress > TOTAL_RETRIES) {
+      return;
+    }
+
+    var req = fb.utils.clearFbData();
+    req.onsuccess = function() {
+      var cleaner = req.result;
+
+      cleaner.onsuccess = function() {
+        console.log('Finished clean Fb data');
+        fb.markFbCleaningInProgress(0);
+      };
+      cleaner.onerror = function() {
+        console.error('FB Cleaner reported an error: ',
+                      req.error && req.error.name);
+        fb.markFbCleaningInProgress(++config.fbCleaningInProgress);
+      };
+    };
+
+    req.onerror = function() {
+      console.error('Unable to start cleaning', req.error && req.error.name);
+      fb.markFbCleaningInProgress(++config.fbCleaningInProgress);
+    };
+  }
 
   function checkFacebookSynchronization(config) {
     // Checks if we should set a fb sync alarm when fb sync has been done in ftu

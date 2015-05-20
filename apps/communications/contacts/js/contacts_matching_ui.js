@@ -2,7 +2,7 @@
 /* global ContactPhotoHelper */
 /* global ImageLoader */
 /* global LazyLoader */
-/* global utils */
+/* global Tagged */
 /* jshint nonew: false */
 
 var contacts = window.contacts || {};
@@ -58,15 +58,20 @@ if (!contacts.MatchingUI) {
       matchingResults = results;
 
       document.body.dataset.mode = type;
-      var params = { name: getDisplayName(contact) };
+      var contactName = getDisplayName(contact);
+      var params = { name: Tagged.escapeHTML `${contactName}` };
 
       if (type === 'matching') {
         // "Suggested duplicate contacts for xxx"
-        duplicateMessage.textContent = _('suggestedDuplicateContacts', params);
+        navigator.mozL10n.setAttributes(duplicateMessage,
+                                        'suggestedDuplicatesMessage',
+                                        params);
       } else {
-        title.textContent = _('duplicatesFoundTitle');
+        title.setAttribute('data-l10n-id', 'duplicatesFoundTitle');
         // "xxx duplicates information in the following contacts"
-        duplicateMessage.textContent = _('duplicatesFoundMessage', params);
+        navigator.mozL10n.setAttributes(duplicateMessage,
+                                        'foundDuplicatesMessage',
+                                        params);
       }
 
       // Rendering the duplicate contacts list
@@ -74,9 +79,27 @@ if (!contacts.MatchingUI) {
     }
 
     var listDependencies = [
-      '/shared/js/contacts/utilities/image_loader.js',
-      '/shared/js/contacts/utilities/templates.js'
+      '/shared/js/contacts/utilities/image_loader.js'
     ];
+
+    function templateDuplicateContact(contact) {
+      return Tagged.escapeHTML `<li data-uuid="${contact.id}"
+        class="block-item">
+        <label class="pack-checkbox">
+          <input type="checkbox" checked>
+          <span></span>
+        </label>
+        <aside class="pack-end">
+          <img data-src="${contact.thumb}">
+        </aside>
+        <p>
+          <bdi class="ellipsis-dir-fix">${contact.displayName}</bdi>
+        </p>
+        <p class="match-main-reason">
+          <bdi class="ellipsis-dir-fix">${contact.mainReason}</bdi>
+        </p>
+      </li>`;
+    }
 
     function renderList(contacts, success) {
       LazyLoader.load(listDependencies, function loaded() {
@@ -86,9 +109,15 @@ if (!contacts.MatchingUI) {
           // New contact appended
           checkedContacts[id] = id;
           var contact = cookContact(contacts[id]);
-          var item = utils.templates.append(contactsList, contact);
+
+          // Use a template node so we can append it and also access the node
+          var item = document.createElement('template');
+          item.innerHTML = templateDuplicateContact(contact);
+
+          contactsList.appendChild(item.content);
+
           if (contact.email1 === '') {
-            var emailField = item.querySelector('p:last-child');
+            var emailField = item.content.querySelector('p:last-child');
             emailField && emailField.parentNode.removeChild(emailField);
           }
         });
@@ -96,8 +125,6 @@ if (!contacts.MatchingUI) {
         checked = contactsKeys.length;
         checkMergeButton();
 
-        // The template is deleted from the list
-        contactsList.removeChild(contactsList.firstElementChild);
         new ImageLoader('#main', 'li');
         setTimeout(success);
       });
@@ -215,13 +242,19 @@ if (!contacts.MatchingUI) {
     function getActionOverList(event) {
       // 40% percent of the horizontal width will be consider 'check' area
       var CHECKING_AREA_WIDTH = 0.4;
+      var shouldShowDetail = true;
 
-      var out = 'detail';
-      if (event.clientX <= window.innerWidth * CHECKING_AREA_WIDTH) {
-        out = 'check';
+      // In case of an RTL language we need to swap the areas
+      if (document.dir === 'rtl') {
+        CHECKING_AREA_WIDTH = 0.6;
+        shouldShowDetail = false;
       }
 
-      return out;
+      if (event.clientX <= window.innerWidth * CHECKING_AREA_WIDTH) {
+        shouldShowDetail = !shouldShowDetail;
+      }
+
+      return shouldShowDetail ? 'detail' : 'check';
     }
 
     function onClick(e) {
@@ -364,7 +397,7 @@ if (!contacts.MatchingUI) {
               if (isMatch(matchings, aField, fieldValue)) {
                 item.classList.add('selected');
               }
-              navigator.mozL10n.localize(item, 'itemWithLabel', {
+              navigator.mozL10n.setAttributes(item, 'itemWithLabel', {
                 label: _(fieldValue.type),
                 item: fieldValue.value
               });
@@ -402,8 +435,9 @@ if (!contacts.MatchingUI) {
     }
 
     function checkMergeButton() {
-      navigator.mozL10n.localize(mergeButton, 'mergeActionButtonLabel',
-                                                                { n: checked });
+      navigator.mozL10n.setAttributes(mergeButton,
+                                      'mergeActionButtonLabel',
+                                      { n: checked });
       mergeButton.disabled = (checked === 0);
     }
 

@@ -7,8 +7,9 @@
 
     get: stringify,
 
-    // XXX Remove in https://bugzil.la/1020136
-    translate: function() {},
+    formatValue: function(id, args) {
+      return Promise.resolve(stringify(id, args));
+    },
 
     translateFragment: function() {},
 

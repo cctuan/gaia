@@ -1,7 +1,7 @@
 /* -*- Mode: js; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- /
 /* vim: set shiftwidth=2 tabstop=2 autoindent cindent expandtab: */
 
-/* global System, ImageUtils, LazyLoader */
+/* global ImageUtils, LazyLoader, OrientationManager */
 
 'use strict';
 
@@ -226,9 +226,24 @@
       if (!this._started) { return; }
       debug('resizing wallpaper if needed');
 
-      // How big (in device pixels) is the screen?
-      var screenWidth = Math.ceil(screen.width * window.devicePixelRatio);
-      var screenHeight = Math.ceil(screen.height * window.devicePixelRatio);
+      // How big (in device pixels) is the screen in its default orientation?
+      var screenWidth, screenHeight;
+      if (OrientationManager && !OrientationManager.isDefaultPortrait()) {
+        // The screen.width and screen.height values depend on how the
+        // user is holding the device. If this is a tablet or other
+        // device with a screen that defaults to landscape mode, then
+        // with width is the bigger dimension
+        screenWidth = Math.max(screen.width, screen.height);
+        screenHeight = Math.min(screen.width, screen.height);
+      } else {
+        // Otherwise, the width is the smaller dimension
+        screenWidth = Math.min(screen.width, screen.height);
+        screenHeight = Math.max(screen.width, screen.height);
+      }
+
+      // Use device pixels, not CSS pixels
+      screenWidth = Math.ceil(screenWidth * window.devicePixelRatio);
+      screenHeight = Math.ceil(screenHeight * window.devicePixelRatio);
 
       // For performance we need to guarantee that the size of the wallpaper
       // is exactly the same as the size of the screen. LazyLoad the
@@ -335,7 +350,12 @@
       this._blobURL = URL.createObjectURL(blob);
 
       // And tell the system about it.
-      System.publish('wallpaperchange', { url: this._blobURL });
+      var evt = new CustomEvent('wallpaperchange', {
+        bubbles: true,
+        cancelable: false,
+        detail: { url: this._blobURL }
+      });
+      window.dispatchEvent(evt);
     }
   };
 
@@ -346,7 +366,7 @@
       console.log.apply(console, args);
     }
   }
-  WallpaperManager.DEBUG = true; // Set to false to silence debug output
+  WallpaperManager.DEBUG = false; // Set to true to enable debug output
 
   /** @exports WallpaperManager */
   exports.WallpaperManager = WallpaperManager;

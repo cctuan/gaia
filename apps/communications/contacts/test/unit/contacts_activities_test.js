@@ -7,12 +7,17 @@
 require('/shared/test/unit/mocks/mock_contact_all_fields.js');
 require('/shared/test/unit/mocks/mock_lazy_loader.js');
 require('/shared/js/contacts/import/utilities/misc.js');
+require('/shared/js/contact2vcard.js');
+require('/shared/js/text_normalizer.js');
+require('/shared/js/setImmediate.js');
+
 requireApp('communications/contacts/js/activities.js');
 requireApp('communications/contacts/test/unit/mock_l10n.js');
 requireApp('communications/contacts/test/unit/mock_navigation.js');
 requireApp('communications/contacts/test/unit/mock_contacts.js');
 requireApp('communications/contacts/test/unit/mock_action_menu.js');
-requireApp('communications/dialer/test/unit/mock_confirm_dialog.js');
+require('/shared/test/unit/mocks/mock_confirm_dialog.js');
+require('/shared/test/unit/mocks/mock_moz_contact.js');
 
 if (!window._) {
   window._ = null;
@@ -25,7 +30,8 @@ if (!window.utils) {
 var mocksHelperForActivities = new MocksHelper([
   'Contacts',
   'ConfirmDialog',
-  'LazyLoader'
+  'LazyLoader',
+  'mozContact'
 ]).init();
 
 suite('Test Activities', function() {
@@ -65,6 +71,12 @@ suite('Test Activities', function() {
     window.utils.importFromVcard = realImport;
   });
 
+  function assertIsOpened(activity, viewName) {
+    ActivityHandler.handle(activity);
+    assert.include(document.location.hash, viewName);
+    assert.equal(ActivityHandler._currentActivity, activity);
+  }
+
   suite('Activity launching', function() {
     setup(function() {
       ActivityHandler._currentActivity = null;
@@ -82,9 +94,7 @@ suite('Test Activities', function() {
           data: {}
         }
       };
-      ActivityHandler.handle(activity);
-      assert.include(document.location.hash, 'view-contact-form');
-      assert.equal(ActivityHandler._currentActivity, activity);
+      assertIsOpened(activity, 'view-contact-form');
     });
 
     test('Open contact', function() {
@@ -94,9 +104,44 @@ suite('Test Activities', function() {
           data: {}
         }
       };
-      ActivityHandler.handle(activity);
-      assert.include(document.location.hash, 'view-contact-details');
-      assert.equal(ActivityHandler._currentActivity, activity);
+      assertIsOpened(activity, 'view-contact-details');
+    });
+
+    test('Open text/vcard with allowSave', function() {
+      var activity = {
+        source: {
+          name: 'open',
+          data: {
+            type: ['text/vcard'],
+            allowSave: true
+          }
+        }
+      };
+      assertIsOpened(activity, 'view-contact-details');
+    });
+
+    test('Open vCard with deprecated text/directory datatype', function() {
+      var activity = {
+        source: {
+          name: 'open',
+          data: {
+            type: ['text/directory']
+          }
+        }
+      };
+      assertIsOpened(activity, 'view-contact-details');
+    });
+
+    test('Open vCard with deprecated text/x-vcard datatype', function() {
+      var activity = {
+        source: {
+          name: 'open',
+          data: {
+            type: ['text/x-vcard']
+          }
+        }
+      };
+      assertIsOpened(activity, 'view-contact-details');
     });
 
     test('Update contact', function() {
@@ -106,9 +151,9 @@ suite('Test Activities', function() {
           data: {}
         }
       };
-      ActivityHandler.handle(activity);
-      assert.include(document.location.hash, 'add-parameters');
-      assert.equal(ActivityHandler._currentActivity, activity);
+      assertIsOpened(activity, 'add-parameters');
+      assert.isTrue(Contacts.checkCancelableActivity.called,
+                                            'checks for activity UI specifics');
     });
 
     test('Pick contact', function() {
@@ -120,6 +165,8 @@ suite('Test Activities', function() {
         }
       };
       ActivityHandler.handle(activity);
+      assert.isTrue(Contacts.checkCancelableActivity.called,
+                                            'checks for activity UI specifics');
       assert.equal(ActivityHandler._currentActivity, activity);
     });
 
@@ -134,10 +181,7 @@ suite('Test Activities', function() {
       };
       window.utils.importedCount = 1;
       window.utils.importedID = '1';
-      ActivityHandler.handle(activity);
-      assert.equal(ActivityHandler._currentActivity, activity);
-      assert.include(document.location.hash, 'view-contact-details',
-        'showing contact details screen');
+      assertIsOpened(activity, 'view-contact-details');
       assert.include(document.location.hash, 'id=1',
         'with the proper contact id');
     });
@@ -152,11 +196,7 @@ suite('Test Activities', function() {
         }
       };
       window.utils.importedCount = 2;
-      ActivityHandler.handle(activity);
-      assert.equal(ActivityHandler._currentActivity, activity,
-        'handling as an activity');
-      assert.include(document.location.hash, 'view-contact-list',
-        'showing list view screen');
+      assertIsOpened(activity, 'view-contact-list');
       assert.equal(document.location.hash.indexOf('id'), -1,
         'no contact id as parameter');
       assert.isTrue(Contacts.checkCancelableActivity.called,
@@ -191,6 +231,37 @@ suite('Test Activities', function() {
       ConfirmDialog.hide();
     });
 
+    test('text/vcard, 1 result', function(done) {
+      var vcardActivity = {
+        source: {
+          name: 'pick',
+          data: {
+          }
+        }
+      };
+      vcardActivity.source.data.type = 'text/vcard';
+      ActivityHandler._currentActivity = vcardActivity;
+
+      var stub = sinon.stub(window, 'ContactToVcardBlob',
+                                                      function(aContact, cb) {
+        cb(new Blob(['1234567'], {
+          type: 'text/vcard'
+        }));
+      });
+
+      vcardActivity.postResult = function(response) {
+        assert.equal(response.name, contact.givenName[0] + '_' +
+                      contact.familyName[0] + '.vcf');
+        assert.equal(response.blob.type, 'text/vcard');
+
+        stub.restore();
+
+        done();
+      };
+
+      ActivityHandler.dataPickHandler(contact);
+    });
+
     test('webcontacts/tel, 0 results', function() {
       activity.source.data.type = 'webcontacts/tel';
       ActivityHandler._currentActivity = activity;
@@ -208,7 +279,7 @@ suite('Test Activities', function() {
       contact.tel.pop();
       // we need to create a object from data to compare prototypes
       // check activities.js > function copyContactData
-      var newContact = Object.create(contact);
+      var newContact = contact;
       ActivityHandler.dataPickHandler(newContact);
       assert.isFalse(ConfirmDialog.showing);
       // Check if all the properties are the same

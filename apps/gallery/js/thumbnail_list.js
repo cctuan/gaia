@@ -1,3 +1,5 @@
+'use strict';
+
 /**
  * ThumbnailList is the class reponsible for rendering all gallery content in to
  * list. It uses GroupClass to group and sort file data as ThumbnailItem.
@@ -105,4 +107,8 @@ ThumbnailList.prototype.reset = function() {
   this.itemGroups = [];
   this.groupMap = {};
   this.count = 0;
+};
+
+ThumbnailList.prototype.localize = function() {
+  this.itemGroups.forEach(function(group) { group.localize(); });
 };

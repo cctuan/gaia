@@ -32,6 +32,10 @@
 
   .handled-call.ended .duration > span {
     font-weight: 500;
+    max-width: 10rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .handled-call.ended .total-duration {
@@ -49,20 +53,8 @@
   #views,
   #lockscreen-header,
   #group-call-details,
-  .additionalContactInfo,
-  .merge-button {
+  .additionalContactInfo {
     display: none;
-  }
-
-  /* This transition is needed to trigger a transitionend event in */
-  /* call_screen.js */
-  #call-screen {
-    transform: translateY(-100%);
-    transition: transform 0.5s ease;
-  }
-
-  #call-screen.displayed {
-    transform: translateY(0);
   }
 
   #calls .handled-call,
@@ -134,16 +126,8 @@
     background-image: url('images/status_bar/actionicon_activecall_mute_small_active.png');
   }
 
-  .fake-number {
-    position: absolute;
-    left: 4.5rem;
-    line-height: 0;
-    visibility: hidden;
-    white-space: nowrap;
-  }
-
   /* Don't display held calls unless there is only one call */
-  #calls:not(.single-line) .handled-call.held {
+  body:not(.single-line) #calls .handled-call.held {
     display: none;
   }
 

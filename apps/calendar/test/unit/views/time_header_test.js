@@ -1,11 +1,14 @@
+define(function(require) {
 'use strict';
 
 requireCommon('test/synthetic_gestures.js');
 
-suiteGroup('Views.TimeHeader', function() {
+var TimeHeader = require('views/time_header');
+var View = require('view');
+var core = require('core');
 
+suite('Views.TimeHeader', function() {
   var subject;
-  var app;
   var controller;
   var date = new Date(2012, 0, 1);
   var localeFormat;
@@ -33,12 +36,9 @@ suiteGroup('Views.TimeHeader', function() {
 
     document.body.appendChild(div);
 
-    app = testSupport.calendar.app();
-    controller = app.timeController;
+    controller = core.timeController;
 
-    subject = new Calendar.Views.TimeHeader({
-      app: app
-    });
+    subject = new TimeHeader();
 
     controller.move(date);
     monthTitle = localeFormat(
@@ -48,8 +48,7 @@ suiteGroup('Views.TimeHeader', function() {
   });
 
   test('initialization', function() {
-    assert.instanceOf(subject, Calendar.View);
-    assert.equal(subject.app, app);
+    assert.instanceOf(subject, View);
     assert.ok(subject.element);
     assert.equal(
       subject.element, document.querySelector('#time-header')
@@ -170,7 +169,7 @@ suiteGroup('Views.TimeHeader', function() {
 
       assert.ok(calledWith);
     });
-
   });
+});
 
 });

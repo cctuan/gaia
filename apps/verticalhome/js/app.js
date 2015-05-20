@@ -1,18 +1,29 @@
 'use strict';
-/* global ItemStore, LazyLoader, Configurator */
+/* global ItemStore, LazyLoader, Configurator, groupEditor */
+/* global requestAnimationFrame */
 
 (function(exports) {
 
   // Hidden manifest roles that we do not show
-  const HIDDEN_ROLES = ['system', 'input', 'homescreen', 'theme'];
+  const HIDDEN_ROLES = [
+    'system', 'input', 'homescreen', 'theme', 'addon', 'langpack'
+  ];
+
+  const EDIT_MODE_TRANSITION_STYLE =
+    'transform 0.25s ease 0s, height 0s ease 0.5s';
 
   function App() {
-    window.dispatchEvent(new CustomEvent('moz-chrome-dom-loaded'));
+    window.performance.mark('navigationLoaded');
     this.grid = document.getElementById('icons');
 
     this.grid.addEventListener('iconblobdecorated', this);
     this.grid.addEventListener('gaiagrid-iconbloberror', this);
+    this.grid.addEventListener('gaiagrid-attention', this);
+    this.grid.addEventListener('gaiagrid-resize', this);
     this.grid.addEventListener('cached-icons-rendered', this);
+    this.grid.addEventListener('edititem', this);
+    this.grid.addEventListener('editmode-start', this);
+    this.grid.addEventListener('editmode-end', this);
     window.addEventListener('hashchange', this);
     window.addEventListener('gaiagrid-saveitems', this);
     window.addEventListener('online', this.retryFailedIcons.bind(this));
@@ -26,6 +37,9 @@
     window.addEventListener('context-menu-open', this);
     window.addEventListener('context-menu-close', this);
 
+    window.addEventListener('gaia-confirm-open', this);
+    window.addEventListener('gaia-confirm-close', this);
+
     this.layoutReady = false;
     window.addEventListener('gaiagrid-layout-ready', this);
 
@@ -33,12 +47,15 @@
     // and should be retried when/if we come online again.
     this._iconsToRetry = [];
 
-    window.dispatchEvent(new CustomEvent('moz-chrome-interactive'));
+    document.addEventListener('visibilitychange', this);
+
+    window.performance.mark('navigationInteractive');
   }
 
   App.prototype = {
 
     HIDDEN_ROLES: HIDDEN_ROLES,
+    EDIT_MODE_TRANSITION_STYLE: EDIT_MODE_TRANSITION_STYLE,
 
     /**
      * Showing the correct icon is ideal but sometimes not possible if the
@@ -98,15 +115,15 @@
           }.bind(this));
         }
 
-        window.dispatchEvent(new CustomEvent('moz-app-visually-complete'));
-        window.dispatchEvent(new CustomEvent('moz-content-interactive'));
+        window.performance.mark('visuallyLoaded');
+        window.performance.mark('contentInteractive');
 
         window.addEventListener('localized', this.onLocalized.bind(this));
-        LazyLoader.load(['shared/elements/gaia-header/dist/script.js',
+        LazyLoader.load(['shared/elements/gaia-header/dist/gaia-header.js',
                          'js/contextmenu_handler.js',
                          '/shared/js/homescreens/confirm_dialog_helper.js'],
           function() {
-            window.dispatchEvent(new CustomEvent('moz-app-loaded'));
+            window.performance.mark('fullyLoaded');
           });
       }.bind(this));
     },
@@ -135,11 +152,9 @@
           return;
         }
 
-        // Name is a magic getter and always returns the localized name of
-        // the app. We just need to get it and set the content.
-        var element = item.element.querySelector('.title');
-        element.textContent = item.name;
+        item.updateTitle();
       });
+      this.renderGrid();
     },
 
     /**
@@ -173,23 +188,122 @@
           });
           break;
 
+        case 'edititem':
+          var icon = e.detail;
+          if (icon.detail.type != 'divider') {
+            // We only edit groups
+            return;
+          }
+
+          LazyLoader.load('js/edit_group.js', () => {
+            groupEditor.edit(icon);
+          });
+          break;
+
         case 'gaiagrid-iconbloberror':
           // Attempt to redownload this icon at some point in the future
           this._iconsToRetry.push(e.detail.identifier);
+          break;
+
+        case 'gaiagrid-attention':
+          var offsetTop = this.grid.offsetTop;
+          var scrollTop = window.scrollY;
+          var gridHeight = document.body.clientHeight;
+
+          // In edit mode, the grid is obscured by the edit header, whose
+          // size matches the offsetTop of the grid.
+          if (this.grid._grid.dragdrop.inEditMode) {
+            gridHeight -= offsetTop;
+          } else {
+            scrollTop -= offsetTop;
+          }
+
+          // Try to nudge scroll position to contain the item.
+          var rect = e.detail;
+          if (scrollTop + gridHeight < rect.y + rect.height) {
+            scrollTop = (rect.y + rect.height) - gridHeight;
+          }
+          if (scrollTop > rect.y) {
+            scrollTop = rect.y;
+          }
+
+          if (!this.grid._grid.dragdrop.inEditMode) {
+            scrollTop += offsetTop;
+          }
+
+          if (scrollTop !== window.scrollY) {
+            // Grid hides overflow during dragging and normally only unhides it
+            // when it finishes. However, this causes smooth scrolling not to
+            // work, so remove it early.
+            document.body.style.overflow = '';
+
+            // We need to make sure that this smooth scroll happens after
+            // a style flush, and also after the container does any
+            // size-changing, otherwise it will stop the in-progress scroll.
+            // We do this using a nested requestAnimationFrame.
+            requestAnimationFrame(() => { requestAnimationFrame(() => {
+              window.scrollTo({ left: 0, top: scrollTop, behavior: 'smooth'});
+            });});
+          }
+          break;
+
+        case 'gaiagrid-resize':
+          var height = e.detail;
+          var oldHeight = this.grid.clientHeight;
+
+          if (this.gridResizeTimeout !== null) {
+            clearTimeout(this.gridResizeTimeout);
+            this.gridResizeTimeout = null;
+          }
+
+          if (height < oldHeight) {
+            // Make sure that if we're going to shrink the grid so that exposed
+            // area is made inaccessible, we scroll it out of view first.
+            var viewHeight = document.body.clientHeight;
+            var scrollBottom = window.scrollY + viewHeight;
+            var padding = window.getComputedStyle ?
+              parseInt(window.getComputedStyle(this.grid).paddingBottom) : 0;
+            var maxScrollBottom = height + this.grid.offsetTop + padding;
+
+            if (scrollBottom >= maxScrollBottom) {
+              // This scrollTo needs to happen after the height style
+              // change has been processed, or it will be overridden.
+              // Ensure this by wrapping it in a nested requestAnimationFrame.
+              requestAnimationFrame(() => { requestAnimationFrame(() => {
+                window.scrollTo({ left: 0, top: maxScrollBottom - viewHeight,
+                                  behavior: 'smooth' });
+              });});
+            }
+          }
+
+          if (height === oldHeight) {
+            break;
+          }
+
+          // Although the height is set immediately, a CSS transition rule
+          // means it's actually delayed by 0.5s, giving any scrolling
+          // animations time to finish.
+          this.grid.style.height = height + 'px';
           break;
 
         case 'gaiagrid-saveitems':
           this.itemStore.save(this.grid.getItems());
           break;
 
-        case 'gaiagrid-dragdrop-begin':
         case 'context-menu-open':
+        case 'gaia-confirm-open':
+          document.body.classList.add('fixed-overlay-shown');
+          /* falls through */
+        case 'gaiagrid-dragdrop-begin':
           // Home button disabled while dragging or the contexmenu is displayed
           window.removeEventListener('hashchange', this);
           break;
 
-        case 'gaiagrid-dragdrop-finish':
         case 'context-menu-close':
+        case 'gaia-confirm-close':
+          document.body.classList.remove('fixed-overlay-shown');
+          /* falls through */
+        case 'gaiagrid-dragdrop-finish':
           window.addEventListener('hashchange', this);
           break;
 
@@ -198,10 +312,46 @@
           window.removeEventListener('gaiagrid-layout-ready', this);
           break;
 
+        case 'visibilitychange':
+          // Stop displayport rendering for a faster first paint after
+          // a setVisible(false)/setVisible(true) cycle.
+          if (document.hidden) {
+            document.body.style.overflow = 'hidden';
+          } else {
+            setTimeout(function() {
+              document.body.style.overflow = '';
+            });
+          }
+          break;
+
+        case 'editmode-start':
+          // The below property in verticalhome's stylesheet is
+          // always overriden by a scoped style.
+          // Only inline-style can get higher specificity than a scoped style,
+          // so the property is written as inline way.
+          //
+          // 'transform 0.25s' is from the original property in gaia-grid.
+          // ( shared/elements/gaia_grid/style.css )
+          //
+          // 'height 0s 0.5s' is to apply collapsing animation in edit mode.
+          this.grid.style.transition = this.EDIT_MODE_TRANSITION_STYLE;
+          break;
+
+        case 'editmode-end':
+          // Retore the blank transtion property back.
+          this.grid.style.transition = '';
+          break;
+
         // A hashchange event means that the home button was pressed.
         // The system app changes the hash of the homescreen iframe when it
         // receives a home button press.
         case 'hashchange':
+          // The group editor UI will be hidden by itself so returning...
+          var editor = exports.groupEditor;
+          if (editor && !editor.hidden) {
+            return;
+          }
+
           var _grid = this.grid._grid;
 
           // Leave edit mode if the user is in edit mode.
@@ -217,7 +367,7 @@
             return;
           }
 
-          window.scrollTo(0, 0, {behavior: 'smooth'});
+          window.scrollTo({left: 0, top: 0, behavior: 'smooth'});
       }
     }
   };

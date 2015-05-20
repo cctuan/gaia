@@ -9,8 +9,9 @@
     "url": "https://github.com/mozilla-b2g/gaia"
   },
   "permissions": {
+    "themeable":{},
     "alarms": {},
-    "audio-channel-content": {},
+    "audio-channel-ringer": {},
     "device-storage:sdcard":{ "access": "readwrite" },
     "device-storage:pictures":{ "access": "readwrite" },
     "device-storage:videos":{ "access": "readwrite" },

@@ -5,12 +5,14 @@
 define(
   [
     'exports',
+    './logic',
     // Use a relative link so that consumers do not need to create
     // special config to use main-frame-setup.
     './ext/addressparser'
   ],
   function(
     exports,
+    logic,
     addressparser
   ) {
 
@@ -109,6 +111,7 @@ MailAccount.prototype = {
   __update: function(wireRep) {
     this.enabled = wireRep.enabled;
     this.problems = wireRep.problems;
+    this.syncRange = wireRep.syncRange;
     this.syncInterval = wireRep.syncInterval;
     this.notifyOnNew = wireRep.notifyOnNew;
     this.playSoundOnSend = wireRep.playSoundOnSend;
@@ -660,6 +663,10 @@ var ContactCache = exports.ContactCache = {
    * generate N callbacks when 1 will do.
    */
   resolvePeep: function(addressPair) {
+    if (!addressPair) {
+      console.error("NO ADDRESS PAIR?", new Error().stack);
+      return;
+    }
     var emailAddress = addressPair.address;
     var entry = this._contactCache[emailAddress], contact, peep;
     var contactsAPI = navigator.mozContacts;
@@ -694,13 +701,32 @@ var ContactCache = exports.ContactCache = {
       this._contactCache[emailAddress] = null;
 
       this.pendingLookupCount++;
+
+      // Search contacts, but use an all lower-case name, since the contacts
+      // API's search plumbing uses a lowercase version of the email address
+      // for these search comparisons. However, the actual display of the
+      // contact in the contact app has casing preserved. emailAddress could
+      // be undefined though if a group/undisclosed-recipients case, so guard
+      // against that (deeper normalization fix tracked in bug 1097820). Using
+      // empty string in the undefined emailAddress case because passing the
+      // value of undefined directly in the filterValue results in some contacts
+      // being returned. Potentially all contacts. However passing empty string
+      // gives back no results, even if there is a contact with no email address
+      // assigned to it.
+      var filterValue = emailAddress ? emailAddress.toLowerCase() : '';
       var req = contactsAPI.find({
                   filterBy: ['email'],
                   filterOp: 'equals',
-                  filterValue: emailAddress
+                  filterValue: filterValue
                 });
       var self = this, handleResult = function() {
         if (req.result && req.result.length) {
+          // CONSIDER TODO SOMEDAY: since the search is done witha a
+          // toLowerCase() call, it is conceivable that we could get multiple
+          // results with slightly different casing. It might be nice to try
+          // to find the best casing match, but the payoff for that is likely
+          // small, and the common case will be that the first one is good to
+          // use.
           var contact = req.result[0];
 
           ContactCache._contactCache[emailAddress] = contact;
@@ -1294,7 +1320,7 @@ MailBody.prototype = {
         callWhenDone();
       return;
     }
-    this._api._downloadAttachments(this, relPartIndices, [],
+    this._api._downloadAttachments(this, relPartIndices, [], [],
                                    callWhenDone, callOnProgress);
   },
 
@@ -1427,13 +1453,28 @@ MailAttachment.prototype = {
     return this.mimetype !== 'application/x-gelam-no-download';
   },
 
-  download: function(callWhenDone, callOnProgress) {
+  /**
+   * Queue this attachment for downloading.
+   *
+   * @param {Function} callWhenDone
+   *     A callback to be invoked when the download completes.
+   * @param {Function} callOnProgress
+   *     A callback to be invoked as the download progresses.  NOT HOOKED UP!
+   * @param {Boolean} [registerWithDownloadManager]
+   *     Should we register the Blob with the mozDownloadManager (if it is
+   *     present)?  For the Gaia mail app this decision is based on the
+   *     capabilities of the default gaia apps, and not a decision easily made
+   *     by GELAM.
+   */
+  download: function(callWhenDone, callOnProgress,
+                     registerWithDownloadManager) {
     if (this.isDownloaded) {
       callWhenDone();
       return;
     }
     this._body._api._downloadAttachments(
       this._body, [], [this._body.attachments.indexOf(this)],
+      [registerWithDownloadManager || false],
       callWhenDone, callOnProgress);
   },
 };
@@ -2023,7 +2064,6 @@ var LEGAL_CONFIG_KEYS = [];
  * help reduce inadvertent breakage later on.
  */
 function reportError() {
-  console.error.apply(console, arguments);
   var msg = null;
   for (var i = 0; i < arguments.length; i++) {
     if (msg)
@@ -2031,7 +2071,8 @@ function reportError() {
     else
       msg = "" + arguments[i];
   }
-  throw new Error(msg);
+  // When in tests, this will fail the test; when not in tests, we just log.
+  logic.fail(new Error(msg));
 }
 var unexpectedBridgeDataError = reportError,
     internalError = reportError,
@@ -2110,7 +2151,7 @@ var RE_HTTP = /^https?:/i;
 //                       Otherwise we use the same base regexp from our URL
 //                       logic.
 var RE_MAIL =
-  /(^|[\s(,;])([^(,;@\s]+@[a-z0-9.\-]{2,250}[.][a-z0-9\-]{2,32})/im;
+  /(^|[\s(,;<>])([^(,;<>@\s]+@[a-z0-9.\-]{2,250}[.][a-z0-9\-]{2,32})/im;
 var RE_MAILTO = /^mailto:/i;
 
 var MailUtils = {
@@ -2633,7 +2674,7 @@ MailAPI.prototype = {
       this._liveBodies[msg.handle] = body;
     }
 
-    req.callback.call(null, body);
+    req.callback.call(null, body, req.suid);
 
     return true;
   },
@@ -2686,6 +2727,7 @@ MailAPI.prototype = {
   },
 
   _downloadAttachments: function(body, relPartIndices, attachmentIndices,
+                                 registerAttachments,
                                  callWhenDone, callOnProgress) {
     var handle = this._nextHandle++;
     this._pendingRequests[handle] = {
@@ -2702,7 +2744,8 @@ MailAPI.prototype = {
       suid: body.id,
       date: body._date,
       relPartIndices: relPartIndices,
-      attachmentIndices: attachmentIndices
+      attachmentIndices: attachmentIndices,
+      registerAttachments: registerAttachments
     });
   },
 
@@ -3359,15 +3402,6 @@ MailAPI.prototype = {
     return true;
   },
 
-  createFolder: function(account, parentFolder, containOnlyOtherFolders) {
-    this.__bridgeSend({
-      type: 'createFolder',
-      accountId: account.id,
-      parentFolderId: parentFolder ? parentFolder.id : null,
-      containOnlyOtherFolders: containOnlyOtherFolders
-    });
-  },
-
   /**
    * Parse a structured email address
    * into a display name and email address parts.
@@ -3763,12 +3797,9 @@ MailAPI.prototype = {
       var lowerName = name.toLowerCase();
       // Many of the names are the same as the type, but not all.
       if ((type === lowerName) ||
-          (type === 'drafts' && lowerName === 'draft') ||
-          // yahoo.fr uses 'bulk mail' as its unlocalized name
-          (type === 'junk' && lowerName === 'bulk mail') ||
-          (type === 'junk' && lowerName === 'spam') ||
-          // this is for consistency with Thunderbird
-          (type === 'queue' && lowerName === 'unsent messages'))
+          (type === 'drafts') ||
+          (type === 'junk') ||
+          (type === 'queue'))
         return this.l10n_folder_names[type];
     }
     return name;
